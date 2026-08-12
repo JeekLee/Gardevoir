@@ -107,6 +107,18 @@ def test_json_formatter_includes_exception_text(preserve_root_logger, capsys):
     assert "kaboom" in payload["exception"]
 
 
+def test_configured_level_actually_filters(preserve_root_logger, capsys):
+    """레벨이 설정만 되고 적용되지 않으면 조용히 로그가 넘쳐난다."""
+    configure_logging(LogSettings(level="WARNING", json_output=True))
+    log = logging.getLogger("probe")
+    log.info("suppressed")
+    log.warning("emitted")
+
+    out = capsys.readouterr().out
+    assert "emitted" in out
+    assert "suppressed" not in out
+
+
 def test_text_formatter_is_used_when_json_disabled(preserve_root_logger, capsys):
     configure_logging(LogSettings(level="INFO", json_output=False))
     set_request_id("req_text")
