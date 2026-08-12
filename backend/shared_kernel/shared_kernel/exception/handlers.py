@@ -1,6 +1,9 @@
 """Central exception handling. One implementation for every bounded context.
 
 Never register a per-BC handler — the response shape is part of the contract.
+A BC that needs to absorb a framework exception (HTTPException,
+RequestValidationError) builds its response with ``error_response`` so there is
+still only one shape.
 
 ``ORJSONResponse`` is deprecated as of FastAPI 0.141: FastAPI now serializes via
 Pydantic when a response model is set, which does not apply to exception
@@ -24,6 +27,7 @@ from fastapi.responses import Response
 
 from shared_kernel.exception.base import AppError, ErrorCode
 from shared_kernel.exception.schema import ErrorResponse
+from shared_kernel.log.context import REQUEST_ID_HEADER, get_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +40,16 @@ def _render(body: ErrorResponse) -> bytes:
     return orjson.dumps(body.model_dump(mode="json", by_alias=True, exclude_none=True), default=str)
 
 
-def _json(*, code: str, message: str, details: dict | None, status_code: int) -> Response:
+def error_response(
+    *, code: str, message: str, details: dict | None = None, status_code: int
+) -> Response:
+    """Build the single error response shape.
+
+    The correlation id is attached here rather than relying on middleware: the
+    handler for an unhandled exception runs inside ServerErrorMiddleware, which
+    sits *outside* RequestContextMiddleware, so the middleware never sees this
+    response.
+    """
     try:
         content = _render(ErrorResponse(code=code, message=message, details=details))
     except Exception:
@@ -44,7 +57,17 @@ def _json(*, code: str, message: str, details: dict | None, status_code: int) ->
             "error details could not be rendered; dropping them (code=%s)", code, exc_info=True
         )
         content = _render(ErrorResponse(code=code, message=message))
-    return Response(content=content, status_code=status_code, media_type=JSON_MEDIA_TYPE)
+
+    headers = {}
+    request_id = get_request_id()
+    if request_id:
+        headers[REQUEST_ID_HEADER] = request_id
+    return Response(
+        content=content,
+        status_code=status_code,
+        media_type=JSON_MEDIA_TYPE,
+        headers=headers,
+    )
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -58,7 +81,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             exc.code,
             exc.message,
         )
-        return _json(
+        return error_response(
             code=str(exc.code),
             message=exc.message,
             details=exc.details,
@@ -69,9 +92,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def _unhandled(request: Request, exc: Exception) -> Response:
         # 예상 못 한 예외의 메시지는 내부 정보다. 로그에는 남기고 응답에는 싣지 않는다.
         logger.exception("unhandled error on %s %s", request.method, request.url.path)
-        return _json(
+        return error_response(
             code=str(ErrorCode.INTERNAL),
             message="internal server error",
-            details=None,
             status_code=500,
         )

@@ -1,0 +1,50 @@
+"""Authentication use case.
+
+키 조회와 가드레일 해석을 한 유스케이스로 묶는다. 라우터는 이 서비스 하나에만
+의존한다.
+"""
+
+from dataclasses import dataclass
+
+from gateway.application.repository.api_key_repository import ApiKeyRepository
+from gateway.contract import Mode
+from gateway.domain.exception.api_key_error import ApiKeyError
+from gateway.domain.models.api_key import ApiKey, hash_key, parse_bearer
+
+
+@dataclass(frozen=True, slots=True)
+class AuthenticatedRequest:
+    key: ApiKey
+    guardrail: str
+    mode: Mode
+
+
+class AuthenticationService:
+    def __init__(self, *, keys: ApiKeyRepository) -> None:
+        self._keys = keys
+
+    async def authenticate(
+        self,
+        *,
+        authorization: str | None,
+        guardrail: str | None,
+        mode: str | None,
+    ) -> AuthenticatedRequest:
+        raw = parse_bearer(authorization)
+        if raw is None:
+            # 헤더가 없거나 형식이 틀렸으면 조회할 이유가 없다.
+            ApiKeyError.INVALID_KEY.raise_()
+
+        # 원본 키는 리포지토리 경계를 넘지 않는다 — 로그나 쿼리에 남을 수 있다.
+        key = await self._keys.find_by_hash(hash_key(raw))
+        if key is None:
+            ApiKeyError.INVALID_KEY.raise_()
+
+        return AuthenticatedRequest(
+            key=key,
+            guardrail=key.resolve_guardrail(guardrail),
+            # 모드는 권한 검사 없이 자유 선택이다. 공격자는 대화 텍스트만 통제하고
+            # HTTP 헤더는 만지지 못하므로 dry-run 이 자유여도 도움이 되지 않는다.
+            # 남는 리스크는 거버넌스이고, 그것은 감사 로그에 모드를 남겨 드러낸다.
+            mode=Mode.parse(mode),
+        )
