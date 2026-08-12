@@ -8,6 +8,7 @@ from shared_kernel.exception.base import (
     ValidationError,
 )
 from shared_kernel.exception.catalog import ErrorCatalog
+from shared_kernel.exception.handlers import register_exception_handlers
 from shared_kernel.exception.schema import ErrorResponse
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "NotFoundError",
     "UnauthorizedError",
     "ValidationError",
+    "register_exception_handlers",
 ]
