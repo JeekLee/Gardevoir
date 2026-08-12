@@ -61,7 +61,17 @@ Full rationale, measurements, and stated limits are in the
 
 ## Planned stack
 
-FastAPI · google-re2 · orjson · httpx · PostgreSQL (jsonb) · React + React Flow · uv
+**Gateway** — FastAPI · httpx · orjson · google-re2 · uv
+**State** — PostgreSQL (SQLAlchemy 2.0 async + Alembic): keys, guardrail definitions, approvals
+**Audit** — ClickHouse: append-only events, analytical queries for false-positive tuning
+**Console** — Next.js · React Flow · TanStack Query
+
+Split by access pattern: Postgres holds mutable low-volume state with point lookups,
+ClickHouse holds one append-only row per request for aggregation. Measured: dashboard
+queries land in 16–45 ms over 400k events.
+
+No Redis (taint tracking is stateless), no Celery, no object storage
+(ClickHouse TTL covers retention).
 
 ## License
 

@@ -723,29 +723,76 @@ tool_call   ──▶ 버퍼에 모음 → 완성 시 검사 → 통과/차단/�
 
 ## 10. 감사 로그
 
-### 스키마 — 요청당 1행
+감사 이벤트는 **ClickHouse**에, 나머지 상태는 **PostgreSQL**에 둔다.
+접근 패턴으로 경계가 갈린다.
 
 ```
-id                    evt_...  (ULID: 시간순 정렬 + 유일)
-request_id            앱이 준 X-Request-Id
-api_key_id            누가
-guardrail             어느 가드레일
-guardrail_version     어느 버전으로 판정했나        ← 재현의 핵심
-mode                  enforce / dry-run
-action                allow / blocked / approval_required
-checkpoint            input / tool_result / output / tool_call
-verdicts              jsonb: 걸린 체크 전부 + 각각의 근거
-tier_reached          규칙까지 / 모델까지
-tainted               이 대화가 오염됐었나
-latency_ms            게이트웨이 추가 지연
-model, token_usage
-created_at
+PostgreSQL                       ClickHouse
+──────────                       ──────────
+가변, 트랜잭션 필요                추가 전용(append-only)
+저용량                            고용량 (요청당 1행)
+포인트 조회                        분석 질의 (집계·추이·분포)
+
+api_keys                         audit_events
+guardrails (jsonb)
+approvals
 ```
+
+이 프로젝트의 주장은 측정에 근거한다(§2의 false-positive tax, §11). 오탐률 튜닝·정책별
+발동 추이·지연 분포는 전부 분석 질의이고, 이것이 ClickHouse의 사용 목적과 정확히 일치한다.
+
+그리고 우리 쓰기 경로가 이미 큐+배치 구조라 ClickHouse가 요구하는 삽입 방식과 맞물린다.
+Postgres `COPY`를 위해 설계한 것이 그대로 쓰인다.
+
+**Phase 1부터 ClickHouse에 넣는다.** 대시보드는 Phase 5인데, 감사가 처음부터 분석
+스토어에 들어가면 대시보드 질의를 한 번만 짜면 된다. 대시보드를 만든 뒤에 분석 스토어를
+끼워넣는 것은 전형적으로 아픈 마이그레이션이다.
+
+### 스키마 — 요청당 1행
+
+```sql
+CREATE TABLE audit_events (
+    id                String,                          -- ULID
+    created_at        DateTime64(3),
+    request_id        String,                          -- 앱이 준 X-Request-Id
+    api_key_id        String,
+    app_name          LowCardinality(String),
+    guardrail         LowCardinality(String),
+    guardrail_version UInt32,                           -- 재현의 핵심
+    mode              LowCardinality(String),           -- enforce / dry-run
+    action            LowCardinality(String),           -- allow / blocked / approval_required
+    checkpoint        LowCardinality(String),           -- input / tool_result / output / tool_call
+    checks_fired      Array(LowCardinality(String)),    -- 평탄화. 필터·집계용
+    verdicts          String,                           -- 원본 JSON. 상세 화면용
+    tier_reached      LowCardinality(String),           -- rule / model
+    tainted           UInt8,
+    latency_ms        Float32,
+    model             LowCardinality(String),
+    prompt_tokens     UInt32,
+    completion_tokens UInt32
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(created_at)
+ORDER BY (app_name, created_at, id)
+```
+
+설계 요점:
+
+- `LowCardinality(String)`이 열거형 컬럼의 압축과 `GROUP BY` 속도를 담당한다.
+- `checks_fired`를 **배열로 평탄화**해서 `ARRAY JOIN`으로 "어떤 체크가 가장 많이
+  발동했나"를 즉시 집계한다. 상세 근거는 `verdicts`에 원본 JSON으로 둔다.
+- `ORDER BY`가 `app_name`으로 시작해 대시보드의 앱별 필터가 정렬키를 탄다.
+- `PARTITION BY` 월 단위 → 보관 기간 초과분을 파티션 드롭으로 싸게 지운다.
+
+> ⚠️ **함정:** `DateTime64(3)`에 unix **초**를 int로 넣으면 ClickHouse가 밀리초로
+> 해석해 1970년에 저장한다. **에러가 나지 않는다.** 대시보드가 텅 빈 것을 보고서야
+> 알게 된다. `datetime` 객체로만 삽입하고 이를 테스트로 고정한다. (측정: §11.10)
 
 마스킹도 종류와 건수로 기록한다. 조용히 일어나면 사고가 기록에 남지 않는다.
 
-```json
-"verdicts": [{ "check": "kr-rrn", "action": "mask", "count": 1, "checkpoint": "output" }]
+```
+checks_fired = ['kr-rrn']
+verdicts     = '[{"check":"kr-rrn","action":"mask","count":1,"checkpoint":"output"}]'
 ```
 
 원본 없이도 "이 앱이 주민번호를 계속 출력하려 한다"를 잡을 수 있다.
@@ -765,25 +812,35 @@ created_at
 
 ```
 판정 완료 ──▶ 인메모리 큐 (논블로킹) ──▶ 응답 즉시 반환
-                    └──▶ 배경 태스크가 N건/M초마다 COPY로 배치 삽입
+                    └──▶ 배경 태스크가 N건/M초마다 ClickHouse에 배치 삽입
 ```
+
+**배치는 ClickHouse의 요구사항이기도 하다.** 작은 삽입을 자주 하면 파트가 과도하게
+생겨 머지 부담이 커진다. 큐+배치가 양쪽 모두를 만족한다.
 
 큐가 넘칠 때:
 
 ```
-blocked / approval_required   절대 안 버림. 동기 쓰기로 폴백. (감사의 존재 이유)
-allow                         버려도 됨. 집계 카운터로 대체.
+blocked / approval_required   절대 안 버림. 동기 삽입으로 폴백. (감사의 존재 이유)
+allow                         버려도 됨. 드롭 카운터만 증가.
 ```
+
+ClickHouse에는 유일성 제약이 없어 재시도 시 중복 행이 생길 수 있다.
+ULID를 id로 쓰고 **at-least-once를 수용**한다. 중복 제거가 필요해지면
+`ReplacingMergeTree(id)`로 전환한다.
 
 ### 보관
 
 ```
-PostgreSQL   최근 30~90일        조회·대시보드·정책 튜닝
-     │ 배치
-MinIO/S3     Parquet 아카이브     장기 감사 대응
+ClickHouse   전 기간           조회·대시보드·정책 튜닝
+     │ TTL + 파티션 드롭
+     └── 필요해지면 s3 디스크로 콜드 티어
 ```
 
-MinIO는 **감사 로그 아카이브 전용**이다.
+압축과 파티션 드롭으로 장기 보관이 싸다. **별도 아카이브 잡이 필요하지 않다.**
+MinIO는 v1에서 제외하고, 콜드 티어가 실제로 필요해지면 ClickHouse `TTL ... TO DISK 's3'`로
+붙인다 — 새 서비스나 배치 잡을 만들지 않는다.
+
 가드레일 정의는 Postgres가 진실의 출처이고 파일 포맷을 두지 않는다(§13 Phase 2).
 **컴파일 결과도 저장하지 않는다** (§6).
 
@@ -941,23 +998,78 @@ LLM 호출 300~2000 ms 대비 0.2% 미만.
 OAS 스펙이 자주 바뀌므로 이 실측을 **회귀 테스트로 박아둔다.** SDK 버전을 올릴 때
 관용성이 바뀌면 즉시 알 수 있어야 한다.
 
+### 11.10 ClickHouse 감사 로그
+
+ClickHouse 25.8.29.51 (aarch64, Docker), 기동 3초. §10 스키마로 40만 행 삽입.
+
+```
+배치 삽입 (2만 행 단위)      58,093 rows/s   — 40만 행 6.89초
+저장                        9.69 MiB 압축 / 26.78 MiB 원본  → 2.8x
+```
+
+대시보드 질의 (40만 행):
+
+| 질의 | 시간 |
+|---|---|
+| 정책별 발동 횟수 상위 (`ARRAY JOIN checks_fired`) | 38.2 ms |
+| 앱별 차단율 | 34.0 ms |
+| 지연 분포 p50/p95/p99 | 27.9 ms |
+| 일별 차단 추이 (30일) | 16.0 ms |
+| **dry-run 오탐 후보** | 44.8 ms |
+| 단건 조회 (audit_id) | 22.3 ms |
+
+`dry-run 오탐 후보` 질의가 §2의 false-positive tax를 실제로 다루는 화면의 근간이다.
+
+압축비 2.8x는 합성 데이터의 `id`·`request_id`가 전부 유일한 고엔트로피 문자열이라
+낮게 나온 값이다. ULID는 실제로도 압축되지 않으므로 현실적인 수치다.
+압축은 `LowCardinality(String)` 컬럼들이 담당한다.
+
+**`DateTime64(3)` 함정 실측:**
+
+```
+int(time.time()) 삽입   →  1970-01-21 에 저장. 에러 없음.
+datetime 객체 삽입      →  2026-08-12 정상
+```
+
 ---
 
 ## 12. 스택
 
+모든 버전은 대상 하드웨어(aarch64)에서 설치·기동을 실측한 값이다.
+
 | 역할 | 선택 | 근거 |
 |---|---|---|
-| 웹 서버 | **FastAPI + uvicorn** | 프록시는 대기가 대부분이라 async가 맞음 |
-| regex | **google-re2** | ReDoS 원천 차단 + `Set` 다중 패턴 1패스 (§11.1–11.2) |
-| JSON | **orjson** | 2.3배. 스트리밍에서 청크마다 돔 (§11.7) |
-| 업스트림 호출 | **httpx** | async + 스트리밍 중계 |
-| DB | **PostgreSQL (jsonb)** | 정의 + 감사. `LISTEN/NOTIFY`로 발행 전파 가능 |
-| 아카이브 | **MinIO/S3 (Parquet)** | 감사 로그 장기 보관 |
-| UI | **React + React Flow** | 노드 그래프 편집기의 사실상 표준 |
-| 패키지 | **uv** | |
+| 웹 서버 | **FastAPI 0.141.1 + uvicorn 0.52.1** | 프록시는 대기가 대부분이라 async가 맞음 |
+| regex | **google-re2 1.1.20251105** | ReDoS 원천 차단 + `Set` 다중 패턴 1패스 (§11.1–11.2) |
+| JSON | **orjson 3.11.9** | 2.3배. 스트리밍에서 청크마다 돔 (§11.7) |
+| 업스트림 호출 | **httpx 0.28.1** | async + 스트리밍 중계 |
+| 상태 DB | **PostgreSQL 17** | 키·가드레일 정의(jsonb)·승인. `LISTEN/NOTIFY` 여지 |
+| 감사 DB | **ClickHouse 25.8** | append-only 고용량 + 분석 질의 (§10, §11.10) |
+| ORM | **SQLAlchemy 2.0.52 (async)** | `postgresql+psycopg://`. Postgres 전용 |
+| 마이그레이션 | **Alembic 1.19.1** (Postgres) + 번호 `.sql` (ClickHouse) | |
+| DB 드라이버 | **psycopg 3.3.4** (binary), **clickhouse-connect 1.7.0** | |
+| 설정 | **pydantic-settings** | |
+| 감사 ID | **python-ulid** | 시간순 정렬 + 유일 |
+| UI | **Next.js + React Flow + TanStack Query** | 노드 그래프 편집기의 사실상 표준 |
+| 테스트 | **pytest, pytest-asyncio, respx** | respx로 httpx 업스트림 모킹 |
+| 린트 | **ruff** | |
+| 패키지 | **uv 0.11.7** | |
+| 개발 환경 | **Docker Compose** (Postgres + ClickHouse) | 로컬에 두 DB 모두 없음 |
 | 모델 티어 | **Ollama로 시작** | 설치 단순, ARM64 검증됨. HTTP 엔드포인트로 추상화 |
 
-**Redis는 쓰지 않는다.** 오염 추적이 무상태이고(§7.4) 승인은 저용량이라 Postgres로 충분하다.
+**감사 경로는 SQLAlchemy를 타지 않는다.** ClickHouse로 분리되면서 두 경로가 완전히
+갈라진다 — SQLAlchemy/Alembic은 Postgres만, `clickhouse-connect`는 감사만.
+핫패스에는 DB 접근이 없으므로(§6) ORM 오버헤드가 판정 지연에 영향을 주지 않는다.
+DB를 타는 것은 키 조회뿐이고 그것은 인메모리 캐시로 덮는다.
+
+**쓰지 않는 것:**
+
+| 안 씀 | 이유 |
+|---|---|
+| Redis | 오염 추적이 무상태이고(§7.4) 승인은 저용량. Postgres로 충분 |
+| Celery | 팬아웃할 백그라운드 작업 없음. asyncio 태스크로 충분 |
+| MinIO | ClickHouse `TTL` + 파티션 드롭으로 대체. 필요해지면 `TO DISK 's3'` (§10) |
+| Prometheus | 감사 로그가 이미 요청당 지연·판정을 담는다. 지표를 따로 내면 진실의 출처가 둘이 된다. 필요해지면 감사 테이블에서 집계 |
 
 **모델 티어는 HTTP 판정 엔드포인트 하나로 추상화한다.** Ollama → vLLM → Bedrock
 Guardrails 교체가 코어에 영향을 주지 않아야 한다. 부하가 실제로 문제될 때 갈아탄다.
@@ -974,8 +1086,8 @@ v1이 4개 시스템(프록시 코어·판정 엔진·컴파일러·웹 UI)이�
 **UI가 끝나지 않아도 게이트웨이는 쓸 수 있어야 한다.**
 
 **Phase 1 — 프록시 코어**
-`/v1/chat/completions` 통과, 스트리밍 중계, 키 인증, 업스트림 키 조회,
-PostgreSQL + 감사 로그 골격. 가드레일 없이도 투명 프록시로 동작.
+`/v1/chat/completions` 통과, 스트리밍 중계, 키 인증(인메모리 캐시), 업스트림 키 조회,
+PostgreSQL(Alembic) + ClickHouse 감사 로그. 가드레일 없이도 투명 프록시로 동작.
 이 시점에 `base_url` 교체 테스트가 가능하다.
 
 **Phase 2 — 컴파일러 + 실행 프로그램 + Admin API**
@@ -1018,6 +1130,9 @@ dry-run 대시보드. 발행/버전은 Phase 2의 것을 화면으로 노출한�
 | 모델 티어 카테고리별 라우팅 | 리서치는 "단일 모델은 없다"고 지적. v1은 단일 모델 |
 | `LISTEN/NOTIFY` 발행 전파 | 폴링으로 시작 |
 | 정의 export/import (이식·git 리뷰) | v1 제외. 필요해지면 `jsonb`를 그대로 JSON 출력 |
+| 감사 콜드 티어 | v1 제외. ClickHouse `TTL ... TO DISK 's3'`로 붙인다 (§10) |
+| 감사 중복 제거 | at-least-once 수용. 필요해지면 `ReplacingMergeTree(id)` (§10) |
+| 관리 UI 인증 | Phase 5 시작 시 결정 (세션 쿠키 vs OIDC) |
 | 긴 문맥 출력 판단의 스트리밍 대응 | 원리적 한계. 조기 종료만 가능 (§9) |
 
 ---
