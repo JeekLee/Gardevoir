@@ -37,6 +37,13 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/gateway"]
 
+[tool.ruff]
+# ruff 는 설정을 병합하지 않고 가장 가까운 것만 쓴다. extend 가 없으면 워크스페이스
+# 루트의 line-length·lint.select 를 잃고 기본값으로 떨어진다.
+extend = "../pyproject.toml"
+# alembic/versions 는 순수 생성물이다. 우리가 손대는 alembic/env.py 는 린트한다.
+extend-exclude = ["alembic/versions"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
