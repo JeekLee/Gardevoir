@@ -41,15 +41,29 @@ Add a skill once under `skills/<name>/SKILL.md`; both tools pick it up.
 
 - Run a context's tests from its package dir: `cd backend/<bc> && uv run pytest`
   (do NOT run bare `pytest` from `backend/` — it cross-collects sibling packages).
-- Sync deps from `backend/` (the workspace root): `uv sync`.
-- Bring up dependencies first: `docker compose -f infra/docker-compose/postgres.yml -f infra/docker-compose/clickhouse.yml up -d`.
+- Sync deps from `backend/` (the workspace root): `uv sync --all-packages`.
+  **`--all-packages` is required.** The root is a virtual workspace with nothing to
+  install, so a bare `uv sync` *uninstalls* every member and its dependencies. The
+  failure is confusing: `import shared_kernel` still succeeds, because the member
+  directory is picked up as an implicit namespace package, and only surfaces as
+  `AttributeError` on a missing attribute.
+- Bring up dependencies first — see `infra/README.md` for the command. It needs
+  `--env-file infra/envs/example/compose.env`; without it compose fails on an empty
+  `cpus` value.
 - TDD: failing test → implement → green → commit.
+- Commit before mutation-testing or any other experiment that ends in
+  `git checkout --`. Otherwise the restore reverts your uncommitted work too.
 
 ## Conventions
 
 - Keep changes green: per-package test suites must pass before commit.
 - `ruff check` and `ruff format --check` must pass before commit.
 - Comments and commit messages in Korean; identifiers and docstrings in English.
+  Test *function* docstrings are the exception: they state why the test exists rather
+  than describing an API, so they follow the comment rule and are written in Korean.
+  Module and class docstrings stay English everywhere, tests included.
+- Reference the design document as a bare `§N` (e.g. `(§11.4)`), matching the
+  `gardevoir-be` skill.
 - **`import re2`, never `import re`.** **`orjson`, never `json`.** Both are load-bearing —
   see the `gardevoir-be` skill.
 

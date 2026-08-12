@@ -14,7 +14,7 @@ services:
     healthcheck:
       # 127.0.0.1 이어야 한다. localhost는 /etc/hosts에서 ::1 에도 매핑되고
       # wget이 그것을 먼저 시도하는데 ClickHouse는 IPv4만 듣기 때문에
-      # 영원히 Connection refused가 된다. 설계 문서 §11.10.
+      # 영원히 Connection refused가 된다. §11.10.
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping || exit 1"]
       interval: 2s
       timeout: 3s

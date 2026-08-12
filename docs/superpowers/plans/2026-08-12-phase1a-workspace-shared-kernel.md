@@ -23,6 +23,7 @@
 - **regex는 `re2`만.** 표준 `re` 금지.
 - 코드 주석·커밋 메시지는 한국어, 식별자·독스트링은 영어.
 - `ruff check`와 `ruff format --check`가 통과해야 커밋한다.
+- 제네릭은 PEP 695 문법(`class Page[T]`)을 쓴다. `Generic[T]`는 ruff UP046에 걸린다.
 - BC 테스트는 그 패키지 디렉토리에서 실행한다: `cd backend/<bc> && uv run pytest`.
   `backend/`에서 맨 `pytest`를 돌리면 형제 패키지를 교차 수집한다.
 - `shared_kernel`은 **실제로 쓰는 것만** 담는다. clic에 있다는 이유로 옮기지 않는다.
@@ -212,8 +213,14 @@ __version__ = "0.1.0"
 포트와 자원 상한은 여기서만 정한다. compose 파일에 숫자를 박지 않는다.
 
 ```
-# compose는 ../envs/${GARDEVOIR_ENV_DIR}/<svc>.env 를 해석한다.
-# 각 compose.env가 자기 디렉토리를 self-select 하므로 셸에 변수를 둘 필요가 없다.
+# 컨테이너 이름을 고정한다. 이게 없으면 -p 를 빼먹은 순간 프로젝트 이름이
+# 디렉토리명에서 유추되고 헬스 판정(docker inspect gardevoir-postgres-1)이
+# 조용히 깨진다.
+COMPOSE_PROJECT_NAME=gardevoir
+
+# 서비스별 env 파일이 필요해지면 compose에서
+#   env_file: ../envs/${GARDEVOIR_ENV_DIR}/<svc>.env
+# 로 참조한다. 현재 사용처 없음 — 전방 훅이다.
 GARDEVOIR_ENV_DIR=example
 
 # 21000 블록. 이 머신은 10000번대(spark-inference), 18090/50070(envector),
@@ -293,10 +300,14 @@ services:
     docker compose --env-file infra/envs/example/compose.env \
       -f infra/docker-compose/postgres.yml \
       -f infra/docker-compose/clickhouse.yml \
-      -p gardevoir up -d
+      up -d
 
 Postgres는 상태(키·가드레일 정의·승인), ClickHouse는 감사 이벤트를 담는다.
-접근 패턴에 따른 분리이며 근거는 설계 문서 §10에 있다.
+접근 패턴에 따른 분리이며 근거는 §10에 있다.
+
+`--env-file`은 필수다. 빼면 `cpus`가 빈 문자열이 되어
+`strconv.ParseFloat: parsing "": invalid syntax`로 죽는다. 프로젝트 이름은
+`compose.env`의 `COMPOSE_PROJECT_NAME`이 고정하므로 `-p`는 필요 없다.
 
 서비스별로 파일을 나눠둔 이유는 필요한 것만 조합해 띄울 수 있게 하기 위함이다.
 `shared_kernel` 테스트는 DB를 필요로 하지 않으므로 아무것도 띄우지 않고 돈다.
@@ -339,7 +350,7 @@ Expected: `0.1.0`
 ```bash
 docker compose --env-file infra/envs/example/compose.env \
   -f infra/docker-compose/postgres.yml \
-  -f infra/docker-compose/clickhouse.yml -p gardevoir up -d
+  -f infra/docker-compose/clickhouse.yml up -d
 ```
 
 헬스 판정은 `docker inspect`로 한다 — `grep healthy`는 `unhealthy`도 매치한다.
@@ -411,6 +422,8 @@ ClickHouse는 IPv4만 들어서 영원히 실패한다."
 `backend/shared_kernel/tests/test_config.py`:
 
 ```python
+import os
+
 import pytest
 from pydantic import ValidationError
 
@@ -424,6 +437,13 @@ class AppSettings(BaseAppSettings):
 
 
 def _env(monkeypatch, **extra):
+    """Give the test a clean, hermetic environment.
+
+    개발자 셸의 GARDEVOIR_* 변수나 패키지에 놓인 .env 파일이 남아 있으면
+    기본값 단정이 조용히 깨진다. 두 경로를 모두 차단한다.
+    """
+    for name in [k for k in os.environ if k.startswith("GARDEVOIR_")]:
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("GARDEVOIR_APP_NAME", "gateway")
     monkeypatch.setenv("GARDEVOIR_DATABASE__DSN", "postgresql+psycopg://u:p@h:5432/d")
     monkeypatch.setenv("GARDEVOIR_CLICKHOUSE__HOST", "ch.local")
@@ -431,9 +451,14 @@ def _env(monkeypatch, **extra):
         monkeypatch.setenv(k, v)
 
 
+def _settings(**kwargs) -> AppSettings:
+    """Build settings without reading any .env file from the working directory."""
+    return AppSettings(_env_file=None, **kwargs)
+
+
 def test_nested_settings_use_double_underscore(monkeypatch):
     _env(monkeypatch)
-    s = AppSettings()
+    s = _settings()
     assert s.app_name == "gateway"
     assert s.database.dsn == "postgresql+psycopg://u:p@h:5432/d"
     assert s.clickhouse.host == "ch.local"
@@ -441,7 +466,7 @@ def test_nested_settings_use_double_underscore(monkeypatch):
 
 def test_defaults(monkeypatch):
     _env(monkeypatch)
-    s = AppSettings()
+    s = _settings()
     assert s.debug is False
     assert s.database.echo is False
     assert s.clickhouse.port == 8123
@@ -454,19 +479,19 @@ def test_defaults(monkeypatch):
 
 def test_subclass_field_reads_prefixed_env(monkeypatch):
     _env(monkeypatch, GARDEVOIR_UPSTREAM_TIMEOUT_S="7.5")
-    assert AppSettings().upstream_timeout_s == 7.5
+    assert _settings().upstream_timeout_s == 7.5
 
 
 def test_missing_required_dsn_fails_loudly(monkeypatch):
     monkeypatch.delenv("GARDEVOIR_DATABASE__DSN", raising=False)
     monkeypatch.setenv("GARDEVOIR_APP_NAME", "gateway")
     with pytest.raises(ValidationError):
-        AppSettings()
+        _settings()
 
 
 def test_unknown_env_is_ignored(monkeypatch):
     _env(monkeypatch, GARDEVOIR_TOTALLY_UNKNOWN="x")
-    AppSettings()  # 예외가 나면 실패
+    _settings()  # 예외가 나면 실패
 
 
 def test_nested_models_are_usable_standalone():
@@ -1006,11 +1031,12 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'shared_kernel.api'`
 """Wire DTO base.
 
 camelCase on the wire, snake_case in Python. Applies to DTOs that cross the HTTP
-boundary. It must NOT be used for types on the request evaluation path — Pydantic
-validation there would cost more than the whole guardrail budget (설계 문서 §11.8).
-"""
+boundary.
 
-from typing import Generic, TypeVar
+It must NOT be used for types on the request evaluation path — Pydantic
+validation there would cost more than the entire per-request guardrail budget
+of 0.63 ms (§11.8).
+"""
 
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
@@ -1024,10 +1050,7 @@ class CamelModel(BaseModel):
     )
 
 
-T = TypeVar("T")
-
-
-class Page(CamelModel, Generic[T]):
+class Page[T](CamelModel):
     items: list[T]
     total: int
 ```
@@ -1342,7 +1365,7 @@ def set_request_id(value: str) -> None:
 """Correlation id middleware.
 
 Reuses the caller's X-Request-Id when present so gateway audit rows can be
-joined against the caller's own logs (설계 문서 §7.2), and echoes it back.
+joined against the caller's own logs (§7.2), and echoes it back.
 """
 
 from uuid import uuid4
@@ -1482,7 +1505,36 @@ TBD/TODO 없음. 모든 코드 스텝에 실제 코드가 있다.
 
 ---
 
-## Execution Handoff
+## 실행 후 기록
 
-계획서를 `docs/superpowers/plans/2026-08-12-phase1a-workspace-shared-kernel.md`에 저장했다.
+Phase 1a는 완료됐다. 테스트 50개 / ruff 통과 / clean venv 재현 확인.
+실행이 드러낸 것들은 위 본문에 반영했고, 아래는 **Phase 1b로 넘긴 항목**이다.
+
+### Phase 1b가 처리할 것
+
+**`HTTPException` / `RequestValidationError`가 중앙 핸들러를 우회한다.**
+`register_exception_handlers`는 `AppError`와 `Exception`만 등록한다. FastAPI가 자체
+처리하는 422(요청 검증)와 `HTTPException`은 `ErrorResponse` 형태가 아닌 몸통으로
+나간다. Phase 1a에는 실제 엔드포인트가 없어 관측되지 않았다. BC가 라우터를 붙일 때
+`shared_kernel`에 두 핸들러를 추가한다 — 422는 `ValidationError` 카테고리 코드로,
+`exc.errors()`에서 `input`/`url`을 제거하고 `loc`+`msg`만 `details`에 넣는다.
+
+**미처리 예외 500 응답에 `X-Request-Id`가 붙지 않는다.**
+`Exception` 핸들러는 `RequestContextMiddleware` 바깥의 `ServerErrorMiddleware`에서
+실행되기 때문이다. `AppError` 경로(4xx·5xx)와 정상 응답에는 모두 붙는다. 감사 행의
+`request_id`는 ContextVar에서 오므로 §7.2의 목적(앱↔감사 로그 상관)은 깨지지 않고,
+잔여 영향은 "자기 id를 안 보낸 호출자가 크래시 응답에서 생성된 id를 볼 수 없다"뿐이다.
+Phase 1b에서 앱을 조립할 때 **미들웨어와 핸들러를 함께 등록한 통합 테스트**와 함께
+처리한다 — 지금 그 테스트가 없다는 것이 회귀 미검출의 실체다.
+
+### 다음 계획서를 쓸 때 이어받을 교훈
+
+- 상수·속성 값만 단정하는 테스트는 그 값을 소비하는 배선을 검증하지 않는다.
+  Phase 1a에서 `logger.log` 전체를 지워도 테스트 36개가 통과했다. 계획서에 테스트를
+  쓸 때 **"이 코드를 지우면 어느 테스트가 실패하는가"** 를 자문할 것.
+- 픅스처가 주변 환경(셸 변수, `.env`)을 차단하지 않으면 개발자 기계에서만 깨진다.
+  BC 설정 테스트도 같은 `_env` + `_env_file=None` 형태를 쓸 것.
+- 돌연변이 테스트 전에 커밋할 것. `git checkout --`로 원복하면 커밋하지 않은 수정도
+  함께 사라진다.
+
 Phase 1b(gateway BC)는 별도 계획서로 작성한다.
