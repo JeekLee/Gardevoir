@@ -18,3 +18,8 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.ruff.lint.isort]
+# 워크스페이스 멤버를 first-party로 알려준다. 그러지 않으면 ruff가 이들을
+# 서드파티로 분류해 임포트 그룹을 합쳐버린다. 멤버를 추가할 때 여기도 더한다.
+known-first-party = ["shared_kernel", "gateway"]
