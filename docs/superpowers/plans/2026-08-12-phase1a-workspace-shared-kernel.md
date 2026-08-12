@@ -27,6 +27,39 @@
   `backend/`에서 맨 `pytest`를 돌리면 형제 패키지를 교차 수집한다.
 - `shared_kernel`은 **실제로 쓰는 것만** 담는다. 기존 서비스에 있다는 이유로 옮기지 않는다.
 
+### 로컬 환경 제약 (실측)
+
+이 머신은 이미 컨테이너 17개를 돌리고 있다 — 사내 서비스 스택 2종, vLLM 2개
+(Qwen3-VL-30B, BGE-M3)로 메모리 89Gi가 사용 중이고 31Gi가 가용이다. 따라서:
+
+- **기본 포트를 쓰지 않는다.** 이 머신의 기존 규칙이다 —
+  사내 서비스들이 각각 10000번대, 18090/50070, 20000–20070을 쓴다.
+  gardevoir는 **21000 블록**을 쓴다.
+
+  | 포트 | 용도 |
+  |---|---|
+  | 21000 | gateway HTTP |
+  | 21010 | PostgreSQL |
+  | 21020 | ClickHouse HTTP |
+  | 21050 | console (Next.js, Phase 5) |
+
+- **컨테이너마다 자원 상한을 건다.** 기존 서비스의 "local runtime guardrails" 방식을 따른다.
+  `MEMSWAP_LIMIT`을 `MEM_LIMIT`과 같게 두면 컨테이너가 예산을 넘어 스왑하지 못한다.
+  실측 여유: ClickHouse 2GiB 상한에 426 MiB(20.8%), Postgres 512MiB 상한에 35 MiB(6.9%).
+
+- 포트와 자원 상한은 `infra/envs/<dir>/compose.env`에 두고
+  `docker compose --env-file`로 주입한다. compose 파일에 숫자를 박지 않는다.
+
+> ⚠️ **컨테이너 헬스체크는 `localhost`가 아니라 `127.0.0.1`을 써야 한다.**
+> 컨테이너의 `/etc/hosts`는 `localhost`를 `127.0.0.1`과 `::1` 둘 다에 매핑하고
+> `wget`은 `::1`을 먼저 시도한다. ClickHouse는 `0.0.0.0:8123`(IPv4)만 듣기 때문에
+> `localhost`로는 `Connection refused`가 무한 반복되고 `docker compose up --wait`가
+> 끝나지 않는다. **에러 메시지가 원인을 가리키지 않는다.**
+> Postgres는 `pg_isready`가 기본적으로 유닉스 소켓을 쓰므로 영향이 없다.
+
+> ⚠️ **헬스 상태 판정에 `grep healthy`를 쓰지 않는다.** `unhealthy`도 매치된다.
+> `docker inspect <c> --format '{{.State.Health.Status}}'`로 정확히 비교한다.
+
 ---
 
 ## File Structure
@@ -68,9 +101,12 @@ backend/
 
 infra/
 ├── README.md
-└── docker-compose/
-    ├── postgres.yml
-    └── clickhouse.yml
+├── docker-compose/
+│   ├── postgres.yml
+│   └── clickhouse.yml
+└── envs/
+    └── example/
+        └── compose.env             포트 + 자원 상한
 ```
 
 `shared_kernel`은 src 레이아웃을 쓰지 않는다 — 기존 서비스와 동일하게 패키지 디렉토리가 루트에 바로 온다. BC(`gateway`)는 src 레이아웃을 쓴다.
@@ -84,6 +120,7 @@ infra/
 - Create: `backend/.python-version`
 - Create: `backend/shared_kernel/pyproject.toml`
 - Create: `backend/shared_kernel/shared_kernel/__init__.py`
+- Create: `infra/envs/example/compose.env`
 - Create: `infra/docker-compose/postgres.yml`
 - Create: `infra/docker-compose/clickhouse.yml`
 - Create: `infra/README.md`
@@ -170,7 +207,33 @@ __all__ = ["__version__"]
 __version__ = "0.1.0"
 ```
 
-- [ ] **Step 3: infra docker-compose 작성**
+- [ ] **Step 3: `infra/envs/example/compose.env` 작성**
+
+포트와 자원 상한은 여기서만 정한다. compose 파일에 숫자를 박지 않는다.
+
+```
+# compose는 ../envs/${GARDEVOIR_ENV_DIR}/<svc>.env 를 해석한다.
+# 각 compose.env가 자기 디렉토리를 self-select 하므로 셸에 변수를 둘 필요가 없다.
+GARDEVOIR_ENV_DIR=example
+
+# 21000 블록. 이 머신은 10000번대, 18090/50070,
+# 20000-20070 이 이미 사용 중이다.
+GATEWAY_HTTP_PORT=21000
+POSTGRES_PORT=21010
+CLICKHOUSE_HTTP_PORT=21020
+CONSOLE_HTTP_PORT=21050
+
+# 로컬 런타임 가드레일. MEMSWAP_LIMIT을 MEM_LIMIT과 같게 두면 컨테이너가
+# 예산을 넘어 스왑하지 못한다. 실측 여유: ClickHouse 426MiB/2g, Postgres 35MiB/512m.
+POSTGRES_MEM_LIMIT=512m
+POSTGRES_MEMSWAP_LIMIT=512m
+POSTGRES_CPUS=1.0
+CLICKHOUSE_MEM_LIMIT=2g
+CLICKHOUSE_MEMSWAP_LIMIT=2g
+CLICKHOUSE_CPUS=2.0
+```
+
+- [ ] **Step 4: infra docker-compose 작성**
 
 서비스별로 파일을 나눈다 — 기존 서비스와 동일하게, 필요한 것만 조합해 띄울 수 있어야 한다.
 
@@ -184,7 +247,10 @@ services:
       POSTGRES_USER: gardevoir
       POSTGRES_PASSWORD: gardevoir
       POSTGRES_DB: gardevoir
-    ports: ["5432:5432"]
+    ports: ["${POSTGRES_PORT}:5432"]
+    mem_limit: ${POSTGRES_MEM_LIMIT}
+    memswap_limit: ${POSTGRES_MEMSWAP_LIMIT}
+    cpus: ${POSTGRES_CPUS}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gardevoir"]
       interval: 2s
@@ -202,14 +268,19 @@ services:
       CLICKHOUSE_USER: gardevoir
       CLICKHOUSE_PASSWORD: gardevoir
       CLICKHOUSE_DB: gardevoir
-    ports: ["8123:8123"]
+    ports: ["${CLICKHOUSE_HTTP_PORT}:8123"]
+    mem_limit: ${CLICKHOUSE_MEM_LIMIT}
+    memswap_limit: ${CLICKHOUSE_MEMSWAP_LIMIT}
+    cpus: ${CLICKHOUSE_CPUS}
     ulimits:
       nofile: { soft: 262144, hard: 262144 }
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      # 127.0.0.1 이어야 한다. localhost는 ::1로 먼저 해석되고 ClickHouse는
+      # IPv4만 듣기 때문에 영원히 Connection refused가 된다. (Global Constraints)
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping || exit 1"]
       interval: 2s
       timeout: 3s
-      retries: 20
+      retries: 30
 ```
 
 `infra/README.md`:
@@ -219,19 +290,32 @@ services:
 
 ## 로컬 의존성 기동
 
-    docker compose \
+    docker compose --env-file infra/envs/example/compose.env \
       -f infra/docker-compose/postgres.yml \
       -f infra/docker-compose/clickhouse.yml \
-      up -d
+      -p gardevoir up -d
 
 Postgres는 상태(키·가드레일 정의·승인), ClickHouse는 감사 이벤트를 담는다.
 접근 패턴에 따른 분리이며 근거는 설계 문서 §10에 있다.
 
 서비스별로 파일을 나눠둔 이유는 필요한 것만 조합해 띄울 수 있게 하기 위함이다.
 `shared_kernel` 테스트는 DB를 필요로 하지 않으므로 아무것도 띄우지 않고 돈다.
+
+## 포트
+
+이 머신은 다른 스택들이 이미 돌고 있어 기본 포트를 쓰지 않는다.
+gardevoir는 21000 블록을 쓰고, 실제 값은 `envs/<dir>/compose.env`에 있다.
+
+    21000  gateway HTTP      21010  PostgreSQL
+    21050  console           21020  ClickHouse HTTP
+
+## 자원 상한
+
+컨테이너마다 `mem_limit` / `memswap_limit` / `cpus`를 건다.
+`memswap_limit`을 `mem_limit`과 같게 두면 컨테이너가 예산을 넘어 스왑하지 못한다.
 ```
 
-- [ ] **Step 4: 동기 확인**
+- [ ] **Step 5: 동기 확인**
 
 ```bash
 cd backend && uv sync
@@ -240,29 +324,59 @@ uv run python -c "import shared_kernel; print(shared_kernel.__version__)"
 
 Expected: `0.1.0`
 
-- [ ] **Step 5: 두 DB 기동 확인**
+- [ ] **Step 6: 두 DB 기동 확인**
 
 ```bash
-docker compose -f infra/docker-compose/postgres.yml -f infra/docker-compose/clickhouse.yml up -d
-docker compose -f infra/docker-compose/postgres.yml -f infra/docker-compose/clickhouse.yml ps
+docker compose --env-file infra/envs/example/compose.env \
+  -f infra/docker-compose/postgres.yml \
+  -f infra/docker-compose/clickhouse.yml -p gardevoir up -d
 ```
 
-Expected: 두 서비스 모두 `healthy`. 30초 이내.
+헬스 판정은 `docker inspect`로 한다 — `grep healthy`는 `unhealthy`도 매치한다.
 
 ```bash
-curl -s -u gardevoir:gardevoir "http://localhost:8123/?query=SELECT+version()"
+for i in $(seq 1 60); do
+  pg=$(docker inspect gardevoir-postgres-1 --format '{{.State.Health.Status}}' 2>/dev/null)
+  ch=$(docker inspect gardevoir-clickhouse-1 --format '{{.State.Health.Status}}' 2>/dev/null)
+  [ "$pg" = "healthy" ] && [ "$ch" = "healthy" ] && { echo "both healthy (${i}s)"; break; }
+  sleep 1
+done
 ```
 
-Expected: `25.8.x`
+Expected: 60초 이내에 `both healthy`. 실측으로는 ClickHouse가 3초, Postgres가 즉시다.
+`ch`가 계속 `unhealthy`면 헬스체크의 호스트가 `127.0.0.1`인지 확인할 것.
 
-- [ ] **Step 6: 커밋**
+```bash
+curl -s -u gardevoir:gardevoir "http://localhost:21020/?query=SELECT+version()"
+psql "postgresql://gardevoir:gardevoir@localhost:21010/gardevoir" -tAc 'select version()' 2>/dev/null \
+  || docker exec gardevoir-postgres-1 psql -U gardevoir -tAc 'select version()'
+```
+
+Expected: `25.8.x` / `PostgreSQL 17.x`
+
+- [ ] **Step 7: 자원 사용 확인**
+
+```bash
+docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}' \
+  gardevoir-clickhouse-1 gardevoir-postgres-1
+```
+
+Expected: ClickHouse가 상한의 25% 미만, Postgres가 10% 미만. 상한에 근접하면
+`compose.env`의 값을 올릴 것 — 이 머신은 vLLM 2개가 89Gi를 쓰고 있어 여유가 31Gi다.
+
+- [ ] **Step 8: 커밋**
 
 ```bash
 git add backend infra
 git commit -m "feat: uv 워크스페이스와 로컬 의존성 구성
 
 backend/를 가상 워크스페이스 루트로 두고 shared_kernel을 첫 멤버로 만든다.
-infra/docker-compose는 서비스별로 파일을 나눠 필요한 것만 조합해 띄운다."
+infra/docker-compose는 서비스별로 파일을 나누고 포트·자원 상한은
+envs/<dir>/compose.env에서만 정한다.
+
+이 머신은 다른 스택이 이미 돌고 있어 21000 블록을 쓴다.
+ClickHouse 헬스체크는 127.0.0.1을 쓴다 — localhost는 ::1로 먼저 해석되고
+ClickHouse는 IPv4만 들어서 영원히 실패한다."
 ```
 
 ---
