@@ -4,8 +4,8 @@ camelCase on the wire, snake_case in Python. Applies to DTOs that cross the HTTP
 boundary.
 
 It must NOT be used for types on the request evaluation path — Pydantic
-validation there would cost more than the whole guardrail budget
-(설계 문서 §11.8: 요청당 총 오버헤드 0.63ms).
+validation there would cost more than the entire per-request guardrail budget
+of 0.63 ms (§11.8).
 """
 
 from pydantic import BaseModel, ConfigDict

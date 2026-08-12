@@ -1,7 +1,7 @@
 """Correlation id middleware.
 
 Reuses the caller's X-Request-Id when present so gateway audit rows can be
-joined against the caller's own logs (설계 문서 §7.2), and echoes it back.
+joined against the caller's own logs (§7.2), and echoes it back.
 """
 
 from uuid import uuid4
