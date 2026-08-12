@@ -3,7 +3,12 @@
 One enum line per error. No class per error (skills/gardevoir-be).
 """
 
-from shared_kernel.exception import ConflictError, ErrorCatalog, ForbiddenError, UnauthorizedError
+from shared_kernel.exception import (
+    ConflictError,
+    ErrorCatalog,
+    ForbiddenError,
+    UnauthorizedError,
+)
 
 
 class ApiKeyError(ErrorCatalog):
@@ -18,4 +23,8 @@ class ApiKeyError(ErrorCatalog):
         "this key has no guardrail configured",
         ForbiddenError,
     )
-    DUPLICATE_NAME = ("APIKEY-004", "an API key with this name already exists", ConflictError)
+    DUPLICATE_NAME = (
+        "APIKEY-004",
+        "an API key with this name already exists",
+        ConflictError,
+    )
