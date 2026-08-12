@@ -169,7 +169,12 @@ def test_sdk_tolerates_extension_object_on_chunk():
         "created": 1,
         "model": "gpt-4o",
         "choices": [
-            {"index": 0, "delta": {"content": "hi"}, "finish_reason": None, "logprobs": None}
+            {
+                "index": 0,
+                "delta": {"content": "hi"},
+                "finish_reason": None,
+                "logprobs": None,
+            }
         ],
         "gardevoir": {"action": "blocked", "guardrail_version": 37},
     }

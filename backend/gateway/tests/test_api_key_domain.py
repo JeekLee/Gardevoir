@@ -17,16 +17,16 @@ from shared_kernel.exception import ConflictError, ForbiddenError, UnauthorizedE
 
 
 def _key(allowed=("base", "doc-agent"), default="base", **kw) -> ApiKey:
-    fields = dict(
-        id="k1",
-        name="app",
-        key_hash="deadbeef",
-        upstream_base_url="https://api.openai.com/v1",
-        upstream_api_key="sk-upstream",
-        allowed_guardrails=allowed,
-        default_guardrail=default,
-        disabled=False,
-    )
+    fields: dict = {
+        "id": "k1",
+        "name": "app",
+        "key_hash": "deadbeef",
+        "upstream_base_url": "https://api.openai.com/v1",
+        "upstream_api_key": "sk-upstream",
+        "allowed_guardrails": allowed,
+        "default_guardrail": default,
+        "disabled": False,
+    }
     fields.update(kw)
     return ApiKey(**fields)
 
@@ -110,8 +110,18 @@ def test_catalog_codes_are_stable():
 
 
 #: domain은 이들을 임포트할 수 없다. 위반은 리뷰가 아니라 테스트가 잡아야 한다.
-_FORBIDDEN_TOP_LEVEL = {"sqlalchemy", "fastapi", "httpx", "clickhouse_connect", "starlette"}
-_FORBIDDEN_GATEWAY = {"gateway.application", "gateway.infrastructure", "gateway.presentation"}
+_FORBIDDEN_TOP_LEVEL = {
+    "sqlalchemy",
+    "fastapi",
+    "httpx",
+    "clickhouse_connect",
+    "starlette",
+}
+_FORBIDDEN_GATEWAY = {
+    "gateway.application",
+    "gateway.infrastructure",
+    "gateway.presentation",
+}
 
 
 def _imports_of(path: pathlib.Path) -> set[str]:
