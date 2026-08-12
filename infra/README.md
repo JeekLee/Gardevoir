@@ -17,11 +17,15 @@ cd backend && uv sync --all-packages
 docker compose --env-file infra/envs/example/compose.env \
   -f infra/docker-compose/postgres.yml \
   -f infra/docker-compose/clickhouse.yml \
-  -p gardevoir up -d
+  up -d
 ```
 
 Postgres는 상태(키·가드레일 정의·승인), ClickHouse는 감사 이벤트를 담는다.
-접근 패턴에 따른 분리이며 근거는 설계 문서 §10에 있다.
+접근 패턴에 따른 분리이며 근거는 §10에 있다.
+
+`--env-file`은 필수다. 빼면 `cpus` 값이 빈 문자열이 되어
+`strconv.ParseFloat: parsing "": invalid syntax`로 죽는다. 프로젝트 이름은
+`compose.env`의 `COMPOSE_PROJECT_NAME`이 고정하므로 `-p`는 필요 없다.
 
 서비스별로 파일을 나눠둔 이유는 필요한 것만 조합해 띄울 수 있게 하기 위함이다.
 `shared_kernel` 테스트는 DB를 필요로 하지 않으므로 아무것도 띄우지 않고 돈다.
@@ -57,7 +61,7 @@ gardevoir는 21000 블록을 쓰고, 실제 값은 `envs/<dir>/compose.env`에 �
 컨테이너마다 `mem_limit` / `memswap_limit` / `cpus`를 건다.
 `memswap_limit`을 `mem_limit`과 같게 두면 컨테이너가 예산을 넘어 스왑하지 못한다.
 
-실측 여유 (설계 문서 §11.10):
+실측 여유 (§11.10):
 
 ```
 ClickHouse   426 MiB / 2 GiB   (20.8%)
