@@ -1,0 +1,20 @@
+[project]
+name = "gardevoir-backend"
+version = "0.0.0"
+description = "gardevoir backend workspace root (virtual)"
+requires-python = ">=3.12"
+
+[tool.uv.workspace]
+members = ["shared_kernel"]
+
+[tool.uv.sources]
+shared-kernel = { workspace = true }
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]

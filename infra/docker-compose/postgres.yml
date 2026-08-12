@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: gardevoir
+      POSTGRES_PASSWORD: gardevoir
+      POSTGRES_DB: gardevoir
+    ports: ["${POSTGRES_PORT}:5432"]
+    mem_limit: ${POSTGRES_MEM_LIMIT}
+    memswap_limit: ${POSTGRES_MEMSWAP_LIMIT}
+    cpus: ${POSTGRES_CPUS}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gardevoir"]
+      interval: 2s
+      timeout: 3s
+      retries: 20

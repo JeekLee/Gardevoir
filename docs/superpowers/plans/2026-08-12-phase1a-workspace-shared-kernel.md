@@ -318,11 +318,21 @@ gardevoir는 21000 블록을 쓰고, 실제 값은 `envs/<dir>/compose.env`에 �
 - [ ] **Step 5: 동기 확인**
 
 ```bash
-cd backend && uv sync
+cd backend && uv sync --all-packages
 uv run python -c "import shared_kernel; print(shared_kernel.__version__)"
 ```
 
 Expected: `0.1.0`
+
+> ⚠️ **`--all-packages`가 필수다.** 가상 워크스페이스 루트(`package = false`)는 설치할
+> 프로젝트가 없어서 맨 `uv sync`는 **아무것도 설치하지 않는다**(`Checked in 0.00ms`).
+> 그리고 실패 양상이 원인을 가리지 않는다 — 설치가 안 된 상태에서도
+> `import shared_kernel`이 **성공한다.** `backend/`가 cwd이면 `backend/shared_kernel/`
+> 디렉토리가 암묵적 namespace package로 잡혀 속이 빈 모듈이 임포트되고,
+> `AttributeError: module 'shared_kernel' has no attribute '__version__'`로 나타난다.
+>
+> BC 디렉토리에서 작업할 때는 그 멤버가 `shared-kernel`을 의존성으로 선언하고 있으므로
+> `uv sync`만으로도 들어온다. 루트에서 전체를 세울 때만 `--all-packages`가 필요하다.
 
 - [ ] **Step 6: 두 DB 기동 확인**
 
