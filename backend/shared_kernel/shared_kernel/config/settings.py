@@ -5,8 +5,12 @@ addressed with a double underscore, so the DSN comes from
 ``GARDEVOIR_DATABASE__DSN``.
 """
 
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
 class DatabaseSettings(BaseModel):
@@ -23,8 +27,15 @@ class ClickHouseSettings(BaseModel):
 
 
 class LogSettings(BaseModel):
-    level: str = "INFO"
+    #: Validated up front so a typo fails at settings load with the field name
+    #: attached, rather than inside configure_logging with "Unknown level".
+    level: LogLevel = "INFO"
     json_output: bool = True
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def _normalise_level(cls, value: object) -> object:
+        return value.upper() if isinstance(value, str) else value
 
 
 class BaseAppSettings(BaseSettings):
