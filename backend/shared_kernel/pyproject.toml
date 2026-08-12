@@ -29,3 +29,9 @@ packages = ["shared_kernel"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+    # 프레임워크가 폐기한 API를 쓰면 즉시 실패한다. 조용히 남겨두면
+    # 다음 메이저 업그레이드에서 한꺼번에 터진다.
+    "error::fastapi.exceptions.FastAPIDeprecationWarning",
+    "error::DeprecationWarning:shared_kernel",
+]
