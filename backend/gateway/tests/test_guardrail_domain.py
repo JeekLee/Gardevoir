@@ -101,6 +101,15 @@ def test_uncompilable_regex_is_rejected():
     assert info.value.details["node_id"] == "bad"
 
 
+def test_the_regex_reason_is_text_not_a_bytes_repr():
+    """re2 는 이유를 bytes 로 올린다. b'...' 가 응답에 실리면 저작자가 읽을 수 없다."""
+    with pytest.raises(ValidationError) as info:
+        _draft(nodes=(_regex("bad", "[unclosed"),), edges=()).validate()
+    reason = info.value.details["reason"]
+    assert "b'" not in reason
+    assert "missing ]" in reason
+
+
 def test_regex_requires_a_non_empty_pattern():
     with pytest.raises(ValidationError):
         _draft(nodes=(_regex("bad", ""),), edges=()).validate()

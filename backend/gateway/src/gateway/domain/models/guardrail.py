@@ -275,7 +275,13 @@ def _validate_regex(node: Node) -> None:
         # 절반을 낭비한다 (§11.3).
         re2.compile(pattern)
     except Exception as exc:
-        node.fail(f"pattern does not compile: {exc}")
+        node.fail(f"pattern does not compile: {_reason(exc)}")
+
+
+def _reason(exc: Exception) -> str:
+    """re2 는 이유를 bytes 로 담아 올린다. b'...' 를 그대로 응답에 싣지 않는다."""
+    arg = exc.args[0] if exc.args else exc
+    return arg.decode(errors="replace") if isinstance(arg, bytes) else str(arg)
 
 
 def _validate_length(node: Node) -> None:
