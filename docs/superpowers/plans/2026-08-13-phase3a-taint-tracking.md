@@ -136,7 +136,7 @@ tests/
 - `NODE_ARITY`: `TAINT (0,0)`, `ALL (2, MANY)`
 - `_validate_taint` (checkpoint 필수), `_validate_all` (설정 없음)
 
-- [ ] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
+- [x] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
 
 테스트 성질:
 1. `test_tool_result_is_a_valid_checkpoint` / `test_tool_call_is_a_valid_checkpoint`
@@ -159,7 +159,7 @@ tests/
 - `Subject(text: str = "", tainted: bool = False)`
 - `execute(program, subject: Subject, *, collect_all=False)`
 
-- [ ] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
+- [x] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
 
 테스트 성질:
 1. `test_taint_reports_the_subject_flag` (True/False 양쪽)
@@ -184,7 +184,7 @@ tests/
 - `Taint`/`All` 명령 방출
 - `_COST`: `TAINT 0`(소스), `ALL 1`(bool 연산, 싸다)
 
-- [ ] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
+- [x] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
 
 테스트 성질:
 1. `test_a_taint_only_graph_compiles`
@@ -210,7 +210,7 @@ tests/
 - `Inspector.tool_result(plan, payload, *, mode)` — ② 검사
 - `Inspector` 가 모든 체크포인트에 `tainted` 를 실어 준다
 
-- [ ] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
+- [x] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
 
 테스트 성질 (text):
 1. `test_a_tool_message_taints`
@@ -243,7 +243,7 @@ tests/
 - `inspected` 에 `tool_result` 추가
 - 감사 로그의 `tainted` 를 실제 값으로
 
-- [ ] Step 1~5: 테스트 → 실패 확인 → 구현 → 실제 기동 → 커밋 → 돌연변이
+- [x] Step 1~5: 테스트 → 실패 확인 → 구현 → 실제 기동 → 커밋 → 돌연변이
 
 테스트 성질:
 1. `test_a_blocked_tool_result_never_calls_upstream`
@@ -287,3 +287,65 @@ tests/
   만 요구하므로, 그래프 노드 설정에 두면 발행·버전·롤백·감사가 공짜로 따라온다.
   대신 가드레일 간 중복이 생기고, 그 답은 §5 의 `SharedNode` 다.
 - 오염 등급(어느 툴에서 왔나)은 두지 않는다. §8 은 이진 사실만 쓴다.
+
+---
+
+## 실행 결과 (2026-08-13)
+
+전부 완료. `feat/phase3a-taint-tracking`. 764 tests (gateway 708 + shared_kernel 56).
+
+### §8 의 공격이 실제로 막힌다
+
+실제 uvicorn + Postgres + ClickHouse, 폴링 주기 600초(즉시 반영만 통과 가능).
+
+정책: `taint(tool_result) AND regex("발송하십시오|보고할 필요 없") → block`
+
+```
+[400] 계약서 요약해줘 + 오염된 툴 결과      blocked  inspected=['tool_result']  checks=['v']
+[200] 계약서 요약해줘 + 깨끗한 툴 결과      allow    (정상 업무는 통과)
+[200] 툴 없이 같은 질문                    allow
+[200] 사용자가 직접 그 지시문을 입력        allow    ← 오염이 없으므로 ② 는 안 걸린다
+```
+
+마지막 줄이 `ALL` 이 하는 일이다. 사용자가 같은 문구를 타이핑한 것은 외부 데이터가
+아니므로 ② 의 대상이 아니다 — 그건 ① 의 일이다.
+
+감사 로그:
+
+```
+action     checkpoint    tainted  checks   v
+blocked    tool_result   1        ['v']    1
+allow      tool_result   1        []       1
+allow      tool_result   0        []       1
+```
+
+게이트웨이 추가 지연 0.03~0.15 ms.
+
+### 돌연변이 테스트
+
+22개 중 CAUGHT 19, SURVIVED 1, SKIP 2(돌연변이 문자열이 안 맞은 하네스 실수).
+
+생존자 하나가 실제 구멍이었다: **감사 `checkpoint` 의 `TOOL_RESULT` 분기를 지워도
+통과했다.** ② 프로그램만 있는 그래프에서는 ①이 돌지 않아서, 폴스루가 어느 분기로
+답해도 `tool_result` 가 나온다. ①도 도는 그래프에서 ②가 막는 테스트를 추가했다 —
+분기가 빠지면 ②가 막은 것을 ①로 기록하고, 정책 튜닝은 "어디서 걸렸나"를 믿고 하는
+일이다.
+
+### 계획에서 바뀐 것
+
+계획대로 갔다. 계획 단계에서 이미 세 가지를 고쳐 뒀기 때문이다:
+
+- `taint` 에 `checkpoint` 를 명시하게 한 것 — 없으면 `taint -> verdict` 부분 그래프를
+  어느 체크포인트에서 실행할지 정할 수 없다.
+- `ALL` 을 노드로 분리한 것 — `VERDICT` 의 여러 입력은 OR 이고 §8 2단계는 AND 다.
+- ② 차단을 ①과 같은 400 으로 둔 것.
+
+구현 중 추가로 정한 것: `Subject.tainted` 의 기본값을 **False** 로 뒀다. 보통은
+"기본을 안전한 쪽으로"가 맞지만, 오염은 **차단의 근거**이므로 기본을 True 로 두면
+오염을 계산하지 않은 경로가 전부 차단된다. 테스트 독스트링에 이유를 적었다.
+
+### 3b 로 넘기는 것
+
+- ④ tool_call 체크포인트, 툴 분류(§7.6), 인수 출처 검사(§8 3단계), tool_call 차단
+- 툴 분류의 저장 위치는 3b 에서 정한다. 그래프 노드 설정에 두면 발행·버전·롤백·감사가
+  공짜로 따라오고, 대신 가드레일 간 중복이 생긴다 (§5 의 `SharedNode` 가 답)
