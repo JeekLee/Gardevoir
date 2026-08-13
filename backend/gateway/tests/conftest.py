@@ -1,11 +1,17 @@
 import os
+import pathlib
 
+import clickhouse_connect
+import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import gateway.infrastructure.models  # noqa: F401  Base.metadata 에 모델을 등록한다
+from gateway.infrastructure.audit.schema import apply_clickhouse_schema
 from gateway.settings import get_settings
 from shared_kernel.database import Base
+
+CLICKHOUSE_SQL_DIR = pathlib.Path(__file__).resolve().parents[1] / "clickhouse"
 
 #: 로컬 기본값. 개발자 셸에 이미 있으면 그것을 존중한다.
 #: get_settings() 는 lru_cache 지연 호출이라 임포트 시점에는 필요하지 않으므로,
@@ -49,3 +55,24 @@ async def session(engine):
     async with engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             await conn.exec_driver_sql(f'TRUNCATE TABLE "{table.name}" CASCADE')
+
+
+@pytest.fixture(scope="session")
+def ch_client():
+    """ClickHouse client. 컨테이너가 떠 있어야 한다 — infra/README.md 참조."""
+    ch = get_settings().clickhouse
+    return clickhouse_connect.get_client(
+        host=ch.host,
+        port=ch.port,
+        username=ch.user,
+        password=ch.password,
+        database=ch.database,
+    )
+
+
+@pytest.fixture
+def audit_table(ch_client):
+    """Fresh audit_events table per test."""
+    ch_client.command("DROP TABLE IF EXISTS audit_events")
+    apply_clickhouse_schema(ch_client, CLICKHOUSE_SQL_DIR)
+    yield
