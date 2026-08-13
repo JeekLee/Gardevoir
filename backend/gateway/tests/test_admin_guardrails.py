@@ -5,6 +5,7 @@ from gateway.domain.models.api_key import Scope, generate_key, hash_key
 from gateway.infrastructure.models.api_key import ApiKeyModel
 from gateway.presentation.http.admin_guardrails import ADMIN_PREFIX
 from gateway.presentation.http.app import create_app
+from gateway.settings import get_settings
 from shared_kernel.log import REQUEST_ID_HEADER
 
 BASE = ADMIN_PREFIX
@@ -186,13 +187,31 @@ async def test_authorisation_precedes_body_validation(app):
     assert "graph" not in r.text
 
 
+DOC_PATHS = ("/openapi.json", "/docs", "/redoc")
+
+
 async def test_the_openapi_spec_is_not_public(app):
     """스펙이 익명으로 열려 있으면 인그레스에서 /v1/admin 을 막아도 경로가 새어나간다."""
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        for path in ("/openapi.json", "/docs", "/redoc"):
+        for path in DOC_PATHS:
             r = await c.get(path)
             assert r.status_code == 404, path
+
+
+async def test_the_spec_still_opens_in_debug(engine, ch_client):
+    """위 테스트가 '스펙을 영구히 못 켠다'로 통과하는 빈 단정이 아님을 보인다."""
+    settings = get_settings().model_copy(update={"debug": True})
+    application = create_app(settings)
+    async with application.router.lifespan_context(application):
+        transport = httpx.ASGITransport(app=application, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            for path in DOC_PATHS:
+                r = await c.get(path)
+                assert r.status_code == 200, path
+
+            spec = (await c.get("/openapi.json")).json()
+    assert ADMIN_PREFIX in spec["paths"]
 
 
 # --- create ------------------------------------------------------------------
