@@ -2,7 +2,7 @@ from sqlalchemy import select
 
 from gateway.application.service.authentication_service import AuthenticationService
 from gateway.cli import create_key
-from gateway.domain.models.api_key import KEY_PREFIX, hash_key
+from gateway.domain.models.api_key import KEY_PREFIX, Scope, hash_key
 from gateway.infrastructure.models.api_key import ApiKeyModel
 from gateway.infrastructure.repository import SqlAlchemyApiKeyRepository
 
@@ -59,7 +59,10 @@ async def test_created_key_authenticates(session):
 
     service = AuthenticationService(keys=SqlAlchemyApiKeyRepository(session))
     result = await service.authenticate(
-        authorization=f"Bearer {raw}", guardrail="doc-agent", mode=None
+        authorization=f"Bearer {raw}",
+        guardrail="doc-agent",
+        mode=None,
+        require=Scope.PROXY,
     )
     assert result.guardrail == "doc-agent"
     assert result.key.upstream_api_key == "s"

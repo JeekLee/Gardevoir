@@ -2,7 +2,7 @@ import pytest
 
 from gateway.application.service.authentication_service import AuthenticationService
 from gateway.contract import Mode
-from gateway.domain.models.api_key import ApiKey, generate_key, hash_key
+from gateway.domain.models.api_key import ApiKey, Scope, generate_key, hash_key
 from shared_kernel.exception import ForbiddenError, UnauthorizedError
 
 
@@ -40,7 +40,9 @@ def _service(raw: str | None = None, **kw) -> tuple[AuthenticationService, StubR
 async def test_authenticates_and_resolves_defaults():
     raw = generate_key()
     service, _ = _service(raw)
-    result = await service.authenticate(authorization=f"Bearer {raw}", guardrail=None, mode=None)
+    result = await service.authenticate(
+        authorization=f"Bearer {raw}", guardrail=None, mode=None, require=Scope.PROXY
+    )
     assert result.key.id == "k1"
     assert result.guardrail == "base"
     assert result.mode is Mode.ENFORCE
@@ -50,7 +52,9 @@ async def test_lookup_uses_the_hash_not_the_raw_key():
     """원본 키가 리포지토리 경계를 넘으면 로그·쿼리에 남을 수 있다."""
     raw = generate_key()
     service, repo = _service(raw)
-    await service.authenticate(authorization=f"Bearer {raw}", guardrail=None, mode=None)
+    await service.authenticate(
+        authorization=f"Bearer {raw}", guardrail=None, mode=None, require=Scope.PROXY
+    )
     assert repo.lookups == [hash_key(raw)]
     assert raw not in repo.lookups
 
@@ -58,7 +62,9 @@ async def test_lookup_uses_the_hash_not_the_raw_key():
 async def test_missing_authorization_is_401():
     service, repo = _service()
     with pytest.raises(UnauthorizedError) as info:
-        await service.authenticate(authorization=None, guardrail=None, mode=None)
+        await service.authenticate(
+            authorization=None, guardrail=None, mode=None, require=Scope.PROXY
+        )
     assert info.value.code == "APIKEY-001"
     # 헤더가 없으면 DB를 때릴 이유가 없다
     assert repo.lookups == []
@@ -67,14 +73,19 @@ async def test_missing_authorization_is_401():
 async def test_malformed_authorization_is_401():
     service, _ = _service()
     with pytest.raises(UnauthorizedError):
-        await service.authenticate(authorization="Basic abc", guardrail=None, mode=None)
+        await service.authenticate(
+            authorization="Basic abc", guardrail=None, mode=None, require=Scope.PROXY
+        )
 
 
 async def test_unknown_key_is_401():
     service, _ = _service()
     with pytest.raises(UnauthorizedError) as info:
         await service.authenticate(
-            authorization=f"Bearer {generate_key()}", guardrail=None, mode=None
+            authorization=f"Bearer {generate_key()}",
+            guardrail=None,
+            mode=None,
+            require=Scope.PROXY,
         )
     assert info.value.code == "APIKEY-001"
 
@@ -84,7 +95,9 @@ async def test_error_does_not_echo_the_key():
     raw = generate_key()
     service, _ = _service()
     with pytest.raises(UnauthorizedError) as info:
-        await service.authenticate(authorization=f"Bearer {raw}", guardrail=None, mode=None)
+        await service.authenticate(
+            authorization=f"Bearer {raw}", guardrail=None, mode=None, require=Scope.PROXY
+        )
     assert raw not in str(info.value)
     assert raw not in str(info.value.details or "")
 
@@ -94,7 +107,10 @@ async def test_unallowed_guardrail_is_403():
     service, _ = _service(raw)
     with pytest.raises(ForbiddenError) as info:
         await service.authenticate(
-            authorization=f"Bearer {raw}", guardrail="internal-analytics", mode=None
+            authorization=f"Bearer {raw}",
+            guardrail="internal-analytics",
+            mode=None,
+            require=Scope.PROXY,
         )
     assert info.value.code == "APIKEY-002"
 
@@ -103,7 +119,10 @@ async def test_allowed_guardrail_is_honoured():
     raw = generate_key()
     service, _ = _service(raw)
     result = await service.authenticate(
-        authorization=f"Bearer {raw}", guardrail="doc-agent", mode=None
+        authorization=f"Bearer {raw}",
+        guardrail="doc-agent",
+        mode=None,
+        require=Scope.PROXY,
     )
     assert result.guardrail == "doc-agent"
 
@@ -113,7 +132,10 @@ async def test_dry_run_is_accepted_without_a_permission_check():
     raw = generate_key()
     service, _ = _service(raw)
     result = await service.authenticate(
-        authorization=f"Bearer {raw}", guardrail=None, mode="dry-run"
+        authorization=f"Bearer {raw}",
+        guardrail=None,
+        mode="dry-run",
+        require=Scope.PROXY,
     )
     assert result.mode is Mode.DRY_RUN
 
@@ -121,7 +143,9 @@ async def test_dry_run_is_accepted_without_a_permission_check():
 async def test_unknown_mode_falls_back_to_enforce():
     raw = generate_key()
     service, _ = _service(raw)
-    result = await service.authenticate(authorization=f"Bearer {raw}", guardrail=None, mode="off")
+    result = await service.authenticate(
+        authorization=f"Bearer {raw}", guardrail=None, mode="off", require=Scope.PROXY
+    )
     assert result.mode is Mode.ENFORCE
 
 
@@ -130,13 +154,17 @@ async def test_disabled_key_never_reaches_the_service():
     raw = generate_key()
     service, _ = _service()  # 리포지토리가 비어 있는 상황 = 비활성/미등록
     with pytest.raises(UnauthorizedError):
-        await service.authenticate(authorization=f"Bearer {raw}", guardrail=None, mode=None)
+        await service.authenticate(
+            authorization=f"Bearer {raw}", guardrail=None, mode=None, require=Scope.PROXY
+        )
 
 
 async def test_result_is_immutable():
     raw = generate_key()
     service, _ = _service(raw)
-    result = await service.authenticate(authorization=f"Bearer {raw}", guardrail=None, mode=None)
+    result = await service.authenticate(
+        authorization=f"Bearer {raw}", guardrail=None, mode=None, require=Scope.PROXY
+    )
     import dataclasses
 
     with pytest.raises(dataclasses.FrozenInstanceError):
@@ -198,11 +226,10 @@ async def test_scope_is_checked_before_guardrail_resolution():
     assert info.value.code == "APIKEY-005"
 
 
-async def test_default_require_is_proxy():
-    """require 를 빼먹은 호출이 admin 을 열어주면 안 된다."""
-    from gateway.domain.models.api_key import Scope
-
+async def test_require_has_no_default():
+    """기본값이 있으면 admin 라우트에서 require 를 빼먹은 사람이 proxy 키로
+    admin 에 접근하게 된다. 안전한 기본값이 존재하지 않는 자리다."""
     raw = generate_key()
-    service, _ = _service(raw, scopes=(Scope.ADMIN,))
-    with pytest.raises(ForbiddenError):
+    service, _ = _service(raw)
+    with pytest.raises(TypeError):
         await service.authenticate(authorization=f"Bearer {raw}", guardrail=None, mode=None)

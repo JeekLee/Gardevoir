@@ -29,7 +29,7 @@ class AuthenticationService:
         authorization: str | None,
         guardrail: str | None,
         mode: str | None,
-        require: Scope = Scope.PROXY,
+        require: Scope,
     ) -> AuthenticatedRequest:
         raw = parse_bearer(authorization)
         if raw is None:
@@ -41,6 +41,10 @@ class AuthenticationService:
         if key is None:
             ApiKeyError.INVALID_KEY.raise_()
 
+        # require 에 기본값을 두지 않는다. 기본값이 PROXY 면 admin 라우트를
+        # 추가하며 require 를 빼먹은 사람이 proxy 키로 admin 에 접근하게 된다 —
+        # 안전한 기본값이 존재하지 않는 자리다. 호출자가 반드시 선언해야 한다.
+        #
         # 스코프는 가드레일 해석보다 먼저 본다 — 권한이 없으면 그 키가 어떤
         # 가드레일을 쓸 수 있는지 알려줄 이유가 없다.
         key.require_scope(require)
