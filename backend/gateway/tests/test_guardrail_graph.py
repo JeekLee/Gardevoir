@@ -78,7 +78,10 @@ def test_an_unknown_node_type_names_the_node():
     assert exc.value.code == GuardrailError.INVALID_NODE_CONFIG.code
     assert exc.value.details == {
         "node_id": "n9",
-        "reason": "type must be one of ['extract', 'length', 'regex', 'transform', 'verdict']",
+        "reason": (
+            "type must be one of "
+            "['all', 'extract', 'length', 'regex', 'taint', 'transform', 'verdict']"
+        ),
     }
 
 

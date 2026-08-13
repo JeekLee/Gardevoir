@@ -16,7 +16,7 @@ import re2
 
 from gateway.application.plan.compiler import compile_guardrail
 from gateway.application.plan.execution_plan import RegexOne, RegexSet
-from gateway.application.plan.executor import execute
+from gateway.application.plan.executor import Subject, execute
 from gateway.domain.models.guardrail import (
     Decision,
     Edge,
@@ -227,10 +227,10 @@ def test_executing_a_plan_is_far_cheaper_than_walking_the_graph():
     assert program is not None
 
     # 같은 결과를 내는지 먼저 확인한다 — 아니면 비교가 무의미하다
-    assert execute(program, DOCUMENT).is_allow
+    assert execute(program, Subject(text=DOCUMENT)).is_allow
     assert _walk_the_graph(guardrail, DOCUMENT) is False
 
-    compiled = _median_ms(lambda: execute(program, DOCUMENT), repeats=51)
+    compiled = _median_ms(lambda: execute(program, Subject(text=DOCUMENT)), repeats=51)
     walked = _median_ms(lambda: _walk_the_graph(guardrail, DOCUMENT), repeats=51)
     ratio = walked / compiled
     print(f"  실행: 컴파일함 {compiled:.4f} ms / 매번 걷기 {walked:.4f} ms ({ratio:.1f}배)")
@@ -244,9 +244,9 @@ def test_a_matching_document_still_executes_fast():
     program = compile_guardrail(guardrail).program_for("input")
     assert program is not None
     text = DOCUMENT + " needle10123"
-    assert execute(program, text).action is VerdictAction.BLOCK
+    assert execute(program, Subject(text=text)).action is VerdictAction.BLOCK
 
-    elapsed = _median_ms(lambda: execute(program, text), repeats=51)
+    elapsed = _median_ms(lambda: execute(program, Subject(text=text)), repeats=51)
     print(f"  실행 (차단됨): {elapsed:.4f} ms")
     assert elapsed < 5
 
@@ -340,7 +340,7 @@ def test_a_request_sized_plan_stays_inside_the_budget():
         for checkpoint in ("input", "output"):
             program = plan.program_for(checkpoint)
             assert program is not None
-            execute(program, DOCUMENT)
+            execute(program, Subject(text=DOCUMENT))
 
     elapsed = _median_ms(one_request, repeats=51)
     print(f"  요청 1건 (명령 {plan.instruction_count}개, 체크포인트 2곳): {elapsed:.4f} ms")
@@ -355,7 +355,7 @@ def test_a_request_sized_plan_beats_walking_the_graph():
         for checkpoint in ("input", "output"):
             program = plan.program_for(checkpoint)
             assert program is not None
-            execute(program, DOCUMENT)
+            execute(program, Subject(text=DOCUMENT))
 
     def walked() -> None:
         _walk_the_graph(guardrail, DOCUMENT, verdict="iv")

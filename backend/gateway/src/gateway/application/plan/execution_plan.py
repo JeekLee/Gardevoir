@@ -57,6 +57,29 @@ class RegexSet:
 
 
 @dataclass(frozen=True, slots=True)
+class Taint:
+    """대화에 외부 데이터가 들어왔는가 (§8 1단계).
+
+    텍스트를 읽지 않는다 — 오염은 문자열이 아니라 **구조적 사실**이다. 그래서
+    인코딩을 바꿔도 우회되지 않는다 (§8 한계 절).
+    """
+
+    out: int
+
+
+@dataclass(frozen=True, slots=True)
+class All:
+    """입력이 전부 참인가.
+
+    VERDICT 의 여러 입력은 OR 다. §8 2단계가 "오염됨 AND 부작용 툴"이라 AND 가
+    따로 필요하다.
+    """
+
+    out: int
+    srcs: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Verdict:
     """결론. 슬롯에 쓰지 않는다 — 판정에는 bool 이 아니라 action 과 node_id 가 필요하다.
 
@@ -70,7 +93,7 @@ class Verdict:
     node_id: str
 
 
-type Instruction = Extract | Transform | Length | RegexOne | RegexSet | Verdict
+type Instruction = Extract | Transform | Length | RegexOne | RegexSet | Taint | All | Verdict
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,9 +12,14 @@ from gateway.application.inspection.outcome import (
     TIER_RULES,
     Inspection,
 )
-from gateway.application.inspection.text import extract_input_text, extract_output_texts
+from gateway.application.inspection.text import (
+    extract_input_text,
+    extract_output_texts,
+    extract_tool_result_text,
+    is_tainted,
+)
 from gateway.application.plan.execution_plan import ExecutionPlan, Program
-from gateway.application.plan.executor import execute
+from gateway.application.plan.executor import Subject, execute
 from gateway.application.plan.registry import PlanRegistry
 from gateway.contract import Action, Mode
 from gateway.domain.models.guardrail import VerdictAction
@@ -22,7 +27,9 @@ from gateway.domain.models.guardrail import VerdictAction
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_INPUT = "input"
+CHECKPOINT_TOOL_RESULT = "tool_result"
 CHECKPOINT_OUTPUT = "output"
+CHECKPOINT_TOOL_CALL = "tool_call"
 
 
 class Inspector:
@@ -38,13 +45,36 @@ class Inspector:
         """
         return self._plans.get(guardrail)
 
-    def input(self, plan: ExecutionPlan | None, payload: object, *, mode: Mode) -> Inspection:
+    def input(
+        self, plan: ExecutionPlan | None, payload: object, *, mode: Mode, tainted: bool = False
+    ) -> Inspection:
         program = plan.program_for(CHECKPOINT_INPUT) if plan is not None else None
         if program is None:
             return NOT_INSPECTED
-        return self._run(program, extract_input_text(payload), mode=mode)
+        subject = Subject(text=extract_input_text(payload), tainted=tainted)
+        return self._run(program, subject, mode=mode)
 
-    def output(self, plan: ExecutionPlan | None, body: dict, *, mode: Mode) -> Inspection:
+    def tool_result(
+        self, plan: ExecutionPlan | None, payload: object, *, mode: Mode, tainted: bool = False
+    ) -> Inspection:
+        """② 검사 — 툴 결과에 심긴 지시를 잡는다 (§8).
+
+        업스트림 호출 **전** 이다. 오염된 데이터를 모델에 먹이지 않는 것이 방어다.
+        """
+        program = plan.program_for(CHECKPOINT_TOOL_RESULT) if plan is not None else None
+        if program is None:
+            return NOT_INSPECTED
+        subject = Subject(text=extract_tool_result_text(payload), tainted=tainted)
+        return self._run(program, subject, mode=mode)
+
+    @staticmethod
+    def tainted(payload: object) -> bool:
+        """오염 여부. 요청마다 새로 계산한다 (§7.4)."""
+        return is_tainted(payload)
+
+    def output(
+        self, plan: ExecutionPlan | None, body: dict, *, mode: Mode, tainted: bool = False
+    ) -> Inspection:
         """③ 검사. MASK 가 걸리면 ``body`` 를 제자리에서 고친다."""
         program = plan.program_for(CHECKPOINT_OUTPUT) if plan is not None else None
         if program is None:
@@ -60,7 +90,11 @@ class Inspector:
         masked = False
 
         for position, text in texts:
-            result = execute(program, text, collect_all=mode is Mode.DRY_RUN)
+            result = execute(
+                program,
+                Subject(text=text, tainted=tainted),
+                collect_all=mode is Mode.DRY_RUN,
+            )
             checks.extend(result.checks_fired)
             pending.extend(result.pending_model)
 
@@ -90,8 +124,8 @@ class Inspector:
 
     # -- helpers ------------------------------------------------------------
 
-    def _run(self, program: Program, text: str, *, mode: Mode) -> Inspection:
-        result = execute(program, text, collect_all=mode is Mode.DRY_RUN)
+    def _run(self, program: Program, subject: Subject, *, mode: Mode) -> Inspection:
+        result = execute(program, subject, collect_all=mode is Mode.DRY_RUN)
         blocked = result.action is VerdictAction.BLOCK
 
         if blocked and mode is Mode.DRY_RUN:

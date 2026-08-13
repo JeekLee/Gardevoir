@@ -13,6 +13,7 @@ from collections import defaultdict, deque
 import re2
 
 from gateway.application.plan.execution_plan import (
+    All,
     ExecutionPlan,
     Extract,
     Instruction,
@@ -20,6 +21,7 @@ from gateway.application.plan.execution_plan import (
     Program,
     RegexOne,
     RegexSet,
+    Taint,
     Transform,
     Verdict,
 )
@@ -39,11 +41,17 @@ UNPUBLISHED = 0
 #: 위상 레벨 안에서만 재정렬하므로 의존성은 깨지지 않는다.
 _COST = {
     NodeType.EXTRACT: 0,
+    NodeType.TAINT: 0,
     NodeType.LENGTH: 1,
+    NodeType.ALL: 1,
     NodeType.TRANSFORM: 2,
     NodeType.REGEX: 3,
     NodeType.VERDICT: 4,
 }
+
+#: 체크포인트를 고르는 노드 = 부분 그래프의 뿌리. taint 는 텍스트를 읽지 않지만
+#: 어느 체크포인트에서 평가될지는 명시돼야 한다 (도메인 검증이 강제한다).
+SOURCE_TYPES = (NodeType.EXTRACT, NodeType.TAINT)
 
 
 def compile_guardrail(guardrail: Guardrail) -> ExecutionPlan:
@@ -85,7 +93,7 @@ class _Graph:
         """
         reached: dict[str, set[str]] = defaultdict(set)
         for node in self.nodes.values():
-            if node.type is not NodeType.EXTRACT:
+            if node.type not in SOURCE_TYPES:
                 continue
             checkpoint = node.config["checkpoint"]
             for descendant in self._descendants(node.id):
@@ -289,6 +297,13 @@ class _Graph:
         match node.type:
             case NodeType.EXTRACT:
                 return Extract(out=slots[node.id], checkpoint=checkpoint)
+            case NodeType.TAINT:
+                return Taint(out=slots[node.id])
+            case NodeType.ALL:
+                return All(
+                    out=slots[node.id],
+                    srcs=tuple(slots[src] for src in self.inputs[node.id] if src in slots),
+                )
             case NodeType.TRANSFORM:
                 return Transform(
                     out=slots[node.id],

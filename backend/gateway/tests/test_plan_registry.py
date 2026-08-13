@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from gateway.application.plan.executor import execute
+from gateway.application.plan.executor import Subject, execute
 from gateway.application.plan.registry import PlanRegistry
 from gateway.domain.models.guardrail import Edge, Guardrail, Node, NodeType, VerdictAction
 
@@ -136,8 +136,8 @@ async def test_refresh_swaps_in_the_new_version():
     assert plan.version_number == 2
     program = plan.program_for("input")
     assert program is not None
-    assert execute(program, "bravo").action is VerdictAction.BLOCK
-    assert execute(program, "alpha").is_allow
+    assert execute(program, Subject(text="bravo")).action is VerdictAction.BLOCK
+    assert execute(program, Subject(text="alpha")).is_allow
 
 
 async def test_a_held_plan_is_unaffected_by_a_swap():
@@ -159,7 +159,7 @@ async def test_a_held_plan_is_unaffected_by_a_swap():
     assert held.version_number == 1
     program = held.program_for("input")
     assert program is not None
-    assert execute(program, "alpha").action is VerdictAction.BLOCK
+    assert execute(program, Subject(text="alpha")).action is VerdictAction.BLOCK
 
 
 async def test_refresh_is_a_noop_for_an_unknown_name():
