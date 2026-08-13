@@ -90,3 +90,42 @@ uv run gardevoir-createkey --name ops-console --scope admin ...
 ```
 
 설계 문서 §14 에 미해결 항목으로 기록돼 있다.
+
+## ⚠️ 테스트 스위트와 개발 서버는 DB 를 공유한다
+
+`backend/gateway/tests/conftest.py` 의 기본 DSN 이 로컬 개발용과 같다. 그래서:
+
+- **`uv run pytest` 가 개발용 데이터를 지운다.** 세션 픽스처가 `drop_all` +
+  `create_all` 을 돌리므로 API 키와 가드레일이 사라진다. 수동 확인 중이었다면 키를
+  다시 만들어야 한다.
+- **개발 서버를 띄운 채로 테스트를 돌리면 스위트가 멈춘다.** 서버가 잡고 있는
+  커넥션 때문에 `drop_all` 이 잠금 대기에 걸린다. 증상은 "특정 파일에서 멈춤"이라
+  코드 문제처럼 보인다.
+
+수동 확인을 하려면 서버를 내리고 테스트를 돌리거나, 별도 DB 를 쓴다:
+
+```bash
+GARDEVOIR_DATABASE__DSN=postgresql+psycopg://gardevoir:gardevoir@localhost:21010/gardevoir_dev \
+  uv run uvicorn --factory gateway.presentation.http.app:create_app --port 21000
+```
+
+멈췄을 때 진단·해제:
+
+```sql
+SELECT pid, state, wait_event_type, left(query, 60)
+FROM pg_stat_activity WHERE datname = 'gardevoir' AND pid <> pg_backend_pid();
+SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity
+WHERE datname = 'gardevoir' AND pid <> pg_backend_pid();
+```
+
+## 발행 반영 시점
+
+발행은 **응답 전에** 그 워커에 반영된다 (`GuardrailService` 가 커밋과 재컴파일 시점을
+직접 갖는다). 다른 워커는 `GARDEVOIR_PLAN_POLL_INTERVAL_S`(기본 5초) 주기로 따라온다.
+
+수동으로 즉시 반영만 확인하려면 폴링 주기를 크게 두고 시험한다 — 그러지 않으면
+폴러가 결과를 가려서 즉시 반영이 깨져도 통과한 것처럼 보인다.
+
+```bash
+GARDEVOIR_PLAN_POLL_INTERVAL_S=600 uv run uvicorn --factory ... 
+```

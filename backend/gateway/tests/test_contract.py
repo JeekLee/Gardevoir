@@ -65,6 +65,9 @@ def test_build_extension_shape():
         "guardrail_version": 0,
         "mode": "enforce",
         "audit_id": "evt_1",
+        # 검사하지 않은 것과 검사해서 통과한 것은 다르다 — 빈 목록이 그 사실이다
+        "inspected": [],
+        "checks": [],
     }
 
 
@@ -214,3 +217,72 @@ def test_extension_survives_orjson_roundtrip():
     payload = dict(_BASE_COMPLETION, **{EXTENSION_KEY: ext})
     restored = orjson.loads(orjson.dumps(payload))
     assert ChatCompletion.model_validate(restored).gardevoir["action"] == "blocked"
+
+
+# --- inspected / checks ------------------------------------------------------
+
+
+def test_build_extension_reports_inspected_checkpoints():
+    """스트리밍은 출력을 못 본다(§9). 말하지 않으면 호출자는 검사된 줄 안다."""
+    ext = build_extension(
+        action=Action.ALLOW,
+        guardrail="doc-agent",
+        guardrail_version=3,
+        audit_id="evt_3",
+        mode=Mode.ENFORCE,
+        inspected=("input",),
+        checks=("kr-rrn",),
+    )
+    assert ext["inspected"] == ["input"]
+    assert ext["checks"] == ["kr-rrn"]
+
+
+def test_build_extension_serialises_inspected_as_a_list():
+    """tuple 은 orjson 이 배열로 내지만, SDK 가 보는 형태를 계약으로 고정한다."""
+    import orjson
+
+    ext = build_extension(
+        action=Action.ALLOW,
+        guardrail="g",
+        guardrail_version=1,
+        audit_id="a",
+        mode=Mode.ENFORCE,
+        inspected=("input", "output"),
+    )
+    assert orjson.loads(orjson.dumps(ext))["inspected"] == ["input", "output"]
+
+
+# --- 차단 본문 ---------------------------------------------------------------
+
+
+def test_blocked_input_body_uses_the_openai_error_shape():
+    from gateway.contract import FINISH_CONTENT_FILTER, blocked_input_body
+
+    body = blocked_input_body(extension={"action": "blocked"})
+    assert body["error"]["code"] == FINISH_CONTENT_FILTER
+    assert body["error"]["type"] == "invalid_request_error"
+    assert body[EXTENSION_KEY]["action"] == "blocked"
+
+
+def test_blocked_input_body_explains_itself():
+    from gateway.contract import blocked_input_body
+
+    body = blocked_input_body(extension={}, reason="주민번호가 포함되었습니다")
+    assert body["error"]["message"] == "주민번호가 포함되었습니다"
+
+
+def test_blocked_output_body_uses_a_standard_finish_reason():
+    """커스텀 finish_reason 은 SDK 의 Literal 검증에 걸린다 (§11.9)."""
+    from gateway.contract import STANDARD_FINISH_REASONS, blocked_output_body
+
+    body = blocked_output_body(extension={})
+    assert body["choices"][0]["finish_reason"] in STANDARD_FINISH_REASONS
+
+
+def test_blocked_output_body_puts_the_reason_in_content():
+    """많은 앱이 finish_reason 을 보지 않고 content 만 쓴다 (§7.3)."""
+    from gateway.contract import blocked_output_body
+
+    body = blocked_output_body(extension={}, reason="정책 위반")
+    assert body["choices"][0]["message"]["content"] == "정책 위반"
+    assert body["choices"][0]["message"]["role"] == "assistant"

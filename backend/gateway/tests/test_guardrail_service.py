@@ -343,3 +343,105 @@ async def test_publish_rejects_a_node_with_no_input(service, session):
     with pytest.raises(ValidationError) as exc:
         await service.publish("doc-agent")
     assert exc.value.code == GuardrailError.INVALID_ARITY.code
+
+
+# -- 컴파일 가능성 -----------------------------------------------------------
+#
+# 컴파일러만 아는 규칙이 있다 — 체크포인트를 섞는 판정(013), 위치를 알 수 없는
+# 마스킹(014). 쓰기 시점에 확인하지 않으면 발행이 200 을 돌려주고도 계획은 그대로
+# 남아, 운영자는 정책이 바뀐 줄 알지만 실제로는 아무것도 바뀌지 않는다.
+
+UNMASKABLE = {
+    "nodes": [
+        {"id": "e", "type": "extract", "config": {"checkpoint": "output"}},
+        {"id": "t", "type": "transform", "config": {"op": "lower"}},
+        {"id": "r", "type": "regex", "config": {"pattern": "secret"}},
+        {"id": "v", "type": "verdict", "config": {"decision": "conclusive", "action": "mask"}},
+    ],
+    "edges": [
+        {"src": "e", "dst": "t"},
+        {"src": "t", "dst": "r"},
+        {"src": "r", "dst": "v"},
+    ],
+}
+
+MIXED = {
+    "nodes": [
+        {"id": "ei", "type": "extract", "config": {"checkpoint": "input"}},
+        {"id": "eo", "type": "extract", "config": {"checkpoint": "output"}},
+        {"id": "ri", "type": "regex", "config": {"pattern": "a"}},
+        {"id": "ro", "type": "regex", "config": {"pattern": "b"}},
+        {"id": "v", "type": "verdict", "config": {"decision": "conclusive", "action": "block"}},
+    ],
+    "edges": [
+        {"src": "ei", "dst": "ri"},
+        {"src": "eo", "dst": "ro"},
+        {"src": "ri", "dst": "v"},
+        {"src": "ro", "dst": "v"},
+    ],
+}
+
+
+@pytest.mark.parametrize(
+    ("graph", "code"),
+    [
+        (UNMASKABLE, GuardrailError.UNMASKABLE.code),
+        (MIXED, GuardrailError.MIXED_CHECKPOINTS.code),
+    ],
+    ids=["unmaskable", "mixed-checkpoints"],
+)
+async def test_create_rejects_a_graph_that_cannot_compile(service, graph, code):
+    with pytest.raises(ValidationError) as exc:
+        await service.create(CreateGuardrail(name="nope", graph=graph))
+    assert exc.value.code == code
+
+
+@pytest.mark.parametrize(
+    ("graph", "code"),
+    [
+        (UNMASKABLE, GuardrailError.UNMASKABLE.code),
+        (MIXED, GuardrailError.MIXED_CHECKPOINTS.code),
+    ],
+    ids=["unmaskable", "mixed-checkpoints"],
+)
+async def test_update_draft_rejects_a_graph_that_cannot_compile(service, graph, code):
+    await service.create(CreateGuardrail(name="doc-agent", graph=_graph()))
+    with pytest.raises(ValidationError) as exc:
+        await service.update_draft("doc-agent", UpdateDraft(graph=graph))
+    assert exc.value.code == code
+
+
+async def test_publish_rejects_a_graph_that_cannot_compile(service, session):
+    """저작 시점을 우회해 심어도 발행이 거부해야 한다."""
+    await service.create(CreateGuardrail(name="doc-agent", graph=_graph()))
+    await session.execute(
+        sqlalchemy.update(GuardrailModel)
+        .where(GuardrailModel.version == DRAFT_VERSION)
+        .values(graph=UNMASKABLE)
+    )
+
+    with pytest.raises(ValidationError) as exc:
+        await service.publish("doc-agent")
+    assert exc.value.code == GuardrailError.UNMASKABLE.code
+
+    rows = (
+        (
+            await session.execute(
+                sqlalchemy.select(GuardrailModel.version).where(
+                    GuardrailModel.version_number.is_not(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows == [], "컴파일 불가 그래프가 발행됐다"
+
+
+async def test_a_rejected_create_does_not_reserve_the_name(service):
+    """컴파일 거부가 이름을 점유하면 저작자가 고칠 수 없다."""
+    with pytest.raises(ValidationError):
+        await service.create(CreateGuardrail(name="doc-agent", graph=UNMASKABLE))
+
+    detail = await service.create(CreateGuardrail(name="doc-agent", graph=_graph()))
+    assert detail.name == "doc-agent"

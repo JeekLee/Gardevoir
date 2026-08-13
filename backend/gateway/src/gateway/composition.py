@@ -10,6 +10,7 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
+from gateway.application.inspection.inspector import Inspector
 from gateway.application.service.authentication_service import AuthenticationService
 from gateway.application.service.guardrail_service import GuardrailService
 from gateway.application.service.proxy_service import ProxyService
@@ -29,6 +30,9 @@ def provide_proxy_service(request: Request) -> ProxyService:
     return ProxyService(
         upstream=request.app.state.upstream,
         audit=request.app.state.audit_sink,
+        # 계획 레지스트리는 프로세스 수명이므로 app.state 가 소유한다. 검사기는
+        # 상태가 없어 요청마다 만들어도 된다.
+        inspector=Inspector(plans=request.app.state.plans),
     )
 
 
@@ -41,24 +45,18 @@ async def provide_guardrail_service(request: Request) -> AsyncIterator[Guardrail
     경로에만 적용된다).
     """
     async with request.app.state.session_factory() as session:
-        service = GuardrailService(
+        yield GuardrailService(
             guardrails=SqlAlchemyGuardrailRepository(session),
             dao=SqlAlchemyGuardrailDao(session),
+            # 발행은 커밋과 재컴파일 시점을 스스로 알아야 한다 — 조립 루트의 정리
+            # 코드에 맡기면 FastAPI 가 응답을 보낸 뒤에 돌려서 발행 직후의 요청이
+            # 이전 계획을 본다. application/port/transaction.py 참조.
+            transaction=session,
+            plans=getattr(request.app.state, "plans", None),
         )
-        yield service
+        # 서비스가 자기 쓰기를 이미 커밋했다. 여기서는 남은 것을 정리한다 —
+        # 읽기 전용 라우트의 트랜잭션을 닫고, 실패한 요청은 async with 가 롤백한다.
         await session.commit()
-
-        # 커밋 뒤에 재컴파일한다. 레지스트리는 새 세션을 열기 때문에, 커밋 전에 부르면
-        # 아직 보이지 않는 행 대신 이전 버전을 컴파일한다. 실패하면 폴러가 다음
-        # 주기에 집어간다 — 응답을 막을 이유가 없다 (§6).
-        plans = getattr(request.app.state, "plans", None)
-        for name in service.published:
-            if plans is None:
-                break
-            try:
-                await plans.refresh(name)
-            except Exception:
-                logger.exception("refreshing the plan for %r failed; the poller will retry", name)
 
 
 AuthenticationServiceDep = Annotated[AuthenticationService, Depends(provide_authentication_service)]
