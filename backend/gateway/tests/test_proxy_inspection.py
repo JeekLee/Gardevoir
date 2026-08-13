@@ -932,8 +932,11 @@ async def test_the_full_attack_is_blocked(client, admin, audit_table):
     assert r.status_code == 200
     body = orjson.loads(r.content)
     assert body["choices"][0]["finish_reason"] == FINISH_CONTENT_FILTER
-    assert _ext(r)["action"] == "blocked"
-    assert _ext(r)["inspected"] == ["tool_call"]
+    ext = _ext(r)
+    assert ext["action"] == "blocked"
+    assert ext["inspected"] == ["tool_call"]
+    # ④ 가 걸린 체크를 보고하지 않으면 정책 튜닝의 입력이 사라진다 (§4)
+    assert ext["checks"] == ["v"]
 
 
 @respx.mock

@@ -128,11 +128,21 @@ class _Verdicts:
 
     @property
     def checks(self) -> tuple[str, ...]:
-        return self.input.checks_fired + self.tool_result.checks_fired + self.output.checks_fired
+        return (
+            self.input.checks_fired
+            + self.tool_result.checks_fired
+            + self.output.checks_fired
+            + self.tool_call.checks_fired
+        )
 
     @property
     def pending_model(self) -> tuple[str, ...]:
-        return self.input.pending_model + self.tool_result.pending_model + self.output.pending_model
+        return (
+            self.input.pending_model
+            + self.tool_result.pending_model
+            + self.output.pending_model
+            + self.tool_call.pending_model
+        )
 
     @property
     def action(self) -> Action:
