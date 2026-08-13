@@ -7,8 +7,15 @@
 
 from typing import Any
 
-#: ① 은 사용자 입력이다. assistant 는 ③, tool 결과는 ②(Phase 3)가 본다.
+#: ① 은 사용자 입력이다. assistant 는 ③, tool 결과는 ② 가 본다.
 INPUT_ROLES = frozenset({"user"})
+
+#: ② 의 대상. ``function`` 은 구 프로토콜의 같은 자리다 — 빠뜨리면 옛 클라이언트에서
+#: 오염 추적이 조용히 꺼진다.
+TOOL_RESULT_ROLES = frozenset({"tool", "function"})
+
+#: 출처 판정에 쓰는 "사용자가 말한 것". 시스템 프롬프트는 앱이 통제하므로 신뢰한다 (§8 3단계).
+TRUSTED_ROLES = frozenset({"user", "system", "developer"})
 
 _JOIN = "\n"
 
@@ -19,18 +26,7 @@ def extract_input_text(payload: Any) -> str:
     ``messages`` 는 매 턴 전체가 다시 온다 (§7.4). 마지막 user 메시지만 보면 여러
     턴에 나눠 심은 것을 놓치므로 전부 이어붙인다.
     """
-    if not isinstance(payload, dict):
-        return ""
-    messages = payload.get("messages")
-    if not isinstance(messages, list):
-        return ""
-
-    parts: list[str] = []
-    for message in messages:
-        if not isinstance(message, dict) or message.get("role") not in INPUT_ROLES:
-            continue
-        parts.extend(_content_texts(message.get("content")))
-    return _JOIN.join(parts)
+    return _JOIN.join(_texts_for_roles(payload, INPUT_ROLES))
 
 
 def extract_output_texts(body: Any) -> list[tuple[int, str]]:
@@ -58,6 +54,52 @@ def extract_output_texts(body: Any) -> list[tuple[int, str]]:
     return found
 
 
+def extract_tool_result_text(payload: Any) -> str:
+    """② 검사 대상 — 툴 결과 전체.
+
+    ① 과 같은 이유로 전부 이어붙인다: 마지막 결과만 보면 여러 턴에 걸쳐 심은 지시를
+    놓친다 (§7.4).
+    """
+    return _JOIN.join(_texts_for_roles(payload, TOOL_RESULT_ROLES))
+
+
+def is_tainted(payload: Any) -> bool:
+    """대화에 외부 데이터가 들어왔는가 (§8 1단계).
+
+    ``messages`` 가 매 턴 전체로 오므로 매 요청에서 새로 계산한다 — 세션 저장소도
+    세션 헤더도 필요 없다 (§7.4).
+
+    assistant 의 ``tool_calls`` 만으로는 오염이 아니다. **결과가 들어와야** 외부
+    데이터다. 부르려고 한 것과 받은 것은 다르다.
+
+    오염은 되돌아가지 않는다 — 위치와 무관하게 하나라도 있으면 오염이다 (§8).
+    """
+    if not isinstance(payload, dict):
+        return False
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return False
+    return any(
+        isinstance(message, dict) and message.get("role") in TOOL_RESULT_ROLES
+        for message in messages
+    )
+
+
+def _texts_for_roles(payload: Any, roles: frozenset[str]) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return []
+
+    parts: list[str] = []
+    for message in messages:
+        if not isinstance(message, dict) or message.get("role") not in roles:
+            continue
+        parts.extend(_content_texts(message.get("content")))
+    return parts
+
+
 def _content_texts(content: Any) -> list[str]:
     """``content`` 는 문자열이거나 멀티모달 조각 리스트다.
 
@@ -78,4 +120,12 @@ def _content_texts(content: Any) -> list[str]:
     return texts
 
 
-__all__ = ["INPUT_ROLES", "extract_input_text", "extract_output_texts"]
+__all__ = [
+    "INPUT_ROLES",
+    "TOOL_RESULT_ROLES",
+    "TRUSTED_ROLES",
+    "extract_input_text",
+    "extract_output_texts",
+    "extract_tool_result_text",
+    "is_tainted",
+]

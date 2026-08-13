@@ -23,7 +23,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import orjson
 
@@ -31,6 +31,7 @@ from gateway.application.audit.audit_event import AuditEvent, Checkpoint, new_ev
 from gateway.application.inspection.inspector import (
     CHECKPOINT_INPUT,
     CHECKPOINT_OUTPUT,
+    CHECKPOINT_TOOL_RESULT,
     Inspector,
 )
 from gateway.application.inspection.outcome import NOT_INSPECTED, TIER_NONE, Inspection
@@ -102,7 +103,9 @@ class _Verdicts:
 
     plan: ExecutionPlan | None
     input: Inspection = NOT_INSPECTED
+    tool_result: Inspection = NOT_INSPECTED
     output: Inspection = NOT_INSPECTED
+    tainted: bool = False
 
     @property
     def guardrail_version(self) -> int:
@@ -113,44 +116,55 @@ class _Verdicts:
         names = []
         if self.input.ran:
             names.append(CHECKPOINT_INPUT)
+        if self.tool_result.ran:
+            names.append(CHECKPOINT_TOOL_RESULT)
         if self.output.ran:
             names.append(CHECKPOINT_OUTPUT)
         return tuple(names)
 
     @property
     def checks(self) -> tuple[str, ...]:
-        return self.input.checks_fired + self.output.checks_fired
+        return self.input.checks_fired + self.tool_result.checks_fired + self.output.checks_fired
 
     @property
     def pending_model(self) -> tuple[str, ...]:
-        return self.input.pending_model + self.output.pending_model
+        return self.input.pending_model + self.tool_result.pending_model + self.output.pending_model
 
     @property
     def action(self) -> Action:
-        if self.input.blocked or self.output.blocked:
+        if self.input.blocked or self.tool_result.blocked or self.output.blocked:
             return Action.BLOCKED
         return Action.ALLOW
 
     @property
     def would_have(self) -> Action | None:
-        return self.input.would_have or self.output.would_have
+        return self.input.would_have or self.tool_result.would_have or self.output.would_have
+
+    @property
+    def blocked_before_upstream(self) -> bool:
+        """① 과 ② 는 업스트림 호출 전에 결론이 난다."""
+        return self.input.blocked or self.tool_result.blocked
 
     @property
     def checkpoint(self) -> Checkpoint:
         """감사 로그에 남길 "어디서 결론이 났나"."""
         if self.input.blocked:
             return Checkpoint.INPUT
+        if self.tool_result.blocked:
+            return Checkpoint.TOOL_RESULT
         if self.output.blocked or self.output.masked:
             return Checkpoint.OUTPUT
         if self.input.ran:
             return Checkpoint.INPUT
+        if self.tool_result.ran:
+            return Checkpoint.TOOL_RESULT
         if self.output.ran:
             return Checkpoint.OUTPUT
         return Checkpoint.NONE
 
     @property
     def tier(self) -> str:
-        return self.input.tier or self.output.tier or TIER_NONE
+        return self.input.tier or self.tool_result.tier or self.output.tier or TIER_NONE
 
 
 class ProxyService:
@@ -169,11 +183,11 @@ class ProxyService:
 
         plan = self._plan_for(auth)
         decoded = _decode(payload)
-        verdicts = _Verdicts(plan=plan, input=self._inspect_input(plan, decoded, auth.mode))
+        verdicts = self._inspect_before_upstream(plan, decoded, auth.mode)
 
-        if verdicts.input.blocked:
-            # 차단할 요청에 토큰을 쓸 이유가 없고, 프롬프트 인젝션을 업스트림에
-            # 보내지 않는 것 자체가 방어다.
+        if verdicts.blocked_before_upstream:
+            # 차단할 요청에 토큰을 쓸 이유가 없고, 오염된 데이터를 모델에 먹이지
+            # 않는 것 자체가 방어다.
             return await self._blocked_input(
                 auth=auth,
                 audit_id=audit_id,
@@ -191,10 +205,9 @@ class ProxyService:
 
         body = _decode(result.body)
         if isinstance(body, dict) and self._inspector is not None:
-            verdicts = _Verdicts(
-                plan=plan,
-                input=verdicts.input,
-                output=self._inspector.output(plan, body, mode=auth.mode),
+            verdicts = replace(
+                verdicts,
+                output=self._inspector.output(plan, body, mode=auth.mode, tainted=verdicts.tainted),
             )
 
         latency_ms = self._added_latency_ms(started, result.elapsed_s)
@@ -264,9 +277,7 @@ class ProxyService:
         started = time.perf_counter()
 
         plan = self._plan_for(auth)
-        verdicts = _Verdicts(
-            plan=plan, input=self._inspect_input(plan, _decode(payload), auth.mode)
-        )
+        verdicts = self._inspect_before_upstream(plan, _decode(payload), auth.mode)
         if plan is not None and plan.program_for(CHECKPOINT_OUTPUT) is not None:
             logger.warning(
                 "guardrail %r has an output program but streaming cannot inspect it yet "
@@ -275,7 +286,7 @@ class ProxyService:
                 list(verdicts.inspected),
             )
 
-        if verdicts.input.blocked:
+        if verdicts.blocked_before_upstream:
             yield await self._blocked_input_stream(
                 auth=auth,
                 audit_id=audit_id,
@@ -341,10 +352,27 @@ class ProxyService:
             )
         return plan
 
-    def _inspect_input(self, plan: ExecutionPlan | None, decoded: object, mode: Mode) -> Inspection:
+    def _inspect_before_upstream(
+        self, plan: ExecutionPlan | None, decoded: object, mode: Mode
+    ) -> _Verdicts:
+        """① 과 ② — 업스트림 호출 전에 도는 검사.
+
+        ① 이 막으면 ② 는 돌지 않는다. 이미 결론이 났고, 감사 로그가 "어디서 걸렸나"를
+        하나로 답할 수 있어야 한다.
+        """
         if self._inspector is None:
-            return NOT_INSPECTED
-        return self._inspector.input(plan, decoded, mode=mode)
+            return _Verdicts(plan=plan)
+
+        tainted = self._inspector.tainted(decoded)
+        first = self._inspector.input(plan, decoded, mode=mode, tainted=tainted)
+        if first.blocked:
+            return _Verdicts(plan=plan, input=first, tainted=tainted)
+        return _Verdicts(
+            plan=plan,
+            input=first,
+            tool_result=self._inspector.tool_result(plan, decoded, mode=mode, tainted=tainted),
+            tainted=tainted,
+        )
 
     async def _blocked_input(
         self,
@@ -490,7 +518,7 @@ class ProxyService:
                     }
                 ).decode(),
                 tier_reached=verdicts.tier,
-                tainted=False,
+                tainted=verdicts.tainted,
                 latency_ms=latency_ms,
                 model=model,
                 prompt_tokens=prompt_tokens,

@@ -680,3 +680,141 @@ def test_patterns_by_slot_finds_the_right_pattern():
         slot for slot, pattern in program.patterns_by_slot.items() if pattern.search("alpha")
     }
     assert len(matched) == 1
+
+
+# --- 오염 노드 / ALL ---------------------------------------------------------
+
+
+def _taint(node_id: str, checkpoint: str = "tool_call") -> Node:
+    return Node(id=node_id, type=NodeType.TAINT, config={"checkpoint": checkpoint})
+
+
+def _all_node(node_id: str) -> Node:
+    return Node(id=node_id, type=NodeType.ALL, config={})
+
+
+def test_a_taint_only_graph_compiles():
+    """extract 가 없어도 프로그램이 나온다 — taint 도 소스다."""
+    plan = compile_guardrail(_graph((_taint("t"), _verdict("v")), (Edge("t", "v"),)))
+    program = plan.program_for("tool_call")
+    assert program is not None
+    assert _kinds(program) == ["Taint", "Verdict"]
+
+
+def test_taint_goes_to_its_own_checkpoint():
+    plan = compile_guardrail(
+        _graph(
+            (_taint("ti", "input"), _verdict("vi"), _taint("tc", "tool_call"), _verdict("vc")),
+            (Edge("ti", "vi"), Edge("tc", "vc")),
+        )
+    )
+    assert plan.checkpoints == frozenset({"input", "tool_call"})
+
+
+def test_taint_and_extract_share_a_checkpoint_program():
+    plan = compile_guardrail(
+        _graph(
+            (
+                _taint("t"),
+                _extract("e", "tool_call"),
+                _regex("r"),
+                _all_node("a"),
+                _verdict("v"),
+            ),
+            (Edge("e", "r"), Edge("t", "a"), Edge("r", "a"), Edge("a", "v")),
+        )
+    )
+    assert plan.checkpoints == frozenset({"tool_call"})
+    program = plan.program_for("tool_call")
+    assert program is not None
+    assert "All" in _kinds(program)
+
+
+def test_a_verdict_mixing_checkpoints_via_taint_is_rejected():
+    """taint 가 소스가 되면서 섞임 검사가 빠지지 않는지 확인한다."""
+    with pytest.raises(ValidationError) as exc:
+        compile_guardrail(
+            _graph(
+                (
+                    _taint("t", "input"),
+                    _extract("e", "tool_call"),
+                    _regex("r"),
+                    _all_node("a"),
+                    _verdict("v"),
+                ),
+                (Edge("e", "r"), Edge("t", "a"), Edge("r", "a"), Edge("a", "v")),
+            )
+        )
+    assert exc.value.code == GuardrailError.MIXED_CHECKPOINTS.code
+
+
+def test_an_unreachable_taint_is_dropped():
+    plan = compile_guardrail(
+        _graph(
+            (_taint("used"), _taint("dangling"), _verdict("v")),
+            (Edge("used", "v"),),
+        )
+    )
+    program = plan.program_for("tool_call")
+    assert program is not None
+    assert len([i for i in program.instructions if type(i).__name__ == "Taint"]) == 1
+
+
+def test_taint_comes_before_what_reads_it():
+    plan = compile_guardrail(
+        _graph(
+            (_taint("t"), _extract("e", "tool_call"), _regex("r"), _all_node("a"), _verdict("v")),
+            (Edge("e", "r"), Edge("t", "a"), Edge("r", "a"), Edge("a", "v")),
+        )
+    )
+    program = plan.program_for("tool_call")
+    assert program is not None
+    kinds = _kinds(program)
+    assert kinds.index("Taint") < kinds.index("All")
+    assert kinds.index("RegexOne") < kinds.index("All")
+
+
+def test_all_reads_the_slots_of_its_inputs():
+    plan = compile_guardrail(
+        _graph(
+            (_taint("t"), _extract("e", "tool_call"), _regex("r"), _all_node("a"), _verdict("v")),
+            (Edge("e", "r"), Edge("t", "a"), Edge("r", "a"), Edge("a", "v")),
+        )
+    )
+    program = plan.program_for("tool_call")
+    assert program is not None
+    combiner = next(i for i in program.instructions if type(i).__name__ == "All")
+    written = {i.out for i in program.instructions if hasattr(i, "out")}
+    assert set(combiner.srcs) <= written
+    assert len(combiner.srcs) == 2
+
+
+def test_slots_stay_dense_with_taint_and_all():
+    plan = compile_guardrail(
+        _graph(
+            (_taint("t"), _extract("e", "tool_call"), _regex("r"), _all_node("a"), _verdict("v")),
+            (Edge("e", "r"), Edge("t", "a"), Edge("r", "a"), Edge("a", "v")),
+        )
+    )
+    program = plan.program_for("tool_call")
+    assert program is not None
+    used = {i.out for i in program.instructions if hasattr(i, "out")}
+    assert used == set(range(program.slot_count))
+
+
+def test_a_mask_verdict_behind_all_is_rejected():
+    """ALL 뒤의 마스킹은 위치를 알 수 없다 — GUARDRAIL-014 가 유지되는지 확인한다."""
+    with pytest.raises(ValidationError) as exc:
+        compile_guardrail(
+            _graph(
+                (
+                    _taint("t", "output"),
+                    _extract("e", "output"),
+                    _regex("r"),
+                    _all_node("a"),
+                    _verdict("v", action="mask"),
+                ),
+                (Edge("e", "r"), Edge("t", "a"), Edge("r", "a"), Edge("a", "v")),
+            )
+        )
+    assert exc.value.code == GuardrailError.UNMASKABLE.code

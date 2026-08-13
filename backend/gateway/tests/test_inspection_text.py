@@ -4,7 +4,14 @@
 가드레일이 가용성 문제가 된다. 모양이 이상하면 빈 결과를 낸다.
 """
 
-from gateway.application.inspection.text import extract_input_text, extract_output_texts
+import pytest
+
+from gateway.application.inspection.text import (
+    extract_input_text,
+    extract_output_texts,
+    extract_tool_result_text,
+    is_tainted,
+)
 
 
 def _messages(*items) -> dict:
@@ -210,3 +217,97 @@ def test_output_extraction_does_not_mutate_the_body():
     before = orjson_roundtrip(body)
     extract_output_texts(body)
     assert orjson_roundtrip(body) == before
+
+
+# --- 오염 (§8 1단계) --------------------------------------------------------
+
+
+def _tool(content, role: str = "tool") -> dict:
+    return {"role": role, "content": content, "tool_call_id": "c1"}
+
+
+def test_a_tool_message_taints():
+    assert is_tainted(_messages(_user("hi"), _tool("file contents"))) is True
+
+
+def test_a_function_message_taints():
+    """구 프로토콜의 같은 자리다. 빠뜨리면 옛 클라이언트에서 추적이 조용히 꺼진다."""
+    assert is_tainted(_messages(_user("hi"), _tool("out", role="function"))) is True
+
+
+def test_an_assistant_tool_call_does_not_taint():
+    """부르려고 한 것과 결과를 받은 것은 다르다 — 외부 데이터는 결과로 들어온다."""
+    payload = _messages(
+        _user("read the file"),
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "c1", "type": "function"}]},
+    )
+    assert is_tainted(payload) is False
+
+
+def test_a_user_only_conversation_is_clean():
+    assert is_tainted(_messages(_user("hello"), _user("again"))) is False
+
+
+def test_a_system_prompt_does_not_taint():
+    payload = _messages({"role": "system", "content": "be careful"}, _user("hi"))
+    assert is_tainted(payload) is False
+
+
+@pytest.mark.parametrize("position", [0, 1, 2])
+def test_taint_does_not_care_about_position(position):
+    """오염은 되돌아가지 않는다 (§8) — 어느 턴에 있어도 오염이다."""
+    messages = [_user("a"), _user("b"), _user("c")]
+    messages.insert(position, _tool("external"))
+    assert is_tainted({"messages": messages}) is True
+
+
+def test_a_malformed_payload_is_clean():
+    """우리가 먼저 터지면 가드레일이 가용성 문제가 된다."""
+    assert is_tainted(None) is False
+    assert is_tainted({}) is False
+    assert is_tainted({"messages": "nope"}) is False
+    assert is_tainted({"messages": ["oops"]}) is False
+
+
+# --- ② tool_result 텍스트 ---------------------------------------------------
+
+
+def test_tool_result_text_joins_every_result():
+    """여러 턴에 걸쳐 심은 지시를 놓치지 않는다."""
+    payload = _messages(_user("q"), _tool("first"), _user("q2"), _tool("second"))
+    assert extract_tool_result_text(payload) == "first\nsecond"
+
+
+def test_tool_result_text_ignores_other_roles():
+    payload = _messages(
+        {"role": "system", "content": "sys"},
+        _user("usr"),
+        {"role": "assistant", "content": "asst"},
+        _tool("tool out"),
+    )
+    assert extract_tool_result_text(payload) == "tool out"
+
+
+def test_tool_result_text_includes_function_role():
+    payload = _messages(_tool("a"), _tool("b", role="function"))
+    assert extract_tool_result_text(payload) == "a\nb"
+
+
+def test_tool_result_text_reads_multimodal_parts():
+    payload = _messages(_tool([{"type": "text", "text": "part"}]))
+    assert extract_tool_result_text(payload) == "part"
+
+
+def test_tool_result_text_is_empty_without_tools():
+    assert extract_tool_result_text(_messages(_user("hi"))) == ""
+
+
+def test_tool_result_text_of_a_malformed_payload_is_empty():
+    assert extract_tool_result_text({"messages": "nope"}) == ""
+    assert extract_tool_result_text(None) == ""
+
+
+def test_input_extraction_still_ignores_tool_results():
+    """① 과 ② 는 다른 것을 본다 — 섞이면 어디서 걸렸는지 알 수 없다."""
+    payload = _messages(_user("usr"), _tool("tool out"))
+    assert extract_input_text(payload) == "usr"
