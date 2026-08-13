@@ -238,3 +238,48 @@ async def test_critical_fallback_also_avoids_blocking_the_loop():
     elapsed = await task
 
     assert elapsed < 0.25, f"이벤트 루프가 동기 삽입에 막혔다 (ticker {elapsed:.3f}s)"
+
+
+async def test_stop_does_not_lose_an_in_flight_batch(ch_client, audit_table):
+    """진행 중인 플러시를 취소하면 감사 이벤트가 유실된다.
+
+    to_thread 의 await 가 취소 지점이므로 cancel() 로 끝내면 배경 루프가 방금
+    집어간 배치가 사라진다. 종료할 때마다 감사에 구멍이 생기는 셈이다.
+    """
+    inserted: list[int] = []
+    real_insert = ch_client.insert
+
+    def slow_insert(*a, **kw):
+        time.sleep(0.15)
+        real_insert(*a, **kw)
+        inserted.append(len(a[1]) if len(a) > 1 else 0)
+
+    class SlowWrapper:
+        def insert(self, *a, **kw):
+            slow_insert(*a, **kw)
+
+    sink = ClickHouseAuditSink(
+        SlowWrapper(), batch_size=10, flush_interval_s=0.01, queue_maxsize=100
+    )
+    await sink.start()
+    await sink.submit(_event())
+    await asyncio.sleep(0.05)  # 배경 루프가 배치를 집어가 삽입 중인 상태
+
+    await sink.stop()
+
+    assert sink.written == 1, "진행 중인 배치가 유실됐다"
+    assert ch_client.query("SELECT count() FROM audit_events").result_rows[0][0] == 1
+
+
+async def test_stop_signal_never_reaches_the_batch(ch_client, audit_table):
+    """센티널이 배치에 섞이면 _to_row 가 터져 배치 전체가 버려진다."""
+    sink = ClickHouseAuditSink(ch_client, batch_size=100, flush_interval_s=60.0, queue_maxsize=100)
+    await sink.start()
+    # 배경 루프가 첫 이벤트를 잡고 나머지를 drain 하는 사이에 _STOP 이 들어간다
+    for _ in range(5):
+        await sink.submit(_event())
+    await sink.stop()
+
+    assert sink.dropped == 0
+    assert sink.written == 5
+    assert ch_client.query("SELECT count() FROM audit_events").result_rows[0][0] == 5

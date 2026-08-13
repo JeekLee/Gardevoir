@@ -9,6 +9,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from gateway.application.service.authentication_service import AuthenticationService
+from gateway.application.service.proxy_service import ProxyService
 
 
 def provide_authentication_service(request: Request) -> AuthenticationService:
@@ -16,4 +17,12 @@ def provide_authentication_service(request: Request) -> AuthenticationService:
     return AuthenticationService(keys=request.app.state.key_cache)
 
 
+def provide_proxy_service(request: Request) -> ProxyService:
+    return ProxyService(
+        upstream=request.app.state.upstream,
+        audit=request.app.state.audit_sink,
+    )
+
+
 AuthenticationServiceDep = Annotated[AuthenticationService, Depends(provide_authentication_service)]
+ProxyServiceDep = Annotated[ProxyService, Depends(provide_proxy_service)]

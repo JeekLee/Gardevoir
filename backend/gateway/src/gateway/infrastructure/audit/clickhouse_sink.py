@@ -42,6 +42,14 @@ AUDIT_COLUMNS = [
 
 _TABLE = "audit_events"
 
+#: stop() 이 배경 루프를 깨워 정상 종료시키는 신호. cancel() 을 쓰면 to_thread
+#: 안에 있던 배치가 유실된다 — to_thread 의 await 가 취소 지점이다.
+_STOP = object()
+
+#: 종료가 영구히 걸리지 않도록 두는 상한. 이 시간을 넘기면 마지막 수단으로
+#: 취소하고 로그를 남긴다.
+_STOP_TIMEOUT_S = 30.0
+
 
 def _to_row(event: AuditEvent) -> list:
     """Row ordered to match AUDIT_COLUMNS.
@@ -78,21 +86,33 @@ class ClickHouseAuditSink:
         self._client = client
         self._batch_size = batch_size
         self._flush_interval_s = flush_interval_s
-        self._queue: asyncio.Queue[AuditEvent] = asyncio.Queue(maxsize=queue_maxsize)
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=queue_maxsize)
         self._task: asyncio.Task | None = None
+        self._stop_seen = False
         self.written = 0
         self.dropped = 0
 
     async def start(self) -> None:
+        self._stop_seen = False
         self._task = asyncio.create_task(self._run())
 
     async def stop(self) -> None:
-        """Stop the background task, then drain what is left. Idempotent."""
-        if self._task is not None:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
-            self._task = None
+        """Drain and shut down gracefully. Idempotent.
+
+        배경 루프를 취소하지 않는다. 취소하면 to_thread 안에 있던 배치가
+        유실되고 — to_thread 의 await 가 취소 지점이다 — 종료할 때마다 감사에
+        구멍이 생긴다. 대신 신호를 큐에 넣고 루프가 스스로 끝내게 한다.
+        """
+        task, self._task = self._task, None
+        if task is not None:
+            await self._queue.put(_STOP)
+            try:
+                await asyncio.wait_for(task, timeout=_STOP_TIMEOUT_S)
+            except TimeoutError:
+                logger.error("audit sink did not stop in %.0fs; cancelling", _STOP_TIMEOUT_S)
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
         while batch := self._drain(self._batch_size):
             await asyncio.to_thread(self._flush, batch)
 
@@ -119,25 +139,39 @@ class ClickHouseAuditSink:
         들어오면 즉시 그것과 함께 쌓인 것을 모아 삽입한다. 한산할 때는 지연이
         낮고, 바쁠 때는 자연히 배치가 커진다.
 
-        _stopping 플래그를 보지 않고 무한 루프를 돈다 — stop() 이 cancel() 로
-        끝내고 남은 것을 직접 비운다. 취소 지점이 wait_for 한 곳으로 모여서
-        배치가 반쯤 삽입된 상태로 죽는 경우가 없다.
+        _STOP 신호를 받으면 남은 것을 비우고 정상 종료한다 — 취소로 끝내면
+        진행 중인 배치를 잃는다.
         """
         while True:
             try:
                 first = await asyncio.wait_for(self._queue.get(), timeout=self._flush_interval_s)
             except TimeoutError:
                 continue
-            batch = [first, *self._drain(self._batch_size - 1)]
-            await asyncio.to_thread(self._flush, batch)
+
+            stopping = first is _STOP
+            batch = [] if stopping else [first]
+            batch.extend(self._drain(self._batch_size - len(batch)))
+            if batch:
+                await asyncio.to_thread(self._flush, batch)
+            if stopping or self._stop_seen:
+                return
 
     def _drain(self, limit: int) -> list[AuditEvent]:
+        """Take up to `limit` events, remembering a stop signal rather than
+        letting it into the batch.
+
+        센티널이 배치에 섞이면 _to_row 가 터져 배치 전체가 버려진다.
+        """
         batch: list[AuditEvent] = []
         while len(batch) < limit:
             try:
-                batch.append(self._queue.get_nowait())
+                item = self._queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
+            if item is _STOP:
+                self._stop_seen = True
+                continue
+            batch.append(item)
         return batch
 
     def _flush(self, batch: list[AuditEvent]) -> None:
