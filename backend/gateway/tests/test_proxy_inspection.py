@@ -16,6 +16,7 @@ from gateway.contract import (
     FINISH_CONTENT_FILTER,
     HEADER_ACTION,
     HEADER_GUARDRAIL_VERSION,
+    HEADER_LATENCY_MS,
     HEADER_MODE,
 )
 from gateway.domain.models.api_key import Scope, generate_key, hash_key
@@ -1346,8 +1347,6 @@ async def test_stream_latency_excludes_upstream_generation(client, admin, audit_
     """
     import asyncio
 
-    from gateway.contract import HEADER_LATENCY_MS
-
     await _publish(admin, _graph("output", action="mask"))
 
     async def slow_stream(request):
@@ -1385,8 +1384,6 @@ async def test_stream_latency_excludes_opening_the_stream(client, admin, audit_t
     """
     import asyncio
 
-    from gateway.contract import HEADER_LATENCY_MS
-
     await _publish(admin, _graph("output", action="mask"))
 
     async def slow_to_open(request):
@@ -1410,3 +1407,40 @@ async def test_stream_latency_excludes_opening_the_stream(client, admin, audit_t
     r = await client.post("/v1/chat/completions", json=payload)
     assert "응답" in r.text
     assert float(r.headers[HEADER_LATENCY_MS]) < 100
+
+
+@respx.mock
+async def test_the_streaming_audit_latency_includes_the_relay(
+    client, admin, app, ch_client, audit_table
+):
+    """중계기가 검사에 쓴 시간은 우리 몫이다 (§7.2).
+
+    헤더는 본문보다 먼저 나가므로 입력 단계까지만 담는다. 감사는 스트림이 끝난 뒤에
+    쓰이므로 중계기가 쓴 시간까지 담아야 한다 — 그러지 않으면 스트리밍 요청의 비용이
+    감사에서 0 으로 보이고, 대부분의 챗봇이 스트리밍이므로 비용 전체가 안 보인다.
+    """
+    await _publish(admin, _graph("output", action="mask"))
+    respx.post(f"{UPSTREAM}/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            content=_sse(
+                {"id": "c", "choices": [{"index": 0, "delta": {"role": "assistant"}}]},
+                {"id": "c", "choices": [{"index": 0, "delta": {"content": "번호는 900101-"}}]},
+                {"id": "c", "choices": [{"index": 0, "delta": {"content": "1234567 입니다"}}]},
+                {"id": "c", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+            ),
+        )
+    )
+
+    payload = _conversation(user="번호")
+    payload["stream"] = True
+    r = await client.post("/v1/chat/completions", json=payload)
+    assert MASK_PLACEHOLDER in r.text
+    header_ms = float(r.headers[HEADER_LATENCY_MS])
+    await app.state.audit_sink.stop()
+
+    rows = ch_client.query("SELECT checkpoint, latency_ms FROM audit_events").result_rows
+    assert len(rows) == 1
+    checkpoint, audit_ms = rows[0]
+    assert checkpoint == "output"
+    assert audit_ms > header_ms, "중계기가 쓴 시간이 감사에서 빠졌다"
