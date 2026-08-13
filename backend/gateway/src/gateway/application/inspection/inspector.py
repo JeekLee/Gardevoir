@@ -1,0 +1,209 @@
+"""Run the checkpoints against a real request (§3, §4).
+
+계획을 **요청 시작에 한 번** 잡아서 입력·출력에 같은 것을 쓴다. 입력을 v37, 출력을
+v38 로 검사하면 판정이 앞뒤가 안 맞고 나중에 재현이 불가능해진다 (§6).
+"""
+
+import logging
+
+from gateway.application.inspection.outcome import (
+    MASK_PLACEHOLDER,
+    NOT_INSPECTED,
+    TIER_RULES,
+    Inspection,
+)
+from gateway.application.inspection.text import extract_input_text, extract_output_texts
+from gateway.application.plan.execution_plan import ExecutionPlan, Program
+from gateway.application.plan.executor import execute
+from gateway.application.plan.registry import PlanRegistry
+from gateway.contract import Action, Mode
+from gateway.domain.models.guardrail import VerdictAction
+
+logger = logging.getLogger(__name__)
+
+CHECKPOINT_INPUT = "input"
+CHECKPOINT_OUTPUT = "output"
+
+
+class Inspector:
+    def __init__(self, *, plans: PlanRegistry) -> None:
+        self._plans = plans
+
+    def plan_for(self, guardrail: str) -> ExecutionPlan | None:
+        """요청 시작에 한 번 부른다. 이후 체크포인트는 이 계획을 받는다 (§6).
+
+        발행본이 없으면 ``None`` 이다. 그때는 통과시키고 보이게 한다 — fail-closed 로
+        하면 발행 안 된 가드레일 하나가 앱 전체를 세우고, 운영자는 가드레일을 떼는
+        쪽으로 움직이므로 안전이 오히려 줄어든다.
+        """
+        return self._plans.get(guardrail)
+
+    def input(self, plan: ExecutionPlan | None, payload: object, *, mode: Mode) -> Inspection:
+        program = plan.program_for(CHECKPOINT_INPUT) if plan is not None else None
+        if program is None:
+            return NOT_INSPECTED
+        return self._run(program, extract_input_text(payload), mode=mode)
+
+    def output(self, plan: ExecutionPlan | None, body: dict, *, mode: Mode) -> Inspection:
+        """③ 검사. MASK 가 걸리면 ``body`` 를 제자리에서 고친다."""
+        program = plan.program_for(CHECKPOINT_OUTPUT) if plan is not None else None
+        if program is None:
+            return NOT_INSPECTED
+
+        texts = extract_output_texts(body)
+        if not texts:
+            return Inspection(action=Action.ALLOW, tier=TIER_RULES)
+
+        checks: list[str] = []
+        pending: list[str] = []
+        blocked = False
+        masked = False
+
+        for position, text in texts:
+            result = execute(program, text, collect_all=mode is Mode.DRY_RUN)
+            checks.extend(result.checks_fired)
+            pending.extend(result.pending_model)
+
+            if result.action is VerdictAction.BLOCK:
+                blocked = True
+            elif result.action is VerdictAction.MASK and mode is not Mode.DRY_RUN:
+                # dry-run 에서 응답을 고치면 시험이 아니다.
+                if self._mask_choice(program, body, position, result.checks_fired):
+                    masked = True
+
+        would_have = Action.BLOCKED if blocked else None
+        if blocked and mode is Mode.DRY_RUN:
+            return Inspection(
+                action=Action.ALLOW,
+                tier=TIER_RULES,
+                checks_fired=tuple(checks),
+                pending_model=tuple(pending),
+                would_have=would_have,
+            )
+        return Inspection(
+            action=Action.BLOCKED if blocked else Action.ALLOW,
+            tier=TIER_RULES,
+            checks_fired=tuple(checks),
+            pending_model=tuple(pending),
+            masked=masked,
+        )
+
+    # -- helpers ------------------------------------------------------------
+
+    def _run(self, program: Program, text: str, *, mode: Mode) -> Inspection:
+        result = execute(program, text, collect_all=mode is Mode.DRY_RUN)
+        blocked = result.action is VerdictAction.BLOCK
+
+        if blocked and mode is Mode.DRY_RUN:
+            return Inspection(
+                action=Action.ALLOW,
+                tier=TIER_RULES,
+                checks_fired=result.checks_fired,
+                pending_model=result.pending_model,
+                would_have=Action.BLOCKED,
+            )
+        return Inspection(
+            action=Action.BLOCKED if blocked else Action.ALLOW,
+            tier=TIER_RULES,
+            checks_fired=result.checks_fired,
+            pending_model=result.pending_model,
+        )
+
+    @staticmethod
+    def _mask_choice(program: Program, body: dict, position: int, fired: tuple[str, ...]) -> bool:
+        """Replace the matched spans in one choice's content.
+
+        컴파일러가 MASK 판정이 extract 를 직접 읽는 regex 에만 걸리도록 보장하므로
+        (``GUARDRAIL-014``), 패턴을 원본에 다시 돌리면 반드시 같은 자리를 찾는다.
+
+        **걸린 MASK 판정이 읽는 패턴만** 돌린다. 계획의 모든 패턴을 돌리면 차단용
+        패턴까지 가려서 저작자가 쓰지 않은 정책이 된다.
+
+        하나도 못 바꿨으면 ``False`` 를 낸다 — ``masked=True`` 라고 말하면서 원문을
+        그대로 내보내는 것이 조용한 fail-open 이다.
+        """
+        slots = {slot for node_id in fired for slot in program.mask_slots.get(node_id, ())}
+        patterns = [pattern for slot, pattern in program.patterns_by_slot.items() if slot in slots]
+        if not patterns:
+            return False
+
+        message = Inspector._message_at(body, position)
+        if message is None:
+            return False
+
+        content = message.get("content")
+        if isinstance(content, str):
+            replaced = Inspector._apply(patterns, content)
+            if replaced == content:
+                logger.warning("a mask verdict fired but nothing matched the original text")
+                return False
+            message["content"] = replaced
+            return True
+
+        if isinstance(content, list):
+            # 멀티모달은 조각을 제자리에서 고친다. 문자열로 합쳐 되쓰면 응답 모양이
+            # 바뀌어 SDK 가 깨진다.
+            changed = False
+            for part in content:
+                if not isinstance(part, dict) or part.get("type") != "text":
+                    continue
+                text = part.get("text")
+                if not isinstance(text, str):
+                    continue
+                replaced = Inspector._apply(patterns, text)
+                if replaced != text:
+                    part["text"] = replaced
+                    changed = True
+            if not changed:
+                logger.warning("a mask verdict fired but nothing matched the original text")
+            return changed
+
+        return False
+
+    @staticmethod
+    def _apply(patterns: list, text: str) -> str:
+        """Replace matched spans, found with ``finditer`` rather than ``sub``.
+
+        ``re2`` 의 ``sub`` 은 비 ASCII 치환 문자열을 망가뜨린다 — 실측으로
+        ``'[개인정보 삭제됨]'`` 이 모지바케로 나왔다. ``finditer`` 의 span 은 유니코드
+        문자 기준으로 정확하므로 직접 잘라 붙인다. 부수적으로 치환 문자열의 백슬래시가
+        그룹 참조로 해석되는 문제도 사라진다.
+
+        여러 패턴이 겹칠 수 있으므로 span 을 모아 병합한 뒤 한 번에 만든다 — 순차
+        치환하면 앞서 넣은 placeholder 안에서 다음 패턴이 걸릴 수 있다.
+        """
+        spans = sorted(
+            (match.start(), match.end()) for pattern in patterns for match in pattern.finditer(text)
+        )
+        if not spans:
+            return text
+
+        merged: list[tuple[int, int]] = []
+        for start, end in spans:
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+
+        pieces: list[str] = []
+        cursor = 0
+        for start, end in merged:
+            pieces.append(text[cursor:start])
+            pieces.append(MASK_PLACEHOLDER)
+            cursor = end
+        pieces.append(text[cursor:])
+        return "".join(pieces)
+
+    @staticmethod
+    def _message_at(body: dict, position: int) -> dict | None:
+        choices = body.get("choices")
+        if not isinstance(choices, list) or position >= len(choices):
+            return None
+        choice = choices[position]
+        if not isinstance(choice, dict):
+            return None
+        message = choice.get("message")
+        return message if isinstance(message, dict) else None
+
+
+__all__ = ["CHECKPOINT_INPUT", "CHECKPOINT_OUTPUT", "Inspector"]

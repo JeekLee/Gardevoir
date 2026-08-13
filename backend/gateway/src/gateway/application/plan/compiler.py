@@ -118,6 +118,7 @@ class _Graph:
         if not live:
             return Program(instructions=(), slot_count=0)
 
+        self._validate_maskable(live)
         order = self._topological(live)
         # ⑤ 값을 만드는 노드에만 슬롯을 준다. verdict 는 슬롯에 쓰지 않으므로 자리를
         # 잡아두면 배열이 판정 개수만큼 쓸데없이 커진다.
@@ -130,7 +131,52 @@ class _Graph:
         return Program(
             instructions=self._emit(order, slots, checkpoint),
             slot_count=len(slots),
+            patterns_by_slot={
+                slots[node_id]: re2.compile(self.nodes[node_id].config["pattern"])
+                for node_id in order
+                if self.nodes[node_id].type is NodeType.REGEX
+            },
+            mask_slots={
+                node_id: tuple(slots[src] for src in self.inputs[node_id] if src in slots)
+                for node_id in order
+                if self.nodes[node_id].type is NodeType.VERDICT
+                and VerdictAction(self.nodes[node_id].config["action"]) is VerdictAction.MASK
+            },
         )
+
+    def _validate_maskable(self, live: set[str]) -> None:
+        """MASK 판정이 실제로 가릴 수 있는지 확인한다.
+
+        마스킹은 **위치**가 필요하다. 실행기는 걸렸는지만 알므로 걸린 패턴을 원본에
+        다시 돌려 위치를 찾는데, 그 패턴이 transform 출력을 읽었다면 원본에서는 안
+        걸릴 수 있다. 그러면 ``action=mask`` 라고 응답하면서 아무것도 가리지 않는다 —
+        조용한 fail-open 이다. length 는 애초에 위치가 없다.
+
+        런타임에 그 상황이 오지 않게 컴파일 시점에 거부한다. 제한은 MASK 만이다 —
+        차단과 통과는 위치가 필요 없다.
+        """
+        for node_id in live:
+            node = self.nodes[node_id]
+            if node.type is not NodeType.VERDICT:
+                continue
+            if VerdictAction(node.config["action"]) is not VerdictAction.MASK:
+                continue
+            for src in self.inputs[node_id]:
+                if src not in live:
+                    continue
+                if self._reads_the_extract_directly(src):
+                    continue
+                GuardrailError.UNMASKABLE.raise_(
+                    f"mask verdict {node_id!r} depends on {src!r}, whose position is unknown",
+                    details={"node_id": node_id, "check": src, "type": str(self.nodes[src].type)},
+                )
+
+    def _reads_the_extract_directly(self, node_id: str) -> bool:
+        if self.nodes[node_id].type is not NodeType.REGEX:
+            return False
+        return all(
+            self.nodes[src].type is NodeType.EXTRACT for src in self.inputs[node_id]
+        ) and bool(self.inputs[node_id])
 
     def _prune(self, node_ids: set[str]) -> set[str]:
         """④ 판정에 닿지 않는 노드를 버린다.

@@ -263,6 +263,29 @@ empty strings.
 Prefer removing the dependency over stabilising it: iterate a declared order (a
 tuple, or a dict built from one) rather than sorting a set into place.
 
+## Behaviour tests cannot see: the response/cleanup boundary
+
+`httpx.ASGITransport` awaits the **entire** ASGI call, so a FastAPI `yield`
+dependency's cleanup has always finished by the time a test inspects state. Under
+real uvicorn it runs *after the response is sent*. Anything you put in cleanup is
+therefore invisible to tests but observably late in production.
+
+This produced three defects in one sitting: a publish that took effect one request
+late, a `PUT draft` whose next `publish` read the previous draft, and a compile
+failure that only reached the log. All three were green in the suite.
+
+**Put "must be true when the caller sees 200" work inside the service**, not in
+dependency cleanup — the application service is the unit-of-work boundary. Commit
+before recompiling (a new session cannot see uncommitted rows), and read your own
+write *before* committing so the request stays one transaction: a read issued after
+the commit opens a second transaction that only closes during cleanup, and that
+open transaction blocks DDL — it wedged the test suite's `TRUNCATE`.
+
+Verify this class of thing by running real uvicorn and reading the ordering in the
+log. Disable anything that could mask it first (e.g. set a huge
+`GARDEVOIR_PLAN_POLL_INTERVAL_S` so the poller cannot cover for a broken
+immediate refresh).
+
 ## Alembic autogenerate and the test fixtures
 
 **`alembic revision --autogenerate` will produce an empty migration if the test

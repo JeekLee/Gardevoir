@@ -297,20 +297,27 @@ def test_dry_run_and_enforce_agree_on_the_action():
 def test_a_mask_does_not_stop_execution():
     """조기 종료는 BLOCK 에서만 한다 — mask 뒤에 오는 판정이 그것을 뒤집을 수 있다.
 
-    판정 순서는 비용이 같으면 노드 id 로 갈리므로, mask 가 먼저 오도록 이름을 잡는다.
+    두 검사를 같은 비용(regex)으로 두어야 선언 순서가 판정 순서가 된다 — 비용이
+    다르면 싼 쪽 검사가 먼저 끝나서 그쪽 판정이 앞선다.
+    mask 판정은 extract 를 직접 읽는 regex 에만 걸 수 있다 (GUARDRAIL-014).
     """
     program = _program(
         (
             _node("e", NodeType.EXTRACT, checkpoint="input"),
-            _node("l", NodeType.LENGTH, max_chars=1),
-            _node("r", NodeType.REGEX, pattern="alpha"),
-            _node("v1_mask", NodeType.VERDICT, decision="conclusive", action="mask"),
-            _node("v2_block", NodeType.VERDICT, decision="conclusive", action="block"),
+            _node("r_mask", NodeType.REGEX, pattern="alpha"),
+            _node("r_block", NodeType.REGEX, pattern="bravo"),
+            _node("v_mask", NodeType.VERDICT, decision="conclusive", action="mask"),
+            _node("v_block", NodeType.VERDICT, decision="conclusive", action="block"),
         ),
-        (Edge("e", "l"), Edge("e", "r"), Edge("l", "v1_mask"), Edge("r", "v2_block")),
+        (
+            Edge("e", "r_mask"),
+            Edge("e", "r_block"),
+            Edge("r_mask", "v_mask"),
+            Edge("r_block", "v_block"),
+        ),
     )
-    result = execute(program, "alpha text")
-    assert result.checks_fired == ("v1_mask", "v2_block"), "mask 가 실행을 멈췄다"
+    result = execute(program, "alpha bravo")
+    assert result.checks_fired == ("v_mask", "v_block"), "mask 가 실행을 멈췄다"
     assert result.action is VerdictAction.BLOCK
 
 

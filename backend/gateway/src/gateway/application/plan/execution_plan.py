@@ -80,6 +80,17 @@ class Program:
     instructions: tuple[Instruction, ...]
     slot_count: int
 
+    #: regex 슬롯 -> 그 슬롯에 쓰는 패턴의 개별 컴파일 결과. **마스킹 전용이다.**
+    #: 합쳐진 Set 은 어느 패턴이 걸렸는지만 알려주고 어디인지는 알려주지 않으므로,
+    #: 가릴 위치를 찾으려면 그 패턴 하나를 다시 돌려야 한다. 판정 경로는 이것을
+    #: 쓰지 않는다 — 마스킹이 실제로 걸릴 때만 비용을 낸다.
+    patterns_by_slot: dict[int, object] = field(default_factory=dict)
+
+    #: MASK 판정 node_id -> 그 판정이 읽는 슬롯들. 마스킹은 **걸린 판정이 읽는**
+    #: 패턴만 적용해야 한다 — 계획의 모든 패턴을 돌리면 차단용 패턴까지 가려서
+    #: 저작자가 쓰지 않은 정책이 된다.
+    mask_slots: dict[str, tuple[int, ...]] = field(default_factory=dict)
+
     @property
     def is_empty(self) -> bool:
         return not self.instructions

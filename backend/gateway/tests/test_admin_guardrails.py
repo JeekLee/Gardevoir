@@ -522,8 +522,16 @@ async def test_a_draft_is_not_compiled(client, app):
     assert app.state.plans.get("live") is None
 
 
-async def test_publishing_compiles_the_plan_without_waiting_for_the_poller(client, app):
-    """커밋 뒤에 재컴파일해야 한다 — 커밋 전이면 새 세션이 그 행을 못 본다."""
+async def test_publishing_compiles_the_plan_before_responding(client, app):
+    """발행이 200 을 돌려주면 그 워커에서는 이미 반영돼 있어야 한다.
+
+    커밋 뒤에 재컴파일해야 하고(커밋 전이면 새 세션이 그 행을 못 본다), 그것이
+    **응답 전에** 끝나야 한다. 조립 루트의 yield 정리 코드에 맡겼을 때는 FastAPI 가
+    응답을 보낸 뒤에 돌려서, 실제 uvicorn 에서 발행 직후의 요청이 이전 계획을 봤다.
+
+    이 테스트만으로는 그 차이를 못 본다 — ASGITransport 가 전체 ASGI 호출을
+    기다려주기 때문이다. 그래서 서비스가 커밋·재컴파일 시점을 직접 갖는다.
+    """
     await client.post(BASE, json={"name": "live", "graph": BLOCKING})
     await client.post(f"{BASE}/live/publish")
 
@@ -531,6 +539,22 @@ async def test_publishing_compiles_the_plan_without_waiting_for_the_poller(clien
     assert plan is not None
     assert plan.version_number == 1
     assert plan.checkpoints == frozenset({"input"})
+
+
+async def test_publish_returns_the_version_the_registry_holds(client, app):
+    """응답의 versionNumber 와 레지스트리의 계획이 같아야 한다.
+
+    한 단계 밀리면 저작자가 방금 발행한 것을 시험할 수 없다.
+    """
+    await client.post(BASE, json={"name": "live", "graph": BLOCKING})
+    for expected in (1, 2, 3):
+        if expected > 1:
+            await client.put(f"{BASE}/live/draft", json={"graph": _swap_pattern(f"p{expected}")})
+        response = await client.post(f"{BASE}/live/publish")
+        assert response.json()["versionNumber"] == expected
+        plan = app.state.plans.get("live")
+        assert plan is not None
+        assert plan.version_number == expected, "레지스트리가 한 단계 밀렸다"
 
 
 async def test_republishing_swaps_the_plan(client, app):
