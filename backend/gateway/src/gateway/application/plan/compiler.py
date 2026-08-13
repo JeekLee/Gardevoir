@@ -158,18 +158,27 @@ class _Graph:
 
         레벨(모든 선행 노드가 이미 처리된 시점) 단위로 처리하고, 레벨 안에서만
         비용순 정렬한다. 그래서 재정렬이 의존성을 깰 수 없다.
+
+        **``live`` 집합을 순회하지 않는다.** set 순회 순서는 문자열 해시에 달려 있어
+        프로세스마다 다르다(PYTHONHASHSEED). §6 은 워커마다 독립 컴파일이라고 했으므로,
+        순회 순서를 그대로 쓰면 워커마다 명령 순서가 달라진다 — 조기 종료 지점이
+        달라지고, 같은 요청의 ``checks_fired`` 가 워커마다 달라져서 감사 로그로
+        정책을 튜닝할 수 없게 된다. 루트(extract)가 여러 개일 때 실제로 갈린다.
+
+        노드 선언 순서(``self.nodes`` 는 그래프의 노드 튜플에서 만든 dict)로 시작하면
+        해시와 무관하게 결정적이다. 비용 정렬은 안정 정렬이므로 그 순서를 보존한다.
         """
-        indegree = {node_id: 0 for node_id in live}
-        for node_id in live:
+        declared = [node_id for node_id in self.nodes if node_id in live]
+        indegree = {node_id: 0 for node_id in declared}
+        for node_id in declared:
             for src in self.inputs[node_id]:
                 if src in live:
                     indegree[node_id] += 1
 
-        ready = [node_id for node_id, degree in indegree.items() if degree == 0]
+        ready = [node_id for node_id in declared if indegree[node_id] == 0]
         order: list[str] = []
         while ready:
-            # 비용 다음 id — id 를 넣어야 워커마다 같은 순서가 나온다 (§6: 독립 컴파일).
-            ready.sort(key=lambda node_id: (_COST[self.nodes[node_id].type], node_id))
+            ready.sort(key=lambda node_id: _COST[self.nodes[node_id].type])
             level, ready = ready, []
             for node_id in level:
                 order.append(node_id)

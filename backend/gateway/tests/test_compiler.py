@@ -419,3 +419,103 @@ def test_the_extract_checkpoint_is_recorded():
     assert program is not None
     assert isinstance(program.instructions[0], Extract)
     assert program.instructions[0].checkpoint == "input"
+
+
+# --- 워커 간 결정론 -----------------------------------------------------------
+#
+# §6 은 워커마다 독립 컴파일이라고 한다. 명령 순서가 워커마다 다르면 조기 종료
+# 지점이 달라지고, 같은 요청의 checks_fired 가 워커마다 달라져서 감사 로그로
+# 정책을 튜닝할 수 없게 된다.
+#
+# 한 프로세스 안에서 두 번 컴파일하는 것으로는 잡히지 않는다 — 문자열 해시가
+# 프로세스마다 다르므로(PYTHONHASHSEED) 하위 프로세스를 띄워서 비교해야 한다.
+
+_SHAPE_PROBE = """
+from gateway.application.plan.compiler import compile_guardrail
+from gateway.domain.models.guardrail import Edge, Guardrail, Node, NodeType
+
+nodes, edges = [], []
+for index in range(6):
+    extract, check, verdict = f"e{index}", f"len{index}", f"v{index}"
+    nodes.append(Node(id=extract, type=NodeType.EXTRACT, config={"checkpoint": "input"}))
+    nodes.append(Node(id=check, type=NodeType.LENGTH, config={"max_chars": 10 + index}))
+    nodes.append(Node(id=verdict, type=NodeType.VERDICT,
+                      config={"decision": "conclusive", "action": "block"}))
+    edges.append(Edge(extract, check))
+    edges.append(Edge(check, verdict))
+
+program = compile_guardrail(Guardrail(
+    name="probe", version="1", version_number=1, nodes=tuple(nodes), edges=tuple(edges)
+)).program_for("input")
+
+shape = []
+for i in program.instructions:
+    kind = type(i).__name__
+    if kind == "Verdict":
+        shape.append(f"V{i.srcs[0]}:{i.node_id}")
+    elif kind == "Length":
+        shape.append(f"L{i.max_chars}->{i.out}")
+    else:
+        shape.append(f"E{i.out}")
+print(",".join(shape))
+"""
+
+
+def _compiled_shape(hash_seed: str) -> str:
+    import os
+    import subprocess
+    import sys
+
+    env = dict(os.environ, PYTHONHASHSEED=hash_seed)
+    result = subprocess.run(
+        [sys.executable, "-c", _SHAPE_PROBE],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def test_the_instruction_order_does_not_depend_on_the_hash_seed():
+    """루트(extract)가 여러 개면 set 순회 순서가 그대로 명령 순서가 된다.
+
+    노드 선언 순서로 정렬을 시작해야 해시와 무관하게 결정적이다.
+    """
+    shapes = {_compiled_shape(seed) for seed in ("1", "2", "3", "4", "5", "6")}
+    assert len(shapes) == 1, f"해시 시드에 따라 순서가 갈렸다: {shapes}"
+
+
+def test_the_shape_probe_actually_produces_a_shape():
+    """위 테스트가 빈 문자열끼리 비교하며 통과하지 않는지 확인한다."""
+    shape = _compiled_shape("1")
+    assert shape.count("E") == 6
+    assert shape.count("L") == 6
+    assert shape.count("V") == 6
+
+
+def test_declaration_order_survives_the_cost_sort():
+    """비용이 같으면 선언 순서를 유지해야 한다 — 안정 정렬이어야 결정적이다."""
+    plan = compile_guardrail(
+        _graph(
+            (
+                _extract("e"),
+                _length("l_third", 30),
+                _length("l_first", 10),
+                _length("l_second", 20),
+                _verdict("v"),
+            ),
+            (
+                Edge("e", "l_third"),
+                Edge("e", "l_first"),
+                Edge("e", "l_second"),
+                Edge("l_third", "v"),
+                Edge("l_first", "v"),
+                Edge("l_second", "v"),
+            ),
+        )
+    )
+    program = plan.program_for("input")
+    assert program is not None
+    lengths = [i.max_chars for i in program.instructions if isinstance(i, Length)]
+    assert lengths == [30, 10, 20], "선언 순서가 아니라 다른 것으로 정렬됐다"

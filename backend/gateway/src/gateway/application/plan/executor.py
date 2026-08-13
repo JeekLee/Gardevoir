@@ -117,9 +117,9 @@ def _run_regex_set(instruction: RegexSet, slots: list) -> None:
     ``Match`` 는 매치가 없으면 **None** 을 준다. 빈 리스트로 착각하면 조용히 전부
     통과한다 — 가드레일에서 가장 나쁜 실패 방향이다.
     """
+    # 슬롯은 None 으로 시작하고 None 은 falsy 다. 걸리지 않은 패턴을 False 로 덮는
+    # 코드를 두면 관측 가능한 차이가 없어서 반증할 수 없는 줄이 된다.
     source = slots[instruction.src]
-    for out in instruction.outs:
-        slots[out] = False
     if source is None:
         return
     hits = instruction.matcher.Match(source)
