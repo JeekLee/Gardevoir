@@ -5,5 +5,27 @@ from gateway.domain.models.api_key import (
     hash_key,
     parse_bearer,
 )
+from gateway.domain.models.guardrail import (
+    DRAFT_VERSION,
+    Decision,
+    Edge,
+    Guardrail,
+    Node,
+    NodeType,
+    VerdictAction,
+)
 
-__all__ = ["KEY_PREFIX", "ApiKey", "generate_key", "hash_key", "parse_bearer"]
+__all__ = [
+    "DRAFT_VERSION",
+    "KEY_PREFIX",
+    "ApiKey",
+    "Decision",
+    "Edge",
+    "Guardrail",
+    "Node",
+    "NodeType",
+    "VerdictAction",
+    "generate_key",
+    "hash_key",
+    "parse_bearer",
+]
