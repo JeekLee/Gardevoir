@@ -1,6 +1,7 @@
 """SQLAlchemy Guardrail repository."""
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gateway.domain.exception.guardrail_error import GuardrailError
@@ -15,7 +16,18 @@ class SqlAlchemyGuardrailRepository:
 
     async def add(self, guardrail: Guardrail, *, id: str) -> None:
         self._session.add(to_model(guardrail, id=id))
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            # 서비스가 미리 확인하지만 확인과 제약 사이에는 틈이 있다. 동시 요청
+            # 두 개가 그 틈에 들어오면 지는 쪽이 500 이 아니라 409 를 받아야 한다.
+            # 번역이 리포지토리에 있는 이유: IntegrityError 는 SQLAlchemy 타입이고,
+            # application 은 그것을 알아서는 안 된다.
+            if guardrail.is_draft:
+                raise GuardrailError.NAME_TAKEN.exception(details={"name": guardrail.name}) from exc
+            raise GuardrailError.CONCURRENT_WRITE.exception(
+                details={"name": guardrail.name, "version": guardrail.version}
+            ) from exc
 
     async def exists(self, name: str) -> bool:
         # draft 뿐 아니라 발행본까지 본다 — 발행만 남은 이름도 점유 상태다.

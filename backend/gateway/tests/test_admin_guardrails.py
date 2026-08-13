@@ -3,10 +3,11 @@ import pytest_asyncio
 
 from gateway.domain.models.api_key import Scope, generate_key, hash_key
 from gateway.infrastructure.models.api_key import ApiKeyModel
+from gateway.presentation.http.admin_guardrails import ADMIN_PREFIX
 from gateway.presentation.http.app import create_app
 from shared_kernel.log import REQUEST_ID_HEADER
 
-BASE = "/v1/admin/guardrails"
+BASE = ADMIN_PREFIX
 
 
 def _graph(max_chars: int = 100) -> dict:
@@ -97,26 +98,101 @@ async def test_a_proxy_only_key_is_403(app, proxy_key):
     assert r.json()["code"] == "APIKEY-005"
 
 
+def _iter_api_routes(routes):
+    """등록된 라우트를 평탄화한다.
+
+    FastAPI 0.141 은 include_router 한 라우터를 _IncludedRouter 로 감싸서
+    app.routes 에 넣으므로, app.routes 만 훑으면 경로가 하나도 안 보인다.
+    openapi() 를 쓰지 않는 이유는 include_in_schema=False 라우트를 놓치기 때문이다 —
+    스펙에서 숨긴 라우트야말로 인가가 빠지면 위험한 쪽이다.
+    """
+    for route in routes:
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            yield from _iter_api_routes(included.routes)
+            continue
+        if getattr(route, "path", None) and getattr(route, "methods", None):
+            yield route
+
+
+def _admin_routes(app) -> list[tuple[str, str]]:
+    """앱에 실제로 등록된 admin 라우트를 뽑는다.
+
+    손으로 적은 목록이면 검사에서 빠진 라우트가 생길 수 있고, 그게 바로 이 테스트가
+    막으려는 상황이다.
+    """
+    found = [
+        (method, route.path)
+        for route in _iter_api_routes(app.routes)
+        if route.path.startswith(ADMIN_PREFIX)
+        for method in sorted(route.methods - {"HEAD", "OPTIONS"})
+    ]
+    assert found, "admin 라우트를 찾지 못했다"
+    return sorted(found)
+
+
+def test_the_route_walker_sees_the_whole_app():
+    """평탄화가 깨지면 위 두 테스트가 빈 목록으로 통과한다."""
+    app = create_app()
+    paths = {route.path for route in _iter_api_routes(app.routes)}
+    assert "/healthz" in paths
+    assert "/v1/chat/completions" in paths
+    assert ADMIN_PREFIX in paths
+
+
+def _concrete(path: str) -> str:
+    return path.replace("{name}", "x").replace("{version_number}", "1")
+
+
 async def test_every_route_requires_the_admin_scope(app, proxy_key):
-    """라우트 하나를 놓치면 그 하나로 전부 우회된다."""
+    """라우트 하나를 놓치면 그 하나로 전부 우회된다.
+
+    라우트 목록을 앱에서 뽑으므로, 인가 없는 라우트를 새로 추가하면 여기서 깨진다.
+    """
+    routes = _admin_routes(app)
+    assert len(routes) >= 7, routes
+
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://test",
         headers={"authorization": f"Bearer {proxy_key}"},
     ) as c:
-        calls = [
-            c.post(BASE, json={"name": "x", "graph": _graph()}),
-            c.get(BASE),
-            c.get(f"{BASE}/x"),
-            c.get(f"{BASE}/x/draft"),
-            c.put(f"{BASE}/x/draft", json={"graph": _graph()}),
-            c.post(f"{BASE}/x/publish"),
-            c.get(f"{BASE}/x/versions/1"),
-        ]
-        for call in calls:
-            r = await call
-            assert r.status_code == 403, r.request.url
+        for method, path in routes:
+            r = await c.request(method, _concrete(path), json={"name": "x", "graph": _graph()})
+            assert r.status_code == 403, (method, path, r.status_code)
+            assert r.json()["code"] == "APIKEY-005", (method, path)
+
+
+async def test_every_route_rejects_a_missing_credential(app):
+    routes = _admin_routes(app)
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        for method, path in routes:
+            r = await c.request(method, _concrete(path), json={"name": "x", "graph": _graph()})
+            assert r.status_code == 401, (method, path, r.status_code)
+
+
+async def test_authorisation_precedes_body_validation(app):
+    """크레덴셜 없는 호출자가 422 로 스키마를 알아내면 안 된다.
+
+    인가가 핸들러 첫 줄이면 FastAPI 가 본문을 먼저 검증해서 422 가 나간다.
+    라우터 레벨 의존성이어야 401 이 먼저다.
+    """
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.post(BASE, json={"name": "x"})  # graph 누락
+    assert r.status_code == 401
+    assert "graph" not in r.text
+
+
+async def test_the_openapi_spec_is_not_public(app):
+    """스펙이 익명으로 열려 있으면 인그레스에서 /v1/admin 을 막아도 경로가 새어나간다."""
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        for path in ("/openapi.json", "/docs", "/redoc"):
+            r = await c.get(path)
+            assert r.status_code == 404, path
 
 
 # --- create ------------------------------------------------------------------
@@ -177,6 +253,73 @@ async def test_a_rejected_create_is_not_persisted(client):
     await client.post(BASE, json={"name": "looping", "graph": CYCLIC})
     r = await client.get(BASE)
     assert r.json()["items"] == []
+
+
+async def test_a_dangerous_path_segment_is_422_not_500(client):
+    """이름 규칙이 쓰기 경로에만 걸려 있으면 경로 조각이 그대로 DB 질의로 내려간다.
+
+    psycopg 는 text 파라미터의 NUL 을 거부하므로 500 이 되고, SQL 과 스택트레이스가
+    로그에 남는다.
+    """
+    for path in (
+        f"{BASE}/x%00y",
+        f"{BASE}/x%00y/draft",
+        f"{BASE}/{'a' * 300}",
+    ):
+        r = await client.get(path)
+        assert r.status_code == 422, (path, r.status_code)
+        assert r.json()["code"] == "GUARDRAIL-010", path
+
+
+async def test_a_dangerous_path_segment_is_422_on_writes_too(client):
+    for call in (
+        client.post(f"{BASE}/x%00y/publish"),
+        client.put(f"{BASE}/x%00y/draft", json={"graph": _graph()}),
+        client.get(f"{BASE}/x%00y/versions/1"),
+    ):
+        r = await call
+        assert r.status_code == 422, r.request.url
+        assert r.json()["code"] == "GUARDRAIL-010"
+
+
+async def test_the_echoed_name_is_bounded(client):
+    """오류 details 가 호출자가 보낸 것을 그대로 되비추면 안 된다."""
+    r = await client.get(f"{BASE}/{'a' * 300}")
+    assert len(r.json()["details"]["name"]) <= 64
+
+
+async def test_a_nul_inside_the_graph_is_422_not_500(client):
+    """Postgres jsonb 는 \\u0000 을 담지 못한다 — INSERT 가 죽으면 저작자에게 500 이 간다."""
+    graph = {
+        "nodes": [
+            {"id": "n0", "type": "extract", "config": {"checkpoint": "input", "x": "a\u0000b"}}
+        ],
+        "edges": [],
+    }
+    r = await client.post(BASE, json={"name": "nul-config", "graph": graph})
+    assert r.status_code == 422
+    assert r.json()["code"] == "GUARDRAIL-005"
+
+
+async def test_a_nul_in_a_node_id_is_422_not_500(client):
+    graph = {
+        "nodes": [{"id": "n\u00000", "type": "extract", "config": {"checkpoint": "input"}}],
+        "edges": [],
+    }
+    r = await client.post(BASE, json={"name": "nul-id", "graph": graph})
+    assert r.status_code == 422
+    assert r.json()["code"] == "GUARDRAIL-005"
+
+
+async def test_a_rejected_nul_stores_nothing(client):
+    graph = {
+        "nodes": [
+            {"id": "n0", "type": "extract", "config": {"checkpoint": "input", "x": "a\u0000b"}}
+        ],
+        "edges": [],
+    }
+    await client.post(BASE, json={"name": "nul-config", "graph": graph})
+    assert (await client.get(BASE)).json()["items"] == []
 
 
 # --- read --------------------------------------------------------------------

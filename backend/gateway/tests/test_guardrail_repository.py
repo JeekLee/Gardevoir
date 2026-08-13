@@ -5,7 +5,7 @@ from gateway.domain.exception.guardrail_error import GuardrailError
 from gateway.domain.models.guardrail import DRAFT_VERSION, Edge, Guardrail, Node, NodeType
 from gateway.infrastructure.models.guardrail import GuardrailModel
 from gateway.infrastructure.repository.guardrail_repository import SqlAlchemyGuardrailRepository
-from shared_kernel.exception import NotFoundError
+from shared_kernel.exception import ConflictError, NotFoundError
 
 
 def _draft(name: str = "doc-agent", *, max_chars: int = 100) -> Guardrail:
@@ -150,3 +150,33 @@ async def test_exists_reports_any_row_for_the_name(repo):
     assert await repo.exists("doc-agent") is False
     await repo.add(_draft().published_as(1), id="a")
     assert await repo.exists("doc-agent") is True
+
+
+# --- 경합 번역 ---------------------------------------------------------------
+
+
+async def test_a_duplicate_draft_becomes_a_domain_conflict(repo, session):
+    """사전 확인과 유일 제약 사이의 틈. 지는 쪽이 500 이 아니라 409 를 받아야 한다."""
+    await repo.add(_draft(), id="a")
+    with pytest.raises(ConflictError) as exc:
+        await repo.add(_draft(), id="b")
+    assert exc.value.code == GuardrailError.NAME_TAKEN.code
+    await session.rollback()
+
+
+async def test_a_duplicate_published_version_becomes_a_domain_conflict(repo, session):
+    """발행 버튼을 두 번 누르면 두 요청이 같은 번호를 계산한다."""
+    await repo.add(_draft().published_as(1), id="a")
+    with pytest.raises(ConflictError) as exc:
+        await repo.add(_draft().published_as(1), id="b")
+    assert exc.value.code == GuardrailError.CONCURRENT_WRITE.code
+    await session.rollback()
+
+
+async def test_the_conflict_keeps_the_original_cause(repo, session):
+    """원인을 버리면 예상 못한 제약 위반이 NAME_TAKEN 으로 위장된다."""
+    await repo.add(_draft(), id="a")
+    with pytest.raises(ConflictError) as exc:
+        await repo.add(_draft(), id="b")
+    assert isinstance(exc.value.__cause__, sqlalchemy.exc.IntegrityError)
+    await session.rollback()

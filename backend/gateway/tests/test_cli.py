@@ -1,5 +1,9 @@
+import sys
+
+import pytest
 from sqlalchemy import select
 
+from gateway import cli
 from gateway.application.service.authentication_service import AuthenticationService
 from gateway.cli import create_key
 from gateway.domain.models.api_key import KEY_PREFIX, Scope, hash_key
@@ -83,3 +87,64 @@ async def test_id_is_a_ulid(session):
 
     row = (await session.execute(select(ApiKeyModel))).scalar_one()
     assert len(row.id) == 26
+
+
+# --- 인자 검증 ---------------------------------------------------------------
+
+
+def _argv(*extra: str) -> list[str]:
+    return ["gardevoir-createkey", "--name", "k", *extra]
+
+
+def test_an_admin_only_key_does_not_need_an_upstream_secret(monkeypatch):
+    """admin 전용 키는 그 시크릿을 쓸 수 없다.
+
+    그래도 요구하면 컨트롤 플레인 크레덴셜 유출 시 프로바이더 키까지 함께 새고,
+    운영자는 쓰지도 못하는 값을 붙여넣게 된다.
+    """
+    seen: dict = {}
+    monkeypatch.setattr(sys, "argv", _argv("--scope", "admin"))
+    # DB 를 건드리지 않는다 — 검사하려는 것은 인자 처리다.
+    monkeypatch.setattr(cli, "_run", lambda args, guardrails: seen.update(args=args) or "x")
+    monkeypatch.setattr(cli.asyncio, "run", lambda value: value)
+
+    cli.createkey()
+    assert seen["args"].upstream_api_key == ""
+    assert seen["args"].scope == ["admin"]
+
+
+def test_a_proxy_key_still_requires_an_upstream_secret(monkeypatch):
+    monkeypatch.setattr(sys, "argv", _argv("--scope", "proxy"))
+    with pytest.raises(SystemExit):
+        cli.createkey()
+
+
+def test_the_default_scope_requires_an_upstream_secret(monkeypatch):
+    """스코프를 생략하면 proxy 다 — 그 경로가 검사에서 빠지면 안 된다."""
+    monkeypatch.setattr(sys, "argv", _argv())
+    with pytest.raises(SystemExit):
+        cli.createkey()
+
+
+def test_an_admin_and_proxy_key_requires_an_upstream_secret(monkeypatch):
+    monkeypatch.setattr(sys, "argv", _argv("--scope", "admin", "--scope", "proxy"))
+    with pytest.raises(SystemExit):
+        cli.createkey()
+
+
+async def test_an_admin_only_key_stores_no_upstream_secret(session):
+    raw = await create_key(
+        session=session,
+        name="ops",
+        upstream_base_url="https://api.openai.com/v1",
+        upstream_api_key="",
+        allowed_guardrails=[],
+        default_guardrail=None,
+        scopes=[str(Scope.ADMIN)],
+    )
+    await session.commit()
+    assert raw
+
+    row = (await session.execute(select(ApiKeyModel))).scalar_one()
+    assert row.upstream_api_key == ""
+    assert row.scopes == ["admin"]

@@ -12,6 +12,7 @@ from fastapi import Depends, Request
 from gateway.application.service.authentication_service import AuthenticationService
 from gateway.application.service.guardrail_service import GuardrailService
 from gateway.application.service.proxy_service import ProxyService
+from gateway.domain.models.api_key import Scope
 from gateway.infrastructure.dao.guardrail_dao import SqlAlchemyGuardrailDao
 from gateway.infrastructure.repository.guardrail_repository import SqlAlchemyGuardrailRepository
 
@@ -47,3 +48,22 @@ async def provide_guardrail_service(request: Request) -> AsyncIterator[Guardrail
 AuthenticationServiceDep = Annotated[AuthenticationService, Depends(provide_authentication_service)]
 ProxyServiceDep = Annotated[ProxyService, Depends(provide_proxy_service)]
 GuardrailServiceDep = Annotated[GuardrailService, Depends(provide_guardrail_service)]
+
+
+async def require_admin_scope(request: Request, auth_service: AuthenticationServiceDep) -> None:
+    """Demand the admin scope before a handler runs.
+
+    라우터 레벨 의존성이어야 한다. 핸들러 첫 줄에 두면 FastAPI 가 그 전에 본문을
+    검증하므로, 크레덴셜이 없는 호출자가 401 대신 422 를 받고 스키마를 알아낸다.
+    라우트마다 반복하는 한 줄이 아니라 라우터에 한 번 걸어야 새 라우트가 빠뜨릴
+    수도 없다.
+
+    가드레일을 해석하지 않는다 — 저작 API 에는 해석할 가드레일이 없다.
+    """
+    await auth_service.authorise(
+        authorization=request.headers.get("authorization"), require=Scope.ADMIN
+    )
+
+
+#: 라우터의 dependencies= 에 넣는다. Depends 는 composition 밖으로 나가지 않는다.
+AdminScopeDep = Depends(require_admin_scope)

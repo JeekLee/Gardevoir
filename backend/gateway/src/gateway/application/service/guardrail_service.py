@@ -13,7 +13,7 @@ from gateway.application.dao.guardrail_dao import GuardrailDao
 from gateway.application.repository.guardrail_repository import GuardrailRepository
 from gateway.application.result.guardrail_result import GuardrailDetail, GuardrailSummary
 from gateway.domain.exception.guardrail_error import GuardrailError
-from gateway.domain.models.guardrail import DRAFT_VERSION, Guardrail
+from gateway.domain.models.guardrail import DRAFT_VERSION, Guardrail, require_valid_name
 from shared_kernel.api import Page
 
 
@@ -40,12 +40,14 @@ class GuardrailService:
         return await self._detail(name, DRAFT_VERSION)
 
     async def publish(self, name: str) -> GuardrailDetail:
+        require_valid_name(name)
         draft = await self._guardrails.find_draft(name)
         if draft is None:
             GuardrailError.NO_DRAFT.raise_(details={"name": name})
 
-        # 번호를 배정하기 전에 검증한다. 검증 실패가 번호를 소모하면 버전 열에
-        # 구멍이 생기고, 감사 추적에서 "3번은 어디 갔나"를 설명할 수 없게 된다.
+        # 쓰기 전에 검증한다 — 실패한 발행이 행을 남기면 버전 열에 구멍이 생기고,
+        # 감사 추적에서 "3번은 어디 갔나"를 설명할 수 없게 된다. 번호 자체는
+        # max()+1 로 유도되므로 호출만으로 소모되지는 않는다.
         draft.validate()
 
         version_number = await self._guardrails.next_version_number(name)
@@ -54,6 +56,7 @@ class GuardrailService:
         return await self._detail(name, str(version_number))
 
     async def get_draft(self, name: str) -> GuardrailDetail:
+        require_valid_name(name)
         detail = await self._dao.get_detail(name, DRAFT_VERSION)
         if detail is None:
             GuardrailError.NO_DRAFT.raise_(details={"name": name})
@@ -61,12 +64,14 @@ class GuardrailService:
 
     async def get_latest(self, name: str) -> GuardrailDetail:
         """The newest published version. A guardrail with only a draft is a 404."""
+        require_valid_name(name)
         detail = await self._dao.get_latest_detail(name)
         if detail is None:
             GuardrailError.NOT_FOUND.raise_(details={"name": name})
         return detail
 
     async def get_version(self, name: str, version_number: int) -> GuardrailDetail:
+        require_valid_name(name)
         return await self._detail(name, str(version_number))
 
     async def list(self) -> Page[GuardrailSummary]:

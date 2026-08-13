@@ -32,6 +32,33 @@ VALID_TRANSFORMS = frozenset({"lower", "strip"})
 #: RE2 는 \Z 를 모른다. fullmatch 로 고정한다.
 NAME_PATTERN = re2.compile(r"[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?")
 
+#: 오류 details 에 되돌릴 이름의 최대 길이. 호출자가 보낸 것을 그대로 되비추지
+#: 않는다 — 경로 조각은 몇 KB 일 수도 있다.
+_NAME_ECHO_LIMIT = 64
+
+
+def require_valid_name(name: object) -> str:
+    """Reject anything that is not a guardrail name.
+
+    애그리거트를 만들지 않는 경로(조회·발행)도 이 함수를 거쳐야 한다. 그러지 않으면
+    이름 규칙이 쓰기 경로에만 걸려서, 경로 조각이 그대로 DB 질의로 내려간다.
+    """
+    if not isinstance(name, str) or not NAME_PATTERN.fullmatch(name):
+        GuardrailError.INVALID_NAME.raise_(details={"name": _echo(name)})
+    return name
+
+
+def _echo(name: object) -> str:
+    """What an error may repeat back about a rejected name.
+
+    잘라내고 제어문자를 지운다. 이 값은 응답 본문과 로그 양쪽에 실리므로, 호출자가
+    보낸 것을 그대로 되비추면 안 된다 — 경로 조각은 몇 KB 일 수도 있고 NUL 을
+    담을 수도 있다.
+    """
+    if not isinstance(name, str):
+        return type(name).__name__
+    return "".join(c for c in name[:_NAME_ECHO_LIMIT] if c.isprintable())
+
 
 class NodeType(StrEnum):
     EXTRACT = "extract"
@@ -94,8 +121,7 @@ class Guardrail:
     edges: tuple[Edge, ...]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.name, str) or not NAME_PATTERN.fullmatch(self.name):
-            GuardrailError.INVALID_NAME.raise_(details={"name": self.name})
+        require_valid_name(self.name)
 
     @classmethod
     def draft(cls, name: str, graph: dict) -> "Guardrail":
@@ -229,6 +255,7 @@ def _parse_node(raw: object) -> Node:
             f"node {node_id!r}: config must be an object",
             details={"node_id": node_id, "reason": "config must be an object"},
         )
+    _reject_nul_in_node(node_id, config)
     return Node(id=node_id, type=node_type, config=config)
 
 
@@ -241,6 +268,35 @@ def _parse_edge(raw: object) -> Edge:
             details={"reason": "each edge needs non-empty string src and dst"}
         )
     return Edge(src=src, dst=dst)
+
+
+def _reject_nul_in_node(node_id: str, value: Any) -> None:
+    """NUL 은 정책 문자열에 쓸 일이 없고, 저장할 수도 없다.
+
+    Postgres jsonb 는 \\u0000 을 담지 못해 INSERT 가 UntranslatableCharacter 로
+    죽는다 — 즉 저작자에게 422 가 아니라 500 이 간다. 노드 id 는 슬러그가 아니라
+    임의 문자열이므로 여기서 함께 막는다.
+    """
+    if "\x00" in node_id:
+        GuardrailError.INVALID_NODE_CONFIG.raise_(
+            "a node id may not contain a NUL character",
+            details={"node_id": node_id.replace("\x00", ""), "reason": "NUL is not allowed"},
+        )
+    if _contains_nul(value):
+        GuardrailError.INVALID_NODE_CONFIG.raise_(
+            f"node {node_id!r}: config may not contain a NUL character",
+            details={"node_id": node_id, "reason": "NUL is not allowed"},
+        )
+
+
+def _contains_nul(value: Any) -> bool:
+    if isinstance(value, str):
+        return "\x00" in value
+    if isinstance(value, dict):
+        return any(_contains_nul(k) or _contains_nul(v) for k, v in value.items())
+    if isinstance(value, list | tuple):
+        return any(_contains_nul(item) for item in value)
+    return False
 
 
 def _plain(value: Any) -> Any:

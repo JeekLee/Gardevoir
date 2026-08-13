@@ -67,7 +67,13 @@ def createkey() -> None:
     parser = argparse.ArgumentParser(description="Create a gardevoir API key")
     parser.add_argument("--name", required=True)
     parser.add_argument("--upstream-base-url", default="https://api.openai.com/v1")
-    parser.add_argument("--upstream-api-key", required=True)
+    parser.add_argument(
+        "--upstream-api-key",
+        default="",
+        help="proxy 스코프에만 필요하다. admin 전용 키는 이 값을 쓸 수 없으므로 "
+        "요구하지 않는다 — 쓰지도 못하는 프로바이더 시크릿을 함께 저장하면 "
+        "컨트롤 플레인 크레덴셜 유출 시 피해 범위만 넓어진다.",
+    )
     parser.add_argument(
         "--guardrail",
         action="append",
@@ -82,6 +88,9 @@ def createkey() -> None:
         help="반복 지정 가능. 생략하면 proxy 만 부여된다.",
     )
     args = parser.parse_args()
+    scopes = args.scope or [str(Scope.PROXY)]
+    if str(Scope.PROXY) in scopes and not args.upstream_api_key:
+        parser.error("--upstream-api-key is required for a proxy-scoped key")
     print(asyncio.run(_run(args, args.guardrail or ["base"])))
 
 

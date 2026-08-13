@@ -157,8 +157,13 @@ async def test_publish_fails_without_a_draft(service):
     assert exc.value.code == GuardrailError.NO_DRAFT.code
 
 
-async def test_publish_validates_before_assigning_a_number(service, session):
-    """검증 실패가 번호를 소모하면 버전 열에 구멍이 생긴다."""
+async def test_a_failed_publish_writes_no_row(service, session):
+    """검증이 쓰기보다 앞서야 한다.
+
+    번호 자체는 max()+1 로 유도되므로 next_version_number 를 부르는 것만으로는
+    소모되지 않는다 — 소모되는 것은 *행이 남을* 때다. 그러면 버전 열에 구멍이
+    생기고 감사 추적에서 "2번은 어디 갔나"를 설명할 수 없게 된다.
+    """
     await service.create(CreateGuardrail(name="doc-agent", graph=_graph()))
     await service.publish("doc-agent")
 
@@ -172,9 +177,22 @@ async def test_publish_validates_before_assigning_a_number(service, session):
     with pytest.raises(ValidationError):
         await service.publish("doc-agent")
 
+    versions = (
+        (
+            await session.execute(
+                sqlalchemy.select(GuardrailModel.version).where(
+                    GuardrailModel.version_number.is_not(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert sorted(versions) == ["1"], "실패한 발행이 행을 남겼다"
+
     await service.update_draft("doc-agent", UpdateDraft(graph=_graph()))
     revived = await service.publish("doc-agent")
-    assert revived.version_number == 2, "실패한 발행이 2번을 태워서는 안 된다"
+    assert revived.version_number == 2
 
 
 async def test_publish_leaves_the_draft_editable(service):
@@ -275,3 +293,26 @@ async def test_every_write_returns_the_same_shape_as_a_read(service):
 
     assert type(created) is type(published) is type(read) is GuardrailDetail
     assert published.model_dump() == read.model_dump()
+
+
+# -- 이름 -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", ["x\x00y", "A", "a" * 65, "", "a/b"])
+async def test_every_read_rejects_an_invalid_name(service, bad):
+    """이름 규칙이 쓰기 경로에만 걸려 있으면 조회가 그 문자열을 그대로 DB 로 보낸다."""
+    for call in (
+        service.get_draft(bad),
+        service.get_latest(bad),
+        service.get_version(bad, 1),
+        service.publish(bad),
+    ):
+        with pytest.raises(ValidationError) as exc:
+            await call
+        assert exc.value.code == GuardrailError.INVALID_NAME.code
+
+
+async def test_update_draft_rejects_an_invalid_name(service):
+    with pytest.raises(ValidationError) as exc:
+        await service.update_draft("x\x00y", UpdateDraft(graph=_graph()))
+    assert exc.value.code == GuardrailError.INVALID_NAME.code

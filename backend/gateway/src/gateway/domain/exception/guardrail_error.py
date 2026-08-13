@@ -30,3 +30,8 @@ class GuardrailError(ErrorCatalog):
         ValidationError,
     )
     INVALID_NAME = ("GUARDRAIL-010", "the guardrail name is not a valid slug", ValidationError)
+    CONCURRENT_WRITE = (
+        "GUARDRAIL-011",
+        "another write to this guardrail won the race; retry",
+        ConflictError,
+    )

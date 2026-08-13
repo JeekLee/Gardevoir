@@ -3,7 +3,7 @@
 import pytest
 
 from gateway.domain.exception.guardrail_error import GuardrailError
-from gateway.domain.models.guardrail import DRAFT_VERSION, Guardrail
+from gateway.domain.models.guardrail import DRAFT_VERSION, Guardrail, require_valid_name
 from shared_kernel.exception import ValidationError
 
 GOOD = {
@@ -104,3 +104,81 @@ def test_to_graph_lowers_enums_to_strings():
     for node in graph["nodes"]:
         assert type(node["type"]) is str
     assert type(graph["nodes"][1]["config"]["action"]) is str
+
+
+# --- NUL ---------------------------------------------------------------------
+
+
+def test_a_nul_in_a_config_string_is_rejected():
+    """Postgres jsonb 는 \\u0000 을 담지 못한다 — 통과시키면 INSERT 에서 500 이 된다."""
+    with pytest.raises(ValidationError) as exc:
+        Guardrail.draft("x", {"nodes": [{"id": "n0", "type": "regex", "config": {"p": "a\x00b"}}]})
+    assert exc.value.code == GuardrailError.INVALID_NODE_CONFIG.code
+    assert exc.value.details["node_id"] == "n0"
+
+
+def test_a_nul_in_a_nested_config_value_is_rejected():
+    graph = {
+        "nodes": [
+            {"id": "n0", "type": "regex", "config": {"list": [{"deep": "a\x00b"}]}},
+        ]
+    }
+    with pytest.raises(ValidationError) as exc:
+        Guardrail.draft("x", graph)
+    assert exc.value.code == GuardrailError.INVALID_NODE_CONFIG.code
+
+
+def test_a_nul_in_a_config_key_is_rejected():
+    with pytest.raises(ValidationError):
+        Guardrail.draft("x", {"nodes": [{"id": "n0", "type": "regex", "config": {"a\x00b": 1}}]})
+
+
+def test_a_nul_in_a_node_id_is_rejected():
+    with pytest.raises(ValidationError) as exc:
+        Guardrail.draft("x", {"nodes": [{"id": "n\x000", "type": "regex", "config": {}}]})
+    assert exc.value.code == GuardrailError.INVALID_NODE_CONFIG.code
+
+
+def test_the_reported_node_id_does_not_carry_the_nul():
+    """오류 details 가 그대로 로그·응답에 실린다."""
+    with pytest.raises(ValidationError) as exc:
+        Guardrail.draft("x", {"nodes": [{"id": "n\x000", "type": "regex", "config": {}}]})
+    assert "\x00" not in exc.value.details["node_id"]
+
+
+def test_an_ordinary_graph_is_untouched_by_the_nul_check():
+    Guardrail.draft("x", GOOD).validate()
+
+
+# --- require_valid_name -----------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", ["x\x00y", "A", "", "a" * 65, "a/b", None, 7])
+def test_require_valid_name_rejects(bad):
+    with pytest.raises(ValidationError) as exc:
+        require_valid_name(bad)
+    assert exc.value.code == GuardrailError.INVALID_NAME.code
+
+
+def test_require_valid_name_returns_the_name():
+    assert require_valid_name("doc-agent") == "doc-agent"
+
+
+def test_require_valid_name_bounds_what_it_echoes():
+    """경로 조각은 몇 KB 일 수도 있다. 오류가 호출자 입력을 그대로 되비추면 안 된다."""
+    with pytest.raises(ValidationError) as exc:
+        require_valid_name("a" * 5000)
+    assert len(exc.value.details["name"]) <= 64
+
+
+def test_require_valid_name_strips_control_characters_from_the_echo():
+    """되비추는 값은 응답 본문과 로그 양쪽에 실린다."""
+    with pytest.raises(ValidationError) as exc:
+        require_valid_name("a\x00b\ncd")
+    assert exc.value.details == {"name": "abcd"}
+
+
+def test_require_valid_name_does_not_echo_a_non_string():
+    with pytest.raises(ValidationError) as exc:
+        require_valid_name(object())
+    assert exc.value.details == {"name": "object"}
