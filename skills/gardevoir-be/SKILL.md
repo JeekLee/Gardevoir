@@ -222,6 +222,42 @@ Also check for *other* mutation scripts still looping — several killed shells 
 survive and run pytest concurrently against the same database, which produces the
 same symptom and is easy to misread as a code defect.
 
+**3. Count a hang as CAUGHT.** A mutation that makes the suite hang looks like
+`SURVIVED` to the obvious classifier, because the killed output contains no
+`failed`/`error` line. Check the exit code:
+
+```bash
+out=$(timeout 300 uv run pytest -q 2>&1 | tail -3); rc=$?
+if [ $rc -eq 124 ]; then echo "HANG (=CAUGHT)"
+elif echo "$out" | grep -qE "[0-9]+ (failed|error)"; then echo CAUGHT
+else echo SURVIVED; fi
+```
+
+This misclassified a real result once: removing `task.cancel()` from a background
+task's `stop()` made every test wait forever on the poller, and the harness
+reported the mutation as surviving.
+
+**4. Commit before mutating, every time.** The `git checkout -- src/` that restores
+a mutation also discards uncommitted source fixes. This has bitten three times in
+this repo — including once *while fixing a survivor*, which silently reverted the
+fix and made the next two mutations report `SKIP` because their target string was
+gone.
+
+## Determinism a single process cannot observe
+
+Instruction order, slot numbers, and anything else derived from iterating a `set`
+of strings varies **between processes** — string hashing is randomised per process.
+Compiling twice in one test always agrees, so a test written that way cannot fail.
+
+§6 compiles per worker, so an order that varies per worker changes where early exit
+lands, which changes the `checks_fired` recorded for the same request. Pin it by
+compiling in subprocesses with different `PYTHONHASHSEED` and comparing the shape —
+and assert the probe actually produced a shape, or the comparison passes on two
+empty strings.
+
+Prefer removing the dependency over stabilising it: iterate a declared order (a
+tuple, or a dict built from one) rather than sorting a set into place.
+
 ## Alembic autogenerate and the test fixtures
 
 **`alembic revision --autogenerate` will produce an empty migration if the test
