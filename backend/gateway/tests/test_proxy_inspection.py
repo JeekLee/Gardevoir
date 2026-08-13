@@ -767,6 +767,49 @@ async def test_audit_checkpoint_is_tool_result_when_it_blocks(
     assert rows[0] == ("blocked", "tool_result", ["v"])
 
 
+@respx.mock
+async def test_audit_checkpoint_names_tool_result_even_when_input_also_ran(
+    client, admin, app, ch_client, audit_table
+):
+    """①도 돌았을 때 ②가 막았으면 ②로 기록돼야 한다.
+
+    ② 프로그램만 있는 그래프로는 이 성질을 볼 수 없다 — ①이 돌지 않아서 어느 분기로
+    답해도 tool_result 가 나온다. 정책 튜닝은 '어디서 걸렸나'를 믿고 하는 일이다.
+    """
+    graph = {
+        "nodes": [
+            {"id": "ei", "type": "extract", "config": {"checkpoint": "input"}},
+            {"id": "ri", "type": "regex", "config": {"pattern": "never-matches-this"}},
+            {
+                "id": "vi",
+                "type": "verdict",
+                "config": {"decision": "conclusive", "action": "block"},
+            },
+            {"id": "et", "type": "extract", "config": {"checkpoint": "tool_result"}},
+            {"id": "rt", "type": "regex", "config": {"pattern": "발송하십시오"}},
+            {
+                "id": "vt",
+                "type": "verdict",
+                "config": {"decision": "conclusive", "action": "block"},
+            },
+        ],
+        "edges": [
+            {"src": "ei", "dst": "ri"},
+            {"src": "ri", "dst": "vi"},
+            {"src": "et", "dst": "rt"},
+            {"src": "rt", "dst": "vt"},
+        ],
+    }
+    await _publish(admin, graph)
+    r = await client.post("/v1/chat/completions", json=_conversation(tool_result=INJECTION))
+    assert r.status_code == 400
+    assert _ext(r)["inspected"] == ["input", "tool_result"], "① 도 돌았어야 한다"
+    await app.state.audit_sink.stop()
+
+    rows = ch_client.query("SELECT checkpoint, checks_fired FROM audit_events").result_rows
+    assert rows[0] == ("tool_result", ["vt"])
+
+
 # --- 스트리밍 ----------------------------------------------------------------
 
 
