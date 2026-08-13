@@ -31,6 +31,7 @@ from gateway.application.audit.audit_event import AuditEvent, Checkpoint, new_ev
 from gateway.application.inspection.inspector import (
     CHECKPOINT_INPUT,
     CHECKPOINT_OUTPUT,
+    CHECKPOINT_TOOL_CALL,
     CHECKPOINT_TOOL_RESULT,
     Inspector,
 )
@@ -105,6 +106,7 @@ class _Verdicts:
     input: Inspection = NOT_INSPECTED
     tool_result: Inspection = NOT_INSPECTED
     output: Inspection = NOT_INSPECTED
+    tool_call: Inspection = NOT_INSPECTED
     tainted: bool = False
 
     @property
@@ -120,25 +122,47 @@ class _Verdicts:
             names.append(CHECKPOINT_TOOL_RESULT)
         if self.output.ran:
             names.append(CHECKPOINT_OUTPUT)
+        if self.tool_call.ran:
+            names.append(CHECKPOINT_TOOL_CALL)
         return tuple(names)
 
     @property
     def checks(self) -> tuple[str, ...]:
-        return self.input.checks_fired + self.tool_result.checks_fired + self.output.checks_fired
+        return (
+            self.input.checks_fired
+            + self.tool_result.checks_fired
+            + self.output.checks_fired
+            + self.tool_call.checks_fired
+        )
 
     @property
     def pending_model(self) -> tuple[str, ...]:
-        return self.input.pending_model + self.tool_result.pending_model + self.output.pending_model
+        return (
+            self.input.pending_model
+            + self.tool_result.pending_model
+            + self.output.pending_model
+            + self.tool_call.pending_model
+        )
 
     @property
     def action(self) -> Action:
-        if self.input.blocked or self.tool_result.blocked or self.output.blocked:
+        if (
+            self.input.blocked
+            or self.tool_result.blocked
+            or self.output.blocked
+            or self.tool_call.blocked
+        ):
             return Action.BLOCKED
         return Action.ALLOW
 
     @property
     def would_have(self) -> Action | None:
-        return self.input.would_have or self.tool_result.would_have or self.output.would_have
+        return (
+            self.input.would_have
+            or self.tool_result.would_have
+            or self.output.would_have
+            or self.tool_call.would_have
+        )
 
     @property
     def blocked_before_upstream(self) -> bool:
@@ -152,6 +176,8 @@ class _Verdicts:
             return Checkpoint.INPUT
         if self.tool_result.blocked:
             return Checkpoint.TOOL_RESULT
+        if self.tool_call.blocked:
+            return Checkpoint.TOOL_CALL
         if self.output.blocked or self.output.masked:
             return Checkpoint.OUTPUT
         if self.input.ran:
@@ -160,11 +186,27 @@ class _Verdicts:
             return Checkpoint.TOOL_RESULT
         if self.output.ran:
             return Checkpoint.OUTPUT
+        if self.tool_call.ran:
+            return Checkpoint.TOOL_CALL
         return Checkpoint.NONE
 
     @property
     def tier(self) -> str:
-        return self.input.tier or self.tool_result.tier or self.output.tier or TIER_NONE
+        return (
+            self.input.tier
+            or self.tool_result.tier
+            or self.output.tier
+            or self.tool_call.tier
+            or TIER_NONE
+        )
+
+    @property
+    def blocked_after_upstream(self) -> bool:
+        return self.output.blocked or self.tool_call.blocked
+
+    @property
+    def evidence(self) -> tuple[dict, ...]:
+        return self.tool_call.evidence
 
 
 class ProxyService:
@@ -208,12 +250,16 @@ class ProxyService:
             verdicts = replace(
                 verdicts,
                 output=self._inspector.output(plan, body, mode=auth.mode, tainted=verdicts.tainted),
+                tool_call=self._inspector.tool_call(
+                    plan, body, decoded, mode=auth.mode, tainted=verdicts.tainted
+                ),
             )
 
         latency_ms = self._added_latency_ms(started, result.elapsed_s)
         extension = self._extension(auth, audit_id, verdicts)
 
-        if verdicts.output.blocked:
+        if verdicts.blocked_after_upstream:
+            # 호출 하나만 빼고 넘기면 모델의 계획이 반쯤 실행된다 — 응답 전체를 막는다.
             payload_out = blocked_output_body(extension=extension)
             model, prompt_tokens, completion_tokens = self._usage(body)
         elif isinstance(body, dict):
@@ -278,11 +324,19 @@ class ProxyService:
 
         plan = self._plan_for(auth)
         verdicts = self._inspect_before_upstream(plan, _decode(payload), auth.mode)
-        if plan is not None and plan.program_for(CHECKPOINT_OUTPUT) is not None:
+        skipped = [
+            checkpoint
+            for checkpoint in (CHECKPOINT_OUTPUT, CHECKPOINT_TOOL_CALL)
+            if plan is not None and plan.program_for(checkpoint) is not None
+        ]
+        if skipped:
+            # ③ 는 홀드백이 필요하고 ④ 는 SSE 조각 누적이 필요하다. 둘 다 Phase 4 다.
+            # §9 는 tool_call 버퍼링이 UX 손실 0 이라고 하므로 ④ 는 원리적으로 가능하다.
             logger.warning(
-                "guardrail %r has an output program but streaming cannot inspect it yet "
-                "(holdback is Phase 4); reported as inspected=%s",
+                "guardrail %r has %s program(s) but streaming cannot inspect them yet "
+                "(Phase 4); reported as inspected=%s",
                 auth.guardrail,
+                skipped,
                 list(verdicts.inspected),
             )
 
@@ -515,6 +569,8 @@ class ProxyService:
                         "masked": verdicts.output.masked,
                         "pending_model": list(verdicts.pending_model),
                         "inspected": list(verdicts.inspected),
+                        # 툴 이름과 인수 **이름** 만. 값은 남기지 않는다 (§10).
+                        "evidence": list(verdicts.evidence),
                     }
                 ).decode(),
                 tier_reached=verdicts.tier,

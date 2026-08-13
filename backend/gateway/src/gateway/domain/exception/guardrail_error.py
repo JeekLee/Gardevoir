@@ -46,3 +46,8 @@ class GuardrailError(ErrorCatalog):
         "a mask verdict may only depend on regex checks reading the extracted text",
         ValidationError,
     )
+    WRONG_CHECKPOINT = (
+        "GUARDRAIL-015",
+        "this node type is only meaningful at one checkpoint",
+        ValidationError,
+    )

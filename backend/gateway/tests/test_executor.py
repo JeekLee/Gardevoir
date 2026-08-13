@@ -485,3 +485,123 @@ def test_all_output_can_feed_two_verdicts():
     result = execute(program, Subject(text="alpha", tainted=True), collect_all=True)
     assert sorted(result.checks_fired) == ["v1", "v2"]
     assert result.pending_model == ("v2",)
+
+
+# --- ④ 부작용 툴 / 출처 (§7.6, §8 2·3단계) ----------------------------------
+
+
+def _side_effect_block(read_only=("read_file", "web_search")):
+    return _program(
+        (
+            _node("s", NodeType.SIDE_EFFECT, checkpoint="tool_call", read_only=list(read_only)),
+            _node("v", NodeType.VERDICT, decision="conclusive", action="block"),
+        ),
+        (Edge("s", "v"),),
+        "tool_call",
+    )
+
+
+def test_side_effect_is_false_for_a_read_only_tool():
+    assert execute(_side_effect_block(), Subject(tool_name="read_file")).is_allow
+
+
+def test_side_effect_is_true_for_a_tool_not_in_the_list():
+    result = execute(_side_effect_block(), Subject(tool_name="send_email"))
+    assert result.action is VerdictAction.BLOCK
+
+
+def test_an_unregistered_tool_is_side_effecting():
+    """§7.6 의 안전한 기본값 — 새 툴이 추가됐을 때 조용히 방어가 비는 것을 막는다."""
+    result = execute(_side_effect_block(), Subject(tool_name="brand_new_tool"))
+    assert result.action is VerdictAction.BLOCK
+
+
+def test_an_unreadable_tool_name_is_side_effecting():
+    """이름을 못 읽었으면 안전한 쪽으로 간다."""
+    assert execute(_side_effect_block(), Subject(tool_name="")).action is VerdictAction.BLOCK
+
+
+def test_an_empty_read_only_list_makes_everything_side_effecting():
+    result = execute(_side_effect_block(read_only=()), Subject(tool_name="read_file"))
+    assert result.action is VerdictAction.BLOCK
+
+
+def _provenance_block():
+    return _program(
+        (
+            _node("p", NodeType.PROVENANCE, checkpoint="tool_call"),
+            _node("v", NodeType.VERDICT, decision="conclusive", action="block"),
+        ),
+        (Edge("p", "v"),),
+        "tool_call",
+    )
+
+
+def test_provenance_is_true_when_foreign_args_exist():
+    result = execute(_provenance_block(), Subject(foreign_args=("to",)))
+    assert result.action is VerdictAction.BLOCK
+
+
+def test_provenance_is_false_without_foreign_args():
+    assert execute(_provenance_block(), Subject(foreign_args=())).is_allow
+
+
+# --- §8 3단계 전체 -----------------------------------------------------------
+
+
+def _full_defence(read_only=("read_file",)):
+    """오염됨 AND 부작용 툴 AND 인수가 외부 출처 → 차단."""
+    return _program(
+        (
+            _node("t", NodeType.TAINT, checkpoint="tool_call"),
+            _node("s", NodeType.SIDE_EFFECT, checkpoint="tool_call", read_only=list(read_only)),
+            _node("p", NodeType.PROVENANCE, checkpoint="tool_call"),
+            _node("a", NodeType.ALL),
+            _node("v", NodeType.VERDICT, decision="conclusive", action="block"),
+        ),
+        (Edge("t", "a"), Edge("s", "a"), Edge("p", "a"), Edge("a", "v")),
+        "tool_call",
+    )
+
+
+def test_the_attack_is_blocked():
+    """§8: 오염된 대화 + 발송 툴 + 파일에서 온 주소."""
+    subject = Subject(tainted=True, tool_name="send_email", foreign_args=("to",))
+    assert execute(_full_defence(), subject).action is VerdictAction.BLOCK
+
+
+@pytest.mark.parametrize(
+    ("label", "subject"),
+    [
+        ("깨끗한 대화", Subject(tool_name="send_email", foreign_args=("to",))),
+        ("읽기 전용 툴", Subject(tainted=True, tool_name="read_file", foreign_args=("path",))),
+        ("사용자가 준 주소", Subject(tainted=True, tool_name="send_email")),
+    ],
+)
+def test_normal_work_passes(label, subject):
+    """오탐 비용(false-positive tax)을 세 방향에서 줄인다 (§8)."""
+    assert execute(_full_defence(), subject).is_allow, label
+
+
+def test_a_policy_without_provenance_still_blocks_on_taint_and_tool():
+    """§8 2단계만 쓰는 정책 — 출처 검사는 근사법이므로 안 쓸 수도 있다."""
+    program = _program(
+        (
+            _node("t", NodeType.TAINT, checkpoint="tool_call"),
+            _node("s", NodeType.SIDE_EFFECT, checkpoint="tool_call", read_only=["read_file"]),
+            _node("a", NodeType.ALL),
+            _node("v", NodeType.VERDICT, decision="conclusive", action="block"),
+        ),
+        (Edge("t", "a"), Edge("s", "a"), Edge("a", "v")),
+        "tool_call",
+    )
+    assert execute(program, Subject(tainted=True, tool_name="send_email")).action is (
+        VerdictAction.BLOCK
+    )
+    assert execute(program, Subject(tainted=True, tool_name="read_file")).is_allow
+
+
+def test_subject_tool_fields_default_to_the_safe_side():
+    """tool_name 이 비면 미등록 = 부작용, foreign_args 가 비면 증거 없음."""
+    assert Subject().tool_name == ""
+    assert Subject().foreign_args == ()

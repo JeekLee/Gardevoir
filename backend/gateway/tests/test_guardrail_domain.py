@@ -495,3 +495,122 @@ def test_node_type_values_are_stable():
     assert NodeType.VERDICT == "verdict"
     assert NodeType.TAINT == "taint"
     assert NodeType.ALL == "all"
+
+
+# --- ④ 전용 노드 (§7.6, §8 3단계) --------------------------------------------
+
+
+def _side_effect(node_id: str = "s", checkpoint: str = "tool_call", **config) -> Node:
+    return Node(
+        id=node_id,
+        type=NodeType.SIDE_EFFECT,
+        config={"checkpoint": checkpoint, **config},
+    )
+
+
+def _provenance(node_id: str = "p", checkpoint: str = "tool_call", **config) -> Node:
+    return Node(
+        id=node_id,
+        type=NodeType.PROVENANCE,
+        config={"checkpoint": checkpoint, **config},
+    )
+
+
+@pytest.mark.parametrize("checkpoint", ["input", "output", "tool_result"])
+def test_side_effect_requires_the_tool_call_checkpoint(checkpoint):
+    """다른 곳에서는 평가할 tool_call 이 없어 조용히 통과한다."""
+    with pytest.raises(ValidationError) as info:
+        _draft(
+            nodes=(_side_effect("s", checkpoint), _verdict("v")), edges=(Edge("s", "v"),)
+        ).validate()
+    assert info.value.code == "GUARDRAIL-015"
+    assert info.value.details["node_id"] == "s"
+    assert info.value.details["checkpoint"] == "tool_call"
+
+
+@pytest.mark.parametrize("checkpoint", ["input", "output", "tool_result"])
+def test_provenance_requires_the_tool_call_checkpoint(checkpoint):
+    with pytest.raises(ValidationError) as info:
+        _draft(
+            nodes=(_provenance("p", checkpoint), _verdict("v")), edges=(Edge("p", "v"),)
+        ).validate()
+    assert info.value.code == "GUARDRAIL-015"
+
+
+def test_side_effect_at_tool_call_validates():
+    _draft(
+        nodes=(_side_effect(read_only=["read_file"]), _verdict("v")), edges=(Edge("s", "v"),)
+    ).validate()
+
+
+def test_provenance_at_tool_call_validates():
+    _draft(nodes=(_provenance(), _verdict("v")), edges=(Edge("p", "v"),)).validate()
+
+
+def test_side_effect_read_only_is_optional():
+    """없으면 전부 부작용 툴로 본다 — 가장 엄격한 정책."""
+    _draft(nodes=(_side_effect(), _verdict("v")), edges=(Edge("s", "v"),)).validate()
+
+
+def test_side_effect_accepts_an_empty_read_only():
+    _draft(nodes=(_side_effect(read_only=[]), _verdict("v")), edges=(Edge("s", "v"),)).validate()
+
+
+@pytest.mark.parametrize("bad", ["read_file", {"a": 1}, [1, 2], ["ok", 3]])
+def test_side_effect_read_only_must_be_a_list_of_strings(bad):
+    with pytest.raises(ValidationError) as info:
+        _draft(
+            nodes=(_side_effect(read_only=bad), _verdict("v")), edges=(Edge("s", "v"),)
+        ).validate()
+    assert info.value.code == "GUARDRAIL-005"
+
+
+def test_provenance_min_length_is_optional():
+    _draft(nodes=(_provenance(), _verdict("v")), edges=(Edge("p", "v"),)).validate()
+
+
+@pytest.mark.parametrize("bad", [0, -1, "8", True, None, 1.5])
+def test_provenance_min_length_must_be_a_positive_integer(bad):
+    with pytest.raises(ValidationError) as info:
+        _draft(
+            nodes=(_provenance(min_length=bad), _verdict("v")), edges=(Edge("p", "v"),)
+        ).validate()
+    assert info.value.code == "GUARDRAIL-005"
+
+
+def test_provenance_accepts_a_positive_min_length():
+    _draft(nodes=(_provenance(min_length=12), _verdict("v")), edges=(Edge("p", "v"),)).validate()
+
+
+@pytest.mark.parametrize("factory", [_side_effect, _provenance])
+def test_the_tool_call_nodes_are_sources(factory):
+    node = factory()
+    with pytest.raises(ValidationError) as info:
+        _draft(
+            nodes=(_extract("e", "tool_call"), node),
+            edges=(Edge("e", node.id),),
+        ).validate()
+    assert info.value.code == "GUARDRAIL-012"
+
+
+def test_the_full_defence_graph_validates():
+    """§8 3단계 전체: 오염됨 AND 부작용 툴 AND 인수가 외부 출처."""
+    _draft(
+        nodes=(
+            Node(id="t", type=NodeType.TAINT, config={"checkpoint": "tool_call"}),
+            _side_effect("s", read_only=["read_file", "web_search"]),
+            _provenance("p"),
+            Node(id="a", type=NodeType.ALL, config={}),
+            _verdict("v"),
+        ),
+        edges=(Edge("t", "a"), Edge("s", "a"), Edge("p", "a"), Edge("a", "v")),
+    ).validate()
+
+
+def test_tool_call_node_type_values_are_stable():
+    assert NodeType.SIDE_EFFECT == "side_effect"
+    assert NodeType.PROVENANCE == "provenance"
+
+
+def test_error_code_015_is_stable():
+    assert GuardrailError.WRONG_CHECKPOINT.code == "GUARDRAIL-015"
