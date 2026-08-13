@@ -136,7 +136,7 @@ tests/
 - `_validate_side_effect`: `checkpoint == "tool_call"`, `read_only` 는 문자열 리스트
 - `_validate_provenance`: `checkpoint == "tool_call"`, `min_length` 는 양의 정수(선택)
 
-- [ ] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
+- [x] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
 
 테스트 성질:
 1. `test_side_effect_requires_the_tool_call_checkpoint` — 다른 곳이면 `GUARDRAIL-015`
@@ -161,7 +161,7 @@ tests/
 - `argument_strings(tool_call) -> list[tuple[str, str]]` — `(경로, 값)`
 - `foreign_arguments(*, tool_call, trusted, external, min_length) -> tuple[str, ...]`
 
-- [ ] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
+- [x] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
 
 테스트 성질:
 1. `test_a_value_from_the_user_is_not_foreign` — 정상 업무
@@ -192,7 +192,7 @@ tests/
 - `Subject` += `tool_name: str = ""`, `foreign_args: tuple[str, ...] = ()`
 - `_COST`: 둘 다 0 (소스, 사실 조회)
 
-- [ ] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
+- [x] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
 
 테스트 성질:
 1. `test_side_effect_is_false_for_a_read_only_tool`
@@ -221,7 +221,7 @@ tests/
 - 감사 `verdicts` 에 증거(툴 이름, 인수 이름) — **값은 남기지 않는다**
 - 스트리밍에 `tool_call` 프로그램이 있으면 WARNING + `inspected` 제외
 
-- [ ] Step 1~5: 테스트 → 실패 확인 → 구현 → 실제 기동 → 커밋 → 돌연변이
+- [x] Step 1~5: 테스트 → 실패 확인 → 구현 → 실제 기동 → 커밋 → 돌연변이
 
 테스트 성질:
 1. `test_a_tainted_side_effecting_call_is_blocked`
@@ -271,3 +271,80 @@ tests/
 - 승인(ask): §7.5 대로 앱 협조가 필수이고 §14 에서 미정이다. Phase 6.
 - 정규화된 출처 비교(대소문자·공백·base64): §8 이 한계로 명시했다. 지금은 정확 부분
   문자열만 본다. 근사법을 정교하게 만들수록 과신 위험이 커진다는 점을 문서에 남긴다.
+
+---
+
+## 실행 결과 (2026-08-13)
+
+전부 완료. `feat/phase3b-tool-call-control`. 860 tests (gateway 804 + shared_kernel 56).
+
+### §8 의 공격 사슬이 끝까지 막힌다
+
+실제 uvicorn + Postgres + ClickHouse, 폴링 주기 600초. 가짜 업스트림이 **툴 결과에서
+메일 주소를 찾아 `send_email` 을 부른다** — 조종당한 LLM 을 흉내낸 것이다.
+
+정책: `taint AND side_effect(read_only=[read_file, web_search]) AND provenance → block`
+
+```
+[200] 계약서 요약해줘 (파일에 지시 심김)   blocked  checks=['v']  finish=content_filter
+[200] 사용자가 팀 주소로 보내라고 했다     allow    tool_calls 그대로 전달
+[200] 툴 없이 발송 요청 (오염 없음)       allow    tool_calls 그대로 전달
+[200] 오염됐지만 읽기 전용 툴만           allow
+[200] 공격 + dry-run                    allow    would_have={'action':'blocked','checks':['v']}
+```
+
+정상 업무가 세 방향(오염 없음 / 읽기 전용 / 사용자가 준 값)에서 통과한다 — §8 이
+말한 false-positive tax 를 줄이는 지점이다.
+
+감사 로그:
+
+```
+action   checkpoint  tainted  checks  verdicts.evidence
+blocked  tool_call   1        ['v']   [{"tool":"send_email","arguments":["to"]}]
+```
+
+인수 **값** 은 없다 (테스트로 고정). §10 이 본문을 기본 저장하지 않는 것과 같은 이유다.
+
+### 실제 기동이 잡은 결함
+
+**차단은 됐는데 `checks=[]` 로 나왔다.** `_Verdicts.checks` 와 `pending_model` 에
+`tool_call` 을 더하는 편집이 안 먹었다 — ruff 가 그 줄을 한 줄로 합쳐 놓아서 치환
+문자열이 안 맞았고, `assert` 없이 `replace` 를 쓴 자리라 조용히 지나갔다.
+
+걸린 체크를 보고하지 않으면 정책 튜닝의 유일한 입력이 사라진다 (§4). dry-run 의
+`would_have.checks` 도 비어 있었다 — dry-run 의 존재 이유가 그 목록이다.
+
+**교훈:** 문자열 치환으로 코드를 고칠 때 `assert old in s` 없이 `replace` 하면 조용히
+아무 일도 일어나지 않는다. 이번 세션에서 세 번 겪었고(2c 의 `_inspect_before_upstream`,
+3b 의 `tool_call=`, `checks`) 세 번 다 테스트가 아니라 실제 기동이 잡았다.
+
+### 돌연변이 테스트
+
+26개 중 CAUGHT 23 → 26. 생존자 3개:
+
+1. `extract_tool_calls` 의 choice 위치를 **아무도 쓰지 않았다.** ④ 는 응답 전체를
+   막으므로 필요가 없다 → 반환에서 뺐다. 쓰이지 않는 값은 테스트로 고정할 수도 없다.
+2. **노드 설정이 실행까지 도달하는지 확인하지 않았다.** `min_length` 를 0 으로 바꿔도,
+   `read_only` 를 버려도 통과했다. `foreign_arguments` 를 직접 부르는 테스트만 있었고
+   그래프 설정 → 컴파일 → 실행 경로가 비어 있었다.
+3. 감사 `checkpoint` 의 `TOOL_CALL` 분기 — 3a 와 같은 패턴이다.
+
+### 계획에서 바뀐 것
+
+계획대로 갔다. 구현 중 추가로 정한 것:
+
+- `Provenance` 명령이 `min_length` 를 **직접 들고 있다.** 처음엔 검사기가 상수를
+  쓰게 뒀는데, 그러면 도메인의 `min_length` 검증이 거짓말이 된다 — 검증은 하는데
+  값은 안 쓰는 셈이다.
+- provenance 노드가 여러 개면 **가장 낮은 임계값**을 쓴다. 가장 엄격한 정책이 이긴다.
+- 출처 텍스트는 provenance 노드가 있을 때만 모은다 — 안 쓰는 정책은 비용이 0 이다.
+
+### 남긴 것
+
+- **스트리밍 ④** — §9 가 "tool_call 버퍼링은 UX 손실 0"이라고 증명해 놨으므로
+  원리적으로 가능하고 홀드백도 필요 없다. SSE 누적·재방출이 Phase 4 의 스트리밍
+  기계와 같은 코드라 미뤘다. `inspected` 에서 빠지고 WARNING 이 찍힌다.
+  **Phase 4 의 필수 항목이다 — "나중에 검토"가 아니다.**
+- 승인(ask): §7.5 대로 앱 협조 필수, §14 에서 미정. Phase 6.
+- 정규화된 출처 비교(대소문자·base64): §8 이 한계로 명시. 근사법을 정교하게 만들수록
+  과신 위험이 커진다.
