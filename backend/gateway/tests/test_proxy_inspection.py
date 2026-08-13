@@ -1374,3 +1374,39 @@ async def test_stream_latency_excludes_upstream_generation(client, admin, audit_
 
     # 업스트림 생성만 200 ms 다. 우리 몫으로 보고하면 안 된다.
     assert float(r.headers[HEADER_LATENCY_MS]) < 100
+
+
+@respx.mock
+async def test_stream_latency_excludes_opening_the_stream(client, admin, audit_table):
+    """스트림을 **여는** 시간도 업스트림 몫이다 (§7.2).
+
+    생성 대기를 걷어낸 뒤에도 실제 기동에서 4.7 ms 가 남았다 — TCP 연결과 업스트림
+    TTFB 를 우리 몫으로 세고 있었다. 비스트리밍은 같은 값이 0.06~0.45 ms 다.
+    """
+    import asyncio
+
+    from gateway.contract import HEADER_LATENCY_MS
+
+    await _publish(admin, _graph("output", action="mask"))
+
+    async def slow_to_open(request):
+        # 여는 데만 200 ms — 우리가 한 일은 없다.
+        await asyncio.sleep(0.2)
+        return httpx.Response(
+            200,
+            content=(
+                b'data: {"id":"c","choices":[{"index":0,"delta":{"content":'
+                + orjson.dumps("응답")
+                + b"}}]}\n\n"
+                b'data: {"id":"c","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n'
+                b"data: [DONE]\n\n"
+            ),
+        )
+
+    respx.post(f"{UPSTREAM}/chat/completions").mock(side_effect=slow_to_open)
+
+    payload = _conversation()
+    payload["stream"] = True
+    r = await client.post("/v1/chat/completions", json=payload)
+    assert "응답" in r.text
+    assert float(r.headers[HEADER_LATENCY_MS]) < 100

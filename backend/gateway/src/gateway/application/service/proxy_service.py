@@ -359,12 +359,12 @@ class ProxyService:
             path=UPSTREAM_PATH,
             payload=payload,
         )
+        # 스트리밍 지연은 "전체 - 업스트림 대기"로 계산할 수 없다. 청크 사이의 대기가
+        # 전부 업스트림 몫이고 그 시간은 우리가 잰 적이 없다. 그래서 우리가 실제로 쓴
+        # 구간만 더한다 (§7.2: 게이트웨이가 더한 지연만). 스트림을 **여는** 시간도
+        # 업스트림 몫이므로 async with 앞에서 끊는다.
+        stream_latency_ms = self._added_latency_ms(started, 0.0)
         async with cm as upstream_stream:
-            # 스트리밍 지연은 "전체 - 업스트림 대기"로 계산할 수 없다. 청크 사이의
-            # 대기가 전부 업스트림 몫이고 그 시간은 우리가 잰 적이 없다. 그래서 우리가
-            # 실제로 쓴 구간만 더한다 (§7.2: 게이트웨이가 더한 지연만).
-            stream_latency_ms = self._added_latency_ms(started, 0.0)
-
             # 업스트림이 오류를 내면 본문이 SSE 가 아니다. 파싱·합성하면 오류 본문을
             # 망가뜨리므로 그대로 중계한다 — 우리가 응답을 잃는 것이 더 나쁘다.
             relayed = upstream_stream.status_code < 400
