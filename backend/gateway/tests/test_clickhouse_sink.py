@@ -186,24 +186,38 @@ async def test_submit_never_raises_when_clickhouse_is_down():
     assert sink.dropped >= 1
 
 
+async def _ticker(iterations: int = 10, step: float = 0.01) -> float:
+    """Return the wall-clock time a purely-async loop took.
+
+    루프가 막히면 이 값이 늘어난다. 반복 횟수만 세면 늦게라도 끝나므로
+    막힘을 감지하지 못한다 — 반드시 시간을 재야 한다.
+    """
+    started = time.perf_counter()
+    for _ in range(iterations):
+        await asyncio.sleep(step)
+    return time.perf_counter() - started
+
+
 async def test_slow_insert_does_not_block_the_event_loop():
-    """clickhouse-connect 은 동기다. to_thread 로 감싸지 않으면 프록시가 멈춘다."""
+    """clickhouse-connect 은 동기다. to_thread 로 감싸지 않으면 프록시가 멈춘다.
+
+    측정 구간이 삽입과 겹쳐야 한다. 삽입이 끝난 뒤에 재면 막힘이 창 밖에서
+    일어나 통과해버린다.
+    """
 
     class SlowClient:
         def insert(self, *a, **kw):
-            time.sleep(0.5)
+            time.sleep(0.4)
 
     sink = ClickHouseAuditSink(SlowClient(), batch_size=1, flush_interval_s=0.01, queue_maxsize=10)
     await sink.start()
     await sink.submit(_event())
-    await asyncio.sleep(0.05)  # 삽입이 시작되도록 양보
 
-    started = time.perf_counter()
-    await asyncio.sleep(0.05)  # 루프가 자유롭다면 ~0.05초
-    elapsed = time.perf_counter() - started
+    elapsed = await _ticker()  # 삽입이 도는 동안 함께 돈다
     await sink.stop()
 
-    assert elapsed < 0.25, "이벤트 루프가 동기 삽입에 막혔다"
+    # 삽입 0.4초 동안 티커는 0.1초에 끝나야 한다.
+    assert elapsed < 0.25, f"이벤트 루프가 동기 삽입에 막혔다 (ticker {elapsed:.3f}s)"
 
 
 async def test_critical_fallback_also_avoids_blocking_the_loop():
@@ -211,23 +225,16 @@ async def test_critical_fallback_also_avoids_blocking_the_loop():
 
     class SlowClient:
         def insert(self, *a, **kw):
-            time.sleep(0.3)
+            time.sleep(0.4)
 
     sink = ClickHouseAuditSink(
         SlowClient(), batch_size=1000, flush_interval_s=60.0, queue_maxsize=1
     )
     await sink.submit(_event("allow"))  # 큐를 채운다
 
-    ticker_ran = 0
-
-    async def ticker():
-        nonlocal ticker_ran
-        for _ in range(10):
-            await asyncio.sleep(0.02)
-            ticker_ran += 1
-
-    task = asyncio.create_task(ticker())
+    task = asyncio.create_task(_ticker())
+    await asyncio.sleep(0)  # 티커가 시작하도록 양보
     await sink.submit(_event("blocked"))  # 동기 삽입 폴백
-    await task
+    elapsed = await task
 
-    assert ticker_ran == 10
+    assert elapsed < 0.25, f"이벤트 루프가 동기 삽입에 막혔다 (ticker {elapsed:.3f}s)"
