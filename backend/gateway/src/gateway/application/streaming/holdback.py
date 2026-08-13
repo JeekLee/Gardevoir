@@ -39,10 +39,27 @@ class Holdback:
     #: 마지막으로 검사한 위치 — 윈도우 시작을 여기서 뒤로 잡는다.
     _inspected: int = field(default=0, repr=False)
 
-    def offer(self, piece: str) -> str:
-        """새 조각을 받고 **지금 방출할 부분**을 돌려준다."""
+    def append(self, piece: str) -> None:
+        """새 조각을 버퍼에 넣는다. 방출하지는 않는다.
+
+        검사·치환이 방출보다 먼저 와야 하므로 둘을 나눠 뒀다. ``offer`` 로 한 번에 하면
+        검사할 기회가 없다.
+        """
         self.buffer += piece
-        return self._release()
+
+    def release(self) -> str:
+        """홀드백을 넘긴 부분을 방출한다."""
+        keep = len(self.buffer) - self.chars
+        if keep <= self.emitted:
+            return ""
+        released = self.buffer[self.emitted : keep]
+        self.emitted = keep
+        return released
+
+    def offer(self, piece: str) -> str:
+        """``append`` + ``release``. 검사가 필요 없을 때만 쓴다."""
+        self.append(piece)
+        return self.release()
 
     def flush(self) -> str:
         """스트림이 끝났다. 붙들고 있던 것을 전부 내보낸다."""
@@ -77,14 +94,6 @@ class Holdback:
     @property
     def unemitted(self) -> str:
         return self.buffer[self.emitted :]
-
-    def _release(self) -> str:
-        keep = len(self.buffer) - self.chars
-        if keep <= self.emitted:
-            return ""
-        released = self.buffer[self.emitted : keep]
-        self.emitted = keep
-        return released
 
 
 __all__ = ["Holdback"]
