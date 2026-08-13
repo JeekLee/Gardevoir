@@ -24,3 +24,9 @@ class GuardrailError(ErrorCatalog):
         ConflictError,
     )
     NO_DRAFT = ("GUARDRAIL-008", "this guardrail has no draft", NotFoundError)
+    MALFORMED_GRAPH = (
+        "GUARDRAIL-009",
+        'the graph is not shaped like {"nodes": [...], "edges": [...]}',
+        ValidationError,
+    )
+    INVALID_NAME = ("GUARDRAIL-010", "the guardrail name is not a valid slug", ValidationError)

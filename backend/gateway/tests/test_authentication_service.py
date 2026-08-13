@@ -233,3 +233,54 @@ async def test_require_has_no_default():
     service, _ = _service(raw)
     with pytest.raises(TypeError):
         await service.authenticate(authorization=f"Bearer {raw}", guardrail=None, mode=None)
+
+
+# --- authorise: 크레덴셜만 확인하는 단계 --------------------------------------
+
+
+async def test_authorise_returns_the_key_without_resolving_a_guardrail():
+    """저작 API 에는 해석할 가드레일이 없다."""
+    raw = generate_key()
+    service, _ = _service(raw, allowed_guardrails=(), default_guardrail=None, scopes=(Scope.ADMIN,))
+    key = await service.authorise(authorization=f"Bearer {raw}", require=Scope.ADMIN)
+    assert key.id == "k1"
+
+
+async def test_authorise_still_demands_the_scope():
+    raw = generate_key()
+    service, _ = _service(raw)  # 기본 스코프 = proxy
+    with pytest.raises(ForbiddenError) as info:
+        await service.authorise(authorization=f"Bearer {raw}", require=Scope.ADMIN)
+    assert info.value.code == "APIKEY-005"
+
+
+async def test_authorise_rejects_a_missing_header_without_a_lookup():
+    service, repo = _service()
+    with pytest.raises(UnauthorizedError):
+        await service.authorise(authorization=None, require=Scope.ADMIN)
+    assert repo.lookups == []
+
+
+async def test_authorise_rejects_an_unknown_key():
+    service, _ = _service()
+    with pytest.raises(UnauthorizedError) as info:
+        await service.authorise(authorization=f"Bearer {generate_key()}", require=Scope.ADMIN)
+    assert info.value.code == "APIKEY-001"
+
+
+async def test_authorise_requires_the_scope_argument():
+    """기본값이 있으면 라우트를 추가하며 빼먹은 사람이 권한을 얻는다."""
+    raw = generate_key()
+    service, _ = _service(raw)
+    with pytest.raises(TypeError):
+        await service.authorise(authorization=f"Bearer {raw}")  # type: ignore[call-arg]
+
+
+async def test_an_admin_only_key_cannot_authenticate_for_the_proxy():
+    raw = generate_key()
+    service, _ = _service(raw, scopes=(Scope.ADMIN,))
+    with pytest.raises(ForbiddenError) as info:
+        await service.authenticate(
+            authorization=f"Bearer {raw}", guardrail=None, mode=None, require=Scope.PROXY
+        )
+    assert info.value.code == "APIKEY-005"

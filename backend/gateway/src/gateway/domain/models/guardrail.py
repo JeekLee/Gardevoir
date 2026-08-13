@@ -11,6 +11,7 @@ Persistence-ignorant: no SQLAlchemy, no FastAPI.
 from collections import deque
 from dataclasses import dataclass, replace
 from enum import StrEnum
+from typing import Any
 
 import re2
 
@@ -23,6 +24,13 @@ DRAFT_VERSION = "draft"
 #: 도메인이 감사 모듈을 임포트하면 의존 방향이 뒤집힌다.
 VALID_CHECKPOINTS = frozenset({"input", "output"})
 VALID_TRANSFORMS = frozenset({"lower", "strip"})
+
+#: 이름은 URL 경로 조각이자 X-Gardevoir-Guardrail 헤더 값이고, API 키의
+#: allowed_guardrails 와 문자열 비교된다. 세 자리 모두에서 모호하지 않아야 하므로
+#: 슬러그로 제한한다. 프레젠테이션이 아니라 도메인에서 막는다 — CLI 든 라우터든
+#: 같은 규칙을 받아야 한다.
+#: RE2 는 \Z 를 모른다. fullmatch 로 고정한다.
+NAME_PATTERN = re2.compile(r"[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?")
 
 
 class NodeType(StrEnum):
@@ -85,6 +93,42 @@ class Guardrail:
     nodes: tuple[Node, ...]
     edges: tuple[Edge, ...]
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not NAME_PATTERN.fullmatch(self.name):
+            GuardrailError.INVALID_NAME.raise_(details={"name": self.name})
+
+    @classmethod
+    def draft(cls, name: str, graph: dict) -> "Guardrail":
+        return cls.from_graph(name=name, version=DRAFT_VERSION, version_number=None, graph=graph)
+
+    @classmethod
+    def from_graph(
+        cls, *, name: str, version: str, version_number: int | None, graph: dict
+    ) -> "Guardrail":
+        """Build from the serialised graph.
+
+        The domain owns this shape rather than the ORM mapper or a router, because
+        both of those need it — and two parsers would drift. The input is
+        untrusted (it comes off the wire), so malformed structure raises a domain
+        error instead of a ``KeyError`` that would surface as a 500.
+        """
+        return cls(
+            name=name,
+            version=version,
+            version_number=version_number,
+            nodes=tuple(_parse_node(n) for n in _sequence(graph, "nodes")),
+            edges=tuple(_parse_edge(e) for e in _sequence(graph, "edges")),
+        )
+
+    def to_graph(self) -> dict:
+        """The serialised form. StrEnum is lowered to str so storage has one shape."""
+        return {
+            "nodes": [
+                {"id": n.id, "type": str(n.type), "config": _plain(n.config)} for n in self.nodes
+            ],
+            "edges": [{"src": e.src, "dst": e.dst} for e in self.edges],
+        }
+
     @property
     def is_draft(self) -> bool:
         return self.version == DRAFT_VERSION
@@ -143,6 +187,75 @@ class Guardrail:
         if visited != len(self.nodes):
             unresolved = sorted(node for node, degree in indegree.items() if degree > 0)
             GuardrailError.CYCLE.raise_(details={"nodes": unresolved})
+
+
+# -- serialised graph parsing -----------------------------------------------
+
+
+def _sequence(graph: dict, key: str) -> list:
+    if not isinstance(graph, dict):
+        GuardrailError.MALFORMED_GRAPH.raise_(details={"reason": "graph must be an object"})
+    value = graph.get(key)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        GuardrailError.MALFORMED_GRAPH.raise_(details={"reason": f"{key} must be an array"})
+    return value
+
+
+def _parse_node(raw: object) -> Node:
+    if not isinstance(raw, dict):
+        GuardrailError.MALFORMED_GRAPH.raise_(details={"reason": "each node must be an object"})
+    node_id = raw.get("id")
+    if not isinstance(node_id, str) or not node_id:
+        GuardrailError.MALFORMED_GRAPH.raise_(
+            details={"reason": "each node needs a non-empty string id"}
+        )
+    try:
+        node_type = NodeType(raw.get("type"))
+    except ValueError:
+        GuardrailError.INVALID_NODE_CONFIG.raise_(
+            f"node {node_id!r}: unknown type {raw.get('type')!r}",
+            details={
+                "node_id": node_id,
+                "reason": f"type must be one of {sorted(t.value for t in NodeType)}",
+            },
+        )
+    config = raw.get("config")
+    if config is None:
+        config = {}
+    if not isinstance(config, dict):
+        GuardrailError.INVALID_NODE_CONFIG.raise_(
+            f"node {node_id!r}: config must be an object",
+            details={"node_id": node_id, "reason": "config must be an object"},
+        )
+    return Node(id=node_id, type=node_type, config=config)
+
+
+def _parse_edge(raw: object) -> Edge:
+    if not isinstance(raw, dict):
+        GuardrailError.MALFORMED_GRAPH.raise_(details={"reason": "each edge must be an object"})
+    src, dst = raw.get("src"), raw.get("dst")
+    if not isinstance(src, str) or not isinstance(dst, str) or not src or not dst:
+        GuardrailError.MALFORMED_GRAPH.raise_(
+            details={"reason": "each edge needs non-empty string src and dst"}
+        )
+    return Edge(src=src, dst=dst)
+
+
+def _plain(value: Any) -> Any:
+    """Strip StrEnum/IntEnum identity so the serialised graph has one representation."""
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_plain(v) for v in value]
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return str(value)
+    if isinstance(value, int):
+        return int(value)
+    return value
 
 
 # -- per-type node validators -----------------------------------------------

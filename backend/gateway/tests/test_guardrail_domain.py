@@ -200,6 +200,8 @@ def test_error_codes_are_stable():
     assert GuardrailError.NAME_TAKEN.code == "GUARDRAIL-006"
     assert GuardrailError.PUBLISHED_IS_IMMUTABLE.code == "GUARDRAIL-007"
     assert GuardrailError.NO_DRAFT.code == "GUARDRAIL-008"
+    assert GuardrailError.MALFORMED_GRAPH.code == "GUARDRAIL-009"
+    assert GuardrailError.INVALID_NAME.code == "GUARDRAIL-010"
 
 
 def test_domain_imports_nothing_from_outer_layers():
@@ -216,3 +218,39 @@ def test_domain_imports_nothing_from_outer_layers():
         for n in names
         if n.startswith(("gateway.application", "gateway.infrastructure", "gateway.presentation"))
     ]
+
+
+# --- 이름 -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["a", "doc-agent", "pii-v2", "a1-b2-c3", "x" * 64])
+def test_valid_names_are_accepted(name):
+    _draft(name=name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "",
+        "-leading",
+        "trailing-",
+        "Doc-Agent",
+        "doc agent",
+        "doc/agent",
+        "doc.agent",
+        "doc_agent",
+        "x" * 65,
+        "가드레일",
+    ],
+)
+def test_invalid_names_are_rejected(name):
+    """이름은 URL 경로 조각이자 헤더 값이고 allowed_guardrails 와 비교된다."""
+    with pytest.raises(ValidationError) as info:
+        _draft(name=name)
+    assert info.value.code == "GUARDRAIL-010"
+
+
+def test_a_rejected_name_names_itself():
+    with pytest.raises(ValidationError) as info:
+        _draft(name="Bad Name")
+    assert info.value.details == {"name": "Bad Name"}
