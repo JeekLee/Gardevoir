@@ -419,28 +419,30 @@ async def test_a_stream_reports_only_input_inspected(client, admin, audit_table)
 
 
 @respx.mock
-async def test_a_stream_warns_when_an_output_program_is_skipped(client, admin, audit_table, caplog):
-    """조용히 건너뛰면 아무도 모른다."""
-    graph = {
-        "nodes": [
-            {"id": "eo", "type": "extract", "config": {"checkpoint": "output"}},
-            {"id": "ro", "type": "regex", "config": {"pattern": RRN}},
-            {
-                "id": "vo",
-                "type": "verdict",
-                "config": {"decision": "conclusive", "action": "block"},
-            },
-        ],
-        "edges": [{"src": "eo", "dst": "ro"}, {"src": "ro", "dst": "vo"}],
-    }
-    await _publish(admin, graph)
+async def test_a_stream_inspects_the_output(client, admin, audit_table, caplog):
+    """4a 부터 스트리밍도 ③ 을 검사한다 — 홀드백 안에서 치환한다 (§9)."""
+    await _publish(admin, _graph("output", action="mask"))
     respx.post(f"{UPSTREAM}/chat/completions").mock(
-        return_value=httpx.Response(200, content=_sse({"id": "c"}))
+        return_value=httpx.Response(
+            200,
+            content=_sse(
+                {"id": "c", "choices": [{"index": 0, "delta": {"role": "assistant"}}]},
+                {"id": "c", "choices": [{"index": 0, "delta": {"content": "번호 900101-"}}]},
+                {"id": "c", "choices": [{"index": 0, "delta": {"content": "1234567 끝"}}]},
+                {"id": "c", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+            ),
+        )
     )
 
-    await client.post("/v1/chat/completions", json=_body(stream=True))
-    assert "streaming cannot inspect them yet" in caplog.text
-    assert "output" in caplog.text
+    payload = _conversation()
+    payload["stream"] = True
+    r = await client.post("/v1/chat/completions", json=payload)
+
+    assert "900101-1234567" not in r.text, "청크 경계에 걸친 패턴을 놓쳤다"
+    assert MASK_PLACEHOLDER in r.text
+    assert "streaming cannot inspect" not in caplog.text
+    final = orjson.loads(r.text.strip().rsplit("data: ", 1)[-1])
+    assert final[EXTENSION_KEY]["inspected"] == ["output"]
 
 
 @respx.mock
@@ -456,15 +458,24 @@ async def test_a_stream_with_an_input_program_reports_it(client, admin, audit_ta
 
 
 @respx.mock
-async def test_a_stream_still_relays_the_upstream_chunks(client, admin, audit_table):
+async def test_a_stream_relays_the_content(client, admin, audit_table):
     await _publish(admin, _graph("input"))
     respx.post(f"{UPSTREAM}/chat/completions").mock(
-        return_value=httpx.Response(200, content=_sse({"id": "c1"}, {"id": "c2"}))
+        return_value=httpx.Response(
+            200,
+            content=_sse(
+                {"id": "c", "choices": [{"index": 0, "delta": {"role": "assistant"}}]},
+                {"id": "c", "choices": [{"index": 0, "delta": {"content": "안녕"}}]},
+                {"id": "c", "choices": [{"index": 0, "delta": {"content": "하세요"}}]},
+                {"id": "c", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+            ),
+        )
     )
 
-    r = await client.post("/v1/chat/completions", json=_body("clean", stream=True))
-    assert '"c1"' in r.text
-    assert '"c2"' in r.text
+    payload = _conversation(user="clean")
+    payload["stream"] = True
+    r = await client.post("/v1/chat/completions", json=payload)
+    assert "안녕" in r.text and "하세요" in r.text
 
 
 # --- 감사 --------------------------------------------------------------------
@@ -1123,18 +1134,204 @@ async def test_audit_does_not_record_argument_values(client, admin, app, ch_clie
 
 
 @respx.mock
-async def test_a_stream_omits_tool_call_from_inspected(client, admin, audit_table, caplog):
-    """§9 는 버퍼링이 공짜라고 하지만 SSE 누적은 Phase 4 다 — 말하지 않으면 fail-open."""
+async def test_a_stream_inspects_tool_calls(client, admin, audit_table, caplog):
+    """§9: tool_call 버퍼링은 UX 손실 0 이므로 스트리밍에서도 ④ 가 돈다."""
     await _publish(admin, STAGE_TWO_ONLY)
+    call_delta = {
+        "index": 0,
+        "id": "call_1",
+        "function": {"name": "send_email", "arguments": '{"to":"e@x.com"}'},
+    }
     respx.post(f"{UPSTREAM}/chat/completions").mock(
-        return_value=httpx.Response(200, content=_sse({"id": "c"}))
+        return_value=httpx.Response(
+            200,
+            content=_sse(
+                {"id": "c", "choices": [{"index": 0, "delta": {"role": "assistant"}}]},
+                {"id": "c", "choices": [{"index": 0, "delta": {"tool_calls": [call_delta]}}]},
+                {"id": "c", "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]},
+            ),
+        )
     )
 
     payload = _conversation(tool_result="external")
     payload["stream"] = True
     r = await client.post("/v1/chat/completions", json=payload)
 
+    assert "tool_calls" not in r.text, "차단했는데 tool_calls 를 흘렸다"
+    assert "e@x.com" not in r.text
+    assert FINISH_CONTENT_FILTER in r.text
+    assert "streaming cannot inspect" not in caplog.text
     final = orjson.loads(r.text.strip().rsplit("data: ", 1)[-1])
-    assert final[EXTENSION_KEY]["inspected"] == []
-    assert "tool_call" in caplog.text
-    assert "streaming cannot inspect them yet" in caplog.text
+    assert final[EXTENSION_KEY]["inspected"] == ["tool_call"]
+
+
+# --- SDK 관용성 (§11.9) -----------------------------------------------------
+
+
+@respx.mock
+async def test_the_openai_sdk_parses_a_masked_stream(client, admin, keys, app, audit_table):
+    """청크 경계를 바꾸므로 SDK 호환이 깨질 수 있다 — 실제 SDK 로 확인한다.
+
+    §11.9 가 확장 필드와 finish_reason 관용성을 회귀로 고정했다. 스트리밍 판본이 필요한
+    이유: 홀드백이 내용을 늦추므로 업스트림 청크를 그대로 흘릴 수 없고, 첫 청크를 틀로
+    삼아 합성하기 때문이다.
+    """
+    from openai import AsyncOpenAI
+
+    await _publish(admin, _graph("output", action="mask"))
+    respx.post(f"{UPSTREAM}/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            content=_sse(
+                {
+                    "id": "c",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index": 0, "delta": {"role": "assistant"}}],
+                },
+                {
+                    "id": "c",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index": 0, "delta": {"content": "번호 900101-"}}],
+                },
+                {
+                    "id": "c",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index": 0, "delta": {"content": "1234567 끝"}}],
+                },
+                {
+                    "id": "c",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                },
+            ),
+        )
+    )
+
+    sdk = AsyncOpenAI(api_key=keys["proxy"], base_url="http://test/v1", http_client=client)
+    stream = await sdk.chat.completions.create(
+        model="gpt-4o", messages=[{"role": "user", "content": "hi"}], stream=True
+    )
+    text = ""
+    reasons = []
+    async for chunk in stream:
+        if chunk.choices and chunk.choices[0].delta.content:
+            text += chunk.choices[0].delta.content
+        if chunk.choices and chunk.choices[0].finish_reason:
+            reasons.append(chunk.choices[0].finish_reason)
+
+    assert MASK_PLACEHOLDER in text
+    assert "900101-1234567" not in text
+    assert reasons == ["stop"]
+
+
+@respx.mock
+async def test_the_openai_sdk_parses_a_stopped_stream(client, admin, keys, audit_table):
+    """차단으로 멈춘 스트림도 SDK 가 파싱해야 한다 — 표준 finish_reason 이어야 한다."""
+    from openai import AsyncOpenAI
+
+    await _publish(admin, _graph("output"))
+    respx.post(f"{UPSTREAM}/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            content=_sse(
+                {
+                    "id": "c",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index": 0, "delta": {"role": "assistant"}}],
+                },
+                {
+                    "id": "c",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index": 0, "delta": {"content": "번호 900101-1234567"}}],
+                },
+                {
+                    "id": "c",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                },
+            ),
+        )
+    )
+
+    sdk = AsyncOpenAI(api_key=keys["proxy"], base_url="http://test/v1", http_client=client)
+    stream = await sdk.chat.completions.create(
+        model="gpt-4o", messages=[{"role": "user", "content": "hi"}], stream=True
+    )
+    reasons = []
+    text = ""
+    async for chunk in stream:
+        if chunk.choices and chunk.choices[0].delta.content:
+            text += chunk.choices[0].delta.content
+        if chunk.choices and chunk.choices[0].finish_reason:
+            reasons.append(chunk.choices[0].finish_reason)
+
+    assert reasons == [FINISH_CONTENT_FILTER]
+    assert "900101-1234567" not in text
+    assert "정책" in text, "이유가 없으면 앱이 보여줄 것이 없다"
+
+
+@respx.mock
+async def test_the_openai_sdk_parses_a_streamed_tool_call(client, admin, keys, audit_table):
+    from openai import AsyncOpenAI
+
+    await _publish(admin, STAGE_TWO_ONLY)
+    call_delta = {
+        "index": 0,
+        "id": "call_1",
+        "type": "function",
+        "function": {"name": "read_file", "arguments": '{"path":"/a.txt"}'},
+    }
+    respx.post(f"{UPSTREAM}/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            content=_sse(
+                {
+                    "id": "c",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index": 0, "delta": {"role": "assistant"}}],
+                },
+                {
+                    "id": "c",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index": 0, "delta": {"tool_calls": [call_delta]}}],
+                },
+                {
+                    "id": "c",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+                },
+            ),
+        )
+    )
+
+    sdk = AsyncOpenAI(api_key=keys["proxy"], base_url="http://test/v1", http_client=client)
+    stream = await sdk.chat.completions.create(
+        model="gpt-4o", messages=[{"role": "user", "content": "요약해줘"}], stream=True
+    )
+    names = []
+    async for chunk in stream:
+        for call in (chunk.choices[0].delta.tool_calls or []) if chunk.choices else []:
+            if call.function and call.function.name:
+                names.append(call.function.name)
+
+    assert names == ["read_file"], "read_only 툴이므로 통과해야 한다"
