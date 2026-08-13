@@ -141,3 +141,68 @@ async def test_result_is_immutable():
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         result.guardrail = "other"  # type: ignore[misc]
+
+
+# --- 스코프 인가 -------------------------------------------------------------
+
+
+async def test_default_key_may_use_the_proxy():
+    from gateway.domain.models.api_key import Scope
+
+    raw = generate_key()
+    service, _ = _service(raw)
+    result = await service.authenticate(
+        authorization=f"Bearer {raw}", guardrail=None, mode=None, require=Scope.PROXY
+    )
+    assert result.key.id == "k1"
+
+
+async def test_default_key_cannot_reach_admin():
+    """기본 스코프는 proxy 뿐이다 — 오타나 누락이 권한을 주면 안 된다."""
+    from gateway.domain.models.api_key import Scope
+
+    raw = generate_key()
+    service, _ = _service(raw)
+    with pytest.raises(ForbiddenError) as info:
+        await service.authenticate(
+            authorization=f"Bearer {raw}", guardrail=None, mode=None, require=Scope.ADMIN
+        )
+    assert info.value.code == "APIKEY-005"
+
+
+async def test_admin_scoped_key_reaches_admin():
+    from gateway.domain.models.api_key import Scope
+
+    raw = generate_key()
+    service, _ = _service(raw, scopes=(Scope.PROXY, Scope.ADMIN))
+    result = await service.authenticate(
+        authorization=f"Bearer {raw}", guardrail=None, mode=None, require=Scope.ADMIN
+    )
+    assert result.key.has_scope(Scope.ADMIN)
+
+
+async def test_scope_is_checked_before_guardrail_resolution():
+    """권한이 없으면 그 키가 어떤 가드레일을 쓸 수 있는지 알려줄 이유가 없다."""
+    from gateway.domain.models.api_key import Scope
+
+    raw = generate_key()
+    service, _ = _service(raw)
+    with pytest.raises(ForbiddenError) as info:
+        await service.authenticate(
+            authorization=f"Bearer {raw}",
+            guardrail="internal-analytics",  # 허용되지 않은 가드레일
+            mode=None,
+            require=Scope.ADMIN,  # 그런데 스코프도 없다
+        )
+    # 스코프 오류가 먼저 나야 한다
+    assert info.value.code == "APIKEY-005"
+
+
+async def test_default_require_is_proxy():
+    """require 를 빼먹은 호출이 admin 을 열어주면 안 된다."""
+    from gateway.domain.models.api_key import Scope
+
+    raw = generate_key()
+    service, _ = _service(raw, scopes=(Scope.ADMIN,))
+    with pytest.raises(ForbiddenError):
+        await service.authenticate(authorization=f"Bearer {raw}", guardrail=None, mode=None)

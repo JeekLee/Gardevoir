@@ -6,7 +6,7 @@ import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
-from gateway.domain.models.api_key import ApiKey, generate_key, hash_key
+from gateway.domain.models.api_key import ApiKey, Scope, generate_key, hash_key
 from gateway.infrastructure.engine import dispose_engine, get_session_factory
 from gateway.infrastructure.repository import SqlAlchemyApiKeyRepository
 from gateway.settings import get_settings
@@ -20,6 +20,7 @@ async def create_key(
     upstream_api_key: str,
     allowed_guardrails: list[str],
     default_guardrail: str | None,
+    scopes: list[str] | None = None,
 ) -> str:
     """Create a key and return the raw value.
 
@@ -35,6 +36,7 @@ async def create_key(
         upstream_api_key=upstream_api_key,
         allowed_guardrails=tuple(allowed_guardrails),
         default_guardrail=default_guardrail,
+        scopes=tuple(Scope(s) for s in (scopes or [Scope.PROXY])),
     )
     await SqlAlchemyApiKeyRepository(session).add(key)
     return raw
@@ -72,6 +74,13 @@ def createkey() -> None:
         default=None,
         help="반복 지정 가능. 첫 번째가 기본 가드레일이 된다. 생략하면 base.",
     )
+    parser.add_argument(
+        "--scope",
+        action="append",
+        choices=[str(s) for s in Scope],
+        default=None,
+        help="반복 지정 가능. 생략하면 proxy 만 부여된다.",
+    )
     args = parser.parse_args()
     print(asyncio.run(_run(args, args.guardrail or ["base"])))
 
@@ -87,6 +96,7 @@ async def _run(args: argparse.Namespace, guardrails: list[str]) -> str:
                 upstream_api_key=args.upstream_api_key,
                 allowed_guardrails=guardrails,
                 default_guardrail=guardrails[0],
+                scopes=args.scope,
             )
             await session.commit()
     finally:

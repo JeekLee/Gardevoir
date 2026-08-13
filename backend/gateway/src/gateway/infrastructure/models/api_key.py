@@ -30,3 +30,9 @@ class ApiKeyModel(Base, TimestampMixin):
     disabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+
+    #: 인가는 크레덴셜에서 온다 (§7.2, §12). 기본값을 안전한 쪽으로 둔다 —
+    #: 스코프가 명시되지 않은 키는 admin 에 접근할 수 없다.
+    scopes: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=lambda: ["proxy"], server_default='["proxy"]'
+    )

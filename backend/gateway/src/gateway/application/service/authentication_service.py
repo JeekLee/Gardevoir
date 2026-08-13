@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from gateway.application.repository.api_key_repository import ApiKeyRepository
 from gateway.contract import Mode
 from gateway.domain.exception.api_key_error import ApiKeyError
-from gateway.domain.models.api_key import ApiKey, hash_key, parse_bearer
+from gateway.domain.models.api_key import ApiKey, Scope, hash_key, parse_bearer
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +29,7 @@ class AuthenticationService:
         authorization: str | None,
         guardrail: str | None,
         mode: str | None,
+        require: Scope = Scope.PROXY,
     ) -> AuthenticatedRequest:
         raw = parse_bearer(authorization)
         if raw is None:
@@ -39,6 +40,10 @@ class AuthenticationService:
         key = await self._keys.find_by_hash(hash_key(raw))
         if key is None:
             ApiKeyError.INVALID_KEY.raise_()
+
+        # 스코프는 가드레일 해석보다 먼저 본다 — 권한이 없으면 그 키가 어떤
+        # 가드레일을 쓸 수 있는지 알려줄 이유가 없다.
+        key.require_scope(require)
 
         return AuthenticatedRequest(
             key=key,

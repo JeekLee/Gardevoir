@@ -185,6 +185,29 @@ Rules that must hold:
 - **Instruction execution stays a flat loop over an array with a slot array for outputs.**
   No per-node object graph walk, no dict-keyed variable environment.
 
+## Alembic autogenerate and the test fixtures
+
+**`alembic revision --autogenerate` will produce an empty migration if the test
+suite has run against the same database.** The session fixture calls
+`Base.metadata.create_all`, so the tables already match the models and autogenerate
+sees no diff. This has bitten twice.
+
+Reset the database to the *migrated* state first:
+
+```bash
+docker exec gardevoir-postgres-1 psql -U gardevoir -q \
+  -c 'DROP TABLE IF EXISTS api_keys CASCADE; DROP TABLE IF EXISTS alembic_version CASCADE;'
+uv run alembic upgrade head          # applies the existing chain only
+uv run alembic revision --autogenerate -m "..."
+```
+
+Then verify the generated file is not `pass`, apply it, and check the
+upgrade/downgrade round trip.
+
+**A new ORM model must also be re-exported from `infrastructure/models/__init__.py`**
+— `alembic/env.py` imports only the package, so a model missing from that file is
+absent from `Base.metadata` and silently absent from the migration.
+
 ## Request-path constraints (measured, not aspirational)
 
 Total gateway overhead is 0.63 ms/request against a 300–2000 ms upstream call (§11.8).
