@@ -116,7 +116,7 @@ alembic/versions/…                   guardrails 테이블
 "regex 노드의 패턴이 컴파일된다" — 전부 저장소·전송과 무관한 규칙이다. 라우터나
 컴파일러에 두면 같은 규칙이 여러 곳에 복제된다 (§5).
 
-- [ ] **Step 1: 실패하는 테스트 작성** (`tests/test_guardrail_domain.py`)
+- [x] **Step 1: 실패하는 테스트 작성** (`tests/test_guardrail_domain.py`)
 
 아래 성질을 각각 독립 테스트로 쓴다:
 
@@ -143,7 +143,7 @@ alembic/versions/…                   guardrails 테이블
 18. `test_validate_reports_the_offending_node` — `details` 에 노드 id 가 있어야
     UI 가 어느 노드를 붉게 칠할지 안다
 
-- [ ] **Step 2: 실패 확인 → Step 3: 구현**
+- [x] **Step 2: 실패 확인 → Step 3: 구현**
 
 `domain/exception/guardrail_error.py`:
 
@@ -365,7 +365,7 @@ _NODE_VALIDATORS = {
 }
 ```
 
-- [ ] **Step 4: 통과 확인 + 커밋 + 돌연변이**
+- [x] **Step 4: 통과 확인 + 커밋 + 돌연변이**
 
 돌연변이 (전부 CAUGHT 되어야 한다): 순환 검사 제거 · 끊긴 엣지 검사 제거 ·
 중복 id 검사 제거 · regex 컴파일 검증 제거 · `published_as` 의 draft 검사 제거 ·
@@ -395,7 +395,7 @@ _NODE_VALIDATORS = {
 그래프 내부를 SQL 로 조회할 필요가 컴파일러 밖에 없다. 다만 Dify 와 달리 `jsonb` 를
 쓴다 — "이 regex 를 쓰는 가드레일이 어디 있나" 같은 질의가 관리에 필요해진다(§6).
 
-- [ ] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
+- [x] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
 
 테스트 성질:
 1. `test_mapper_roundtrip_preserves_the_graph` — 노드·엣지·설정이 전부 보존
@@ -441,7 +441,7 @@ _NODE_VALIDATORS = {
 DAO 는 Result DTO 를 반환한다(목록·상세 화면). `get` 이 양쪽에 있는 것이 정상이다 —
 쓰기용 로드와 읽기용 투영은 다른 일이다 (§5).
 
-- [ ] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
+- [x] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
 
 테스트 성질 (repository):
 1. `test_add_then_find_draft`
@@ -491,7 +491,7 @@ draft 로드 → validate() → next_version_number() → published_as(n) → ad
 **서비스가 쓰기 후 DAO 로 재조회하는 이유:** 투영 경로를 하나로 유지한다 — 응답이
 목록·상세와 같은 형태여야 한다 (§5, "Single DTO at the boundary").
 
-- [ ] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
+- [x] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
 
 테스트 성질:
 1. `test_create_makes_a_draft`
@@ -533,7 +533,7 @@ draft 로드 → validate() → next_version_number() → published_as(n) → ad
 > 기록돼 있다. **그때까지 이 라우터를 외부에 노출하면 안 된다.** 라우터 독스트링과
 > `infra/README.md` 에 그 사실을 적는다.
 
-- [ ] Step 1~5: 테스트 → 실패 확인 → 구현 → 실제 기동 → 커밋
+- [x] Step 1~5: 테스트 → 실패 확인 → 구현 → 실제 기동 → 커밋
 
 테스트 성질:
 1. `test_create_returns_201_with_the_detail`
@@ -575,3 +575,77 @@ Phase 2a 는 저작·검증·발행까지다. 컴파일(2b)과 프록시 통합(
   검증은 `Node.validate()` 가 명시적으로 한다.
 - `Guardrail.version` 은 문자열이다(`"draft"` 또는 `"3"`). `version_number` 가 정수
   버전이고 draft 는 `None`. Dify 와 같은 형태(§6).
+
+---
+
+## 실행 결과 (2026-08-13)
+
+전부 완료. `feat/phase2a-guardrail-authoring` 브랜치.
+
+| 태스크 | 상태 | 비고 |
+|---|---|---|
+| 1. 도메인 모델 + 검증 | ✅ | 이름 슬러그 제약을 계획에 없던 항목으로 추가 |
+| 2. ORM + mapper + Alembic | ✅ | `6306b9eb46b5` — upgrade/downgrade 왕복 확인 |
+| 3. Repository + DAO | ✅ | `exists()` 를 추가 — 이름 중복은 draft 만 보면 안 된다 |
+| 4. GuardrailService | ✅ | `get_draft`/`get_latest`/`get_version` 으로 갈라짐 |
+| 5. Admin API | ✅ | 실제 기동해 14개 시나리오 확인 |
+
+### 계획에서 바뀐 것
+
+1. **직렬화된 그래프 파싱을 도메인이 소유한다** (`from_graph`/`to_graph`).
+   계획은 ORM 매퍼에만 두려 했지만, 저작 API 도 같은 변환이 필요하다. 두 벌을
+   두면 어긋나므로 도메인으로 올렸다. 매퍼는 주변 컬럼만 옮긴다.
+
+2. **이름을 슬러그로 제한한다** (`GUARDRAIL-010`). 계획에 없었다. 이름은 URL
+   경로 조각이자 `X-Gardevoir-Guardrail` 헤더 값이고 `allowed_guardrails` 와
+   문자열 비교된다 — 세 자리 모두에서 모호하지 않아야 한다.
+
+3. **`GUARDRAIL-009 MALFORMED_GRAPH` 추가.** 계획은 그래프 구조 오류를 다루지
+   않았다. `{"nodes": 42}` 가 들어오면 `TypeError` → 500 이 된다. 저작 API 는
+   신뢰할 수 없는 입력을 받으므로 도메인 오류로 올려야 한다.
+
+4. **`AuthenticationService` 를 `authorise`/`authenticate` 로 나눴다.**
+   계획은 admin 라우트도 `authenticate` 를 쓰려 했는데, 그 메서드는 가드레일을
+   해석한다. 저작 API 에는 해석할 가드레일이 없어서 `APIKEY-003` 이 났다.
+   억지로 admin 키에 `default_guardrail` 을 넣는 것은 반대 방향이다 — 정책
+   관리용 키가 프록시 경로에서도 쓸 수 있는 무언가를 갖게 된다.
+
+5. **부분 유일 인덱스를 쓰지 않았다.** 계획은 `(name, version_number)` 에
+   `WHERE version_number IS NOT NULL` 을 걸려 했지만, Postgres 는 기본적으로
+   NULL 을 서로 다르게 보므로 평범한 유일 제약으로 같은 의미가 나온다.
+   테스트로 구별할 수 없는 절을 넣지 않았다.
+
+6. **`Page` 를 위해 `total` 을 두되 페이지네이션은 없다.** `len(items)` 와
+   같다. 나중에 필드를 추가하는 것이 파괴적 변경이라 자리를 먼저 잡았고, 그
+   사실을 독스트링에 적었다.
+
+7. **의존 방향 테스트를 추가했다** (`tests/test_layering.py`). 계획에 없었다.
+   파일이 늘어날 때 조용히 썩는 규칙이 application/presentation 쪽이다.
+   조립 루트(`composition.py`, `app.py`)만 인프라를 임포트할 수 있다.
+
+### 돌연변이 테스트
+
+44개 중 41 CAUGHT. 1차에 5개가 살아남았고 그중 3개가 실제 구멍이었다.
+
+- `nodes`/`edges` 가 순회 불가능한 값(`42`, `True`)일 때 500. 문자열은 우연히
+  순회되어 per-node 검사에 걸리므로 문자열 케이스만으로는 잡히지 않았다.
+- `list_summaries` 의 `latest_version_number` 가 `max` 인지 확인하지 않았다.
+- **트랜잭션 경계에 테스트가 없었다.** 실패 대부분이 검증 단계에서 나서 아직
+  쓴 것이 없기 때문에 드러나지 않았다. `tests/test_composition.py` 가 쓰기
+  성공 뒤 예외를 주입해 커밋되지 않음을 고정한다.
+
+세 구멍을 막은 뒤 재검증에서 모두 CAUGHT 로 바뀌었다. 남은 1개는 등가 돌연변이다
+(`publish` 가 `replace_draft` 로 같은 그래프를 draft 에 다시 쓰기 — 관측 가능한 변화가 없다).
+
+돌연변이 실행 자체에서도 하나 배웠다: 죽은 pytest 가 Postgres 백엔드를
+`idle in transaction` 으로 남기면 이후 모든 실행이 세션 픽스처의 `TRUNCATE` 에서
+막힌다. 증상이 "실행마다 다른 테스트가 깨짐" 이라 코드 결함처럼 읽힌다. 실제로는
+죽은 돌연변이 스크립트 4개가 같은 DB 에 동시에 pytest 를 돌리고 있었다.
+`skills/gardevoir-be/SKILL.md` 에 진단 SQL 과 `trap restore EXIT` 를 적었다.
+
+### 남긴 것
+
+- **Admin API 에 사람 인증이 없다.** `admin` 스코프 키만 요구한다. Phase 5 가
+  세션/OIDC 를 정할 때 붙인다. 라우터 독스트링·`infra/README.md`·설계 문서
+  §14 에 기록했다. 그때까지 외부 노출 금지.
+- 페이지네이션·이름 변경·삭제·발행본 롤백. 저작 UI(Phase 5)가 요구할 때 만든다.

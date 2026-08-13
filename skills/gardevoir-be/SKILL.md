@@ -185,6 +185,43 @@ Rules that must hold:
 - **Instruction execution stays a flat loop over an array with a slot array for outputs.**
   No per-node object graph walk, no dict-keyed variable environment.
 
+## Mutation testing against a shared database
+
+The suite runs against a real Postgres, so mutation runs need two guards. Both
+were learned the hard way.
+
+**1. Restore on any exit.** A killed mutation script leaves the source mutated,
+and the next run measures the wrong code.
+
+```bash
+restore() { git checkout -- src/; find src -name __pycache__ -type d -print0 | xargs -0 rm -rf; }
+trap restore EXIT INT TERM
+```
+
+`__pycache__` must go with it: a same-length edit restored within the same second
+is byte-identical in size and mtime, so both of CPython's invalidation checks pass
+and the stale `.pyc` keeps running.
+
+**2. Never let a pytest run be killed mid-test.** A SIGKILLed pytest leaves its
+Postgres backend `idle in transaction` holding locks on the test tables. Every
+later run then blocks in the session fixture's `TRUNCATE`/`drop_all` — the symptom
+is a *different* set of failures on each run, or a suite that hangs before the
+first test, which reads like flaky tests rather than a wedged database.
+
+Diagnose it:
+
+```sql
+SELECT pid, state, wait_event_type, xact_start, left(query, 60)
+FROM pg_stat_activity WHERE datname = 'gardevoir' AND pid <> pg_backend_pid();
+-- 'idle in transaction' holding a lock while others wait on TRUNCATE = wedged
+SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity
+WHERE datname = 'gardevoir' AND pid <> pg_backend_pid();
+```
+
+Also check for *other* mutation scripts still looping — several killed shells can
+survive and run pytest concurrently against the same database, which produces the
+same symptom and is easy to misread as a code defect.
+
 ## Alembic autogenerate and the test fixtures
 
 **`alembic revision --autogenerate` will produce an empty migration if the test
