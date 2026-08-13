@@ -40,6 +40,27 @@ async def create_key(
     return raw
 
 
+def migrate() -> None:
+    """Apply the ClickHouse audit schema. Postgres is handled by Alembic."""
+    import pathlib
+
+    import clickhouse_connect
+
+    from gateway.infrastructure.audit.schema import apply_clickhouse_schema
+
+    ch = get_settings().clickhouse
+    client = clickhouse_connect.get_client(
+        host=ch.host,
+        port=ch.port,
+        username=ch.user,
+        password=ch.password,
+        database=ch.database,
+    )
+    sql_dir = pathlib.Path(__file__).resolve().parents[2] / "clickhouse"
+    applied = apply_clickhouse_schema(client, sql_dir)
+    print("clickhouse applied:", ", ".join(applied) or "(none)")
+
+
 def createkey() -> None:
     parser = argparse.ArgumentParser(description="Create a gardevoir API key")
     parser.add_argument("--name", required=True)
