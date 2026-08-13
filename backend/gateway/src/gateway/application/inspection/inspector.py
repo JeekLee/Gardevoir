@@ -238,8 +238,7 @@ class Inspector:
         하나도 못 바꿨으면 ``False`` 를 낸다 — ``masked=True`` 라고 말하면서 원문을
         그대로 내보내는 것이 조용한 fail-open 이다.
         """
-        slots = {slot for node_id in fired for slot in program.mask_slots.get(node_id, ())}
-        patterns = [pattern for slot, pattern in program.patterns_by_slot.items() if slot in slots]
+        patterns = Inspector._mask_patterns(program, fired)
         if not patterns:
             return False
 
@@ -275,6 +274,77 @@ class Inspector:
             return changed
 
         return False
+
+    @staticmethod
+    def _mask_patterns(program: Program, fired: tuple[str, ...]) -> list:
+        """걸린 MASK 판정이 읽는 패턴만.
+
+        계획의 모든 패턴을 돌리면 차단용 패턴까지 가려서 저작자가 쓰지 않은 정책이 된다.
+        """
+        slots = {slot for node_id in fired for slot in program.mask_slots.get(node_id, ())}
+        return [pattern for slot, pattern in program.patterns_by_slot.items() if slot in slots]
+
+    @staticmethod
+    def mask_spans(program: Program, fired: tuple[str, ...], text: str) -> list[tuple[int, int]]:
+        """가려야 할 구간. 겹치는 것은 병합한다.
+
+        스트리밍은 치환이 아니라 **구간**이 필요하다 — 홀드백이 아직 방출 안 된
+        부분에만 손댈 수 있으므로 위치를 알아야 한다.
+        """
+        patterns = Inspector._mask_patterns(program, fired)
+        spans = sorted(
+            (match.start(), match.end()) for pattern in patterns for match in pattern.finditer(text)
+        )
+        merged: list[tuple[int, int]] = []
+        for start, end in spans:
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        return merged
+
+    def stream_text(
+        self,
+        program: Program,
+        text: str,
+        *,
+        mode: Mode,
+        tainted: bool = False,
+    ) -> tuple[Inspection, list[tuple[int, int]]]:
+        """③ 를 스트리밍 윈도우에 적용한다.
+
+        치환을 여기서 하지 않고 **구간**을 돌려준다 — 방출 여부는 홀드백만 안다.
+        """
+        result = execute(
+            program, Subject(text=text, tainted=tainted), collect_all=mode is Mode.DRY_RUN
+        )
+        blocked = result.action is VerdictAction.BLOCK
+        spans = (
+            self.mask_spans(program, result.checks_fired, text)
+            if result.action is VerdictAction.MASK and mode is not Mode.DRY_RUN
+            else []
+        )
+        if blocked and mode is Mode.DRY_RUN:
+            return (
+                Inspection(
+                    action=Action.ALLOW,
+                    tier=TIER_RULES,
+                    checks_fired=result.checks_fired,
+                    pending_model=result.pending_model,
+                    would_have=Action.BLOCKED,
+                ),
+                [],
+            )
+        return (
+            Inspection(
+                action=Action.BLOCKED if blocked else Action.ALLOW,
+                tier=TIER_RULES,
+                checks_fired=result.checks_fired,
+                pending_model=result.pending_model,
+                masked=bool(spans),
+            ),
+            spans,
+        )
 
     @staticmethod
     def _apply(patterns: list, text: str) -> str:
