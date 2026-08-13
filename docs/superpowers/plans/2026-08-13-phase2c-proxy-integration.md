@@ -301,3 +301,72 @@ class Inspector:
   자리이므로, 판정이 없으면 **원본 그대로** 나가는지 테스트로 고정한다.
 - ① 이 user 메시지 전체를 이어붙이므로 긴 대화에서 텍스트가 커진다. regex 는
   선형이고 §11 예산 안이지만, 실측을 성능 테스트에 추가한다.
+
+---
+
+## 실행 결과 (2026-08-13)
+
+전부 완료. `feat/phase2c-proxy-integration`. 700 tests (gateway 644 + shared_kernel 56).
+
+### 실제 기동이 잡은 결함 세 개
+
+**테스트는 전부 초록색이었다.** 원인이 하나다 — 조립 루트의 yield 정리 코드가 응답을
+보낸 뒤에 돌고, `httpx.ASGITransport` 는 전체 ASGI 호출을 기다려주기 때문에 테스트가
+그 차이를 볼 수 없다.
+
+| 증상 | 실제 원인 |
+|---|---|
+| 발행 직후의 요청이 **이전 계획**을 봤다 | 재컴파일이 응답 뒤에 돌았다. 로그가 `publish 200` → `chat(계획 없음)` → `compiled to v1` 순서로 찍혔다 |
+| `PUT draft` 직후의 `publish` 가 **이전 draft**를 발행했다 | 커밋이 응답 뒤에 돌아서, 발행이 여는 새 세션이 새 draft 를 못 봤다. DB 확인 결과 v3 의 verdict 가 실제로 이전 그래프였다 |
+| 컴파일 불가 그래프가 **조용히 발행**됐다 | 발행은 `draft.validate()` 만 했다. 컴파일러만 아는 규칙(013 섞인 체크포인트, 014 마스킹 위치)은 재컴파일 단계에서 터져 로그만 남고 이전 계획이 유지됐다. 운영자는 정책이 바뀐 줄 안다 |
+
+고친 방식:
+
+- **서비스가 자기 쓰기를 커밋한다.** 애플리케이션 서비스가 unit-of-work 경계다.
+- **커밋 전에 자기 쓰기를 읽는다.** 커밋 뒤에 읽으면 읽기 트랜잭션이 새로 열려 응답이
+  나간 뒤에야 닫히고, 그 열린 트랜잭션이 DDL 을 막는다 — 실제로 테스트 스위트가
+  `TRUNCATE` 에서 멈췄다.
+- **쓰기 경로가 컴파일까지 해본다** (create/update_draft/publish). §6 이 원한 "저작
+  시점 즉시 피드백"이고, 비용은 발행당 1회 컴파일(§11.11 실측 0.8 ms)이다.
+
+검증은 **폴링 주기를 600초로 두고** 다시 돌렸다 — 폴러가 켜져 있으면 즉시 반영이
+깨져도 통과한 것처럼 보인다.
+
+```
+① 입력 차단      400 content_filter  inspected=['input']  v1
+③ 출력 마스킹    200 stop            inspected=['output'] v2   내용 [개인정보 삭제됨]
+③ 출력 차단      200 content_filter  inspected=['output'] v3   원문 유출 없음
+dry-run          200 would_have={'action':'blocked'}
+계획 없음        200 inspected=[]    v0                  WARNING
+스트리밍         200 inspected=[]                        WARNING(출력 못 봄)
+MASK 위치 불가   422 GUARDRAIL-014   (고치기 전에는 201 이었다)
+```
+
+감사 로그(ClickHouse)에 `checkpoint`·`checks_fired`·`guardrail_version`·`mode`·
+`tier_reached`·`verdicts` 가 전부 실제 값으로 들어가고 `has(checks_fired,'v')` 로
+조회된다. 게이트웨이 추가 지연 0.06~0.45 ms — §11.8 예산 0.63 ms 안이다.
+
+### 돌연변이 테스트
+
+25개 중 CAUGHT 22 → 25. 생존자 3개는 전부 **테스트 구멍**이었고 코드 결함은 없었다.
+
+- `type != "text"` 조각 검사가 반증 불가였다 (두 번째 검사가 가려줬다).
+- `test_a_mask_that_matches_nothing_does_not_claim_masked` 가 이름이 가리키는 분기를
+  지나지 않았다 — 패턴을 비우니 앞쪽 조기 반환에 걸렸다.
+- 겹치는 span 병합에 테스트가 없었다.
+
+### 계획에서 바뀐 것
+
+- `Inspection` 에 `inspected`/`guardrail_version` 을 두려 했는데, 그건 요청 단위
+  정보다 → `_Verdicts` 가 체크포인트 결과를 모아 계산한다.
+- 마스킹을 계획의 모든 패턴으로 하려 했다 → 걸린 MASK 판정이 읽는 슬롯만
+  (`Program.mask_slots`). 그러지 않으면 차단용 패턴까지 가려서 저작자가 쓰지 않은
+  정책이 된다.
+- `re2` 의 `sub` 이 비 ASCII 치환을 망가뜨린다 → `finditer` 의 span 으로 직접 잘라
+  붙인다. 겹치는 span 은 병합한다.
+
+### 남긴 것
+
+- 스트리밍 출력 검사 = 홀드백 (Phase 4). 지금은 `inspected` 로 안 했다고 밝힌다.
+- 힌트형/모델형의 실제 판정 (Phase 4). `pending_model` 로 넘기고 감사에 남긴다.
+- ②④ tool_result·tool_call, 오염 추적 (Phase 3).
