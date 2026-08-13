@@ -15,6 +15,7 @@ tool_call   ──▶ 전부 버퍼에 모음     ──▶ 완성 시 검사 �
 """
 
 import logging
+import time
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 
@@ -51,6 +52,10 @@ class RelayOutcome:
     unmaskable: int = 0
     model: str = ""
     usage: dict = field(default_factory=dict)
+    #: 우리가 실제로 쓴 시간(ms). 스트리밍은 전체 소요에서 업스트림 생성 대기를 빼는
+    #: 방식으로는 계산할 수 없다 — 청크 사이의 대기가 전부 업스트림 몫이다.
+    #: 그래서 검사에 들어간 구간만 직접 잰다 (§7.2: 게이트웨이가 더한 지연만).
+    processing_ms: float = 0.0
 
 
 class StreamRelay:
@@ -137,6 +142,14 @@ class StreamRelay:
     def _inspect_window(self, program: Program) -> bool:
         """윈도우를 검사하고 치환한다. 멈춰야 하면 True."""
         assert self._inspector is not None
+        started = time.perf_counter()
+        try:
+            return self._inspect_window_inner(program)
+        finally:
+            self.outcome.processing_ms += (time.perf_counter() - started) * 1000
+
+    def _inspect_window_inner(self, program: Program) -> bool:
+        assert self._inspector is not None
         text, offset = self._hold.inspection_window()
         verdict, spans = self._inspector.stream_text(
             program, text, mode=self._mode, tainted=self._tainted
@@ -194,6 +207,7 @@ class StreamRelay:
     def _tool_frames(self) -> Iterator[bytes]:
         """④ — 전부 버퍼링했으므로 아무것도 방출하지 않았다 (§9)."""
         program = self._program(CHECKPOINT_TOOL_CALL)
+        started = time.perf_counter()
         if self._acc.has_tool_calls and program is not None:
             assert self._inspector is not None
             verdict = self._inspector.tool_call(
@@ -204,6 +218,7 @@ class StreamRelay:
                 tainted=self._tainted,
             )
             self.outcome.tool_call = verdict
+            self.outcome.processing_ms += (time.perf_counter() - started) * 1000
             if verdict.blocked:
                 yield from self._stop_frames()
                 return
@@ -216,6 +231,7 @@ class StreamRelay:
                 mode=self._mode,
                 tainted=self._tainted,
             )
+            self.outcome.processing_ms += (time.perf_counter() - started) * 1000
 
         if self._acc.has_tool_calls:
             yield render(
