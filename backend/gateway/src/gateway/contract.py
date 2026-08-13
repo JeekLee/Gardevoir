@@ -28,8 +28,16 @@ STANDARD_FINISH_REASONS = frozenset(
     {"stop", "length", "tool_calls", "content_filter", "function_call"}
 )
 
-#: Phase 1에는 컴파일된 가드레일이 없다. Phase 2에서 실제 발행 버전이 들어간다.
+#: 컴파일된 가드레일이 없다는 표시 — 발행본이 없는 가드레일을 지정한 경우.
+#: 통과시키되 이 값과 빈 ``inspected`` 로 그 사실이 응답에 드러난다.
 UNVERSIONED_GUARDRAIL = 0
+
+#: ①③ 차단 시 본문에 담는 사유. `content` 에 사유를 넣는 것이 필수다 — 많은 앱이
+#: `finish_reason` 을 보지 않고 `content` 만 쓴다 (§7.3).
+BLOCKED_MESSAGE = "이 요청은 정책상 차단되었습니다."
+
+#: Azure OpenAI 가 정착시킨 표준 값. 의미가 우리 체크포인트에 그대로 맞는다 (§7.3).
+FINISH_CONTENT_FILTER = "content_filter"
 
 
 class Action(StrEnum):
@@ -60,15 +68,28 @@ def build_extension(
     guardrail_version: int,
     audit_id: str,
     mode: Mode,
+    inspected: tuple[str, ...] = (),
+    checks: tuple[str, ...] = (),
     dry_run_would_have: dict | None = None,
 ) -> dict:
-    """Build the top-level `gardevoir` object attached to a response body."""
+    """Build the top-level `gardevoir` object attached to a response body.
+
+    ``inspected`` 는 **실제로 돌린** 체크포인트 목록이다. 검사하지 않은 것과 검사해서
+    통과한 것은 다르다 — 스트리밍은 홀드백이 없어 출력을 못 보고(§9, Phase 4),
+    발행본이 없는 가드레일은 아무것도 못 본다. 말하지 않으면 호출자는 검사된 줄
+    알고, 그것이 조용한 fail-open 이다.
+
+    목록 하나로 둔 이유: Phase 3/4 가 tool_result·tool_call 을 더할 때 형태가 바뀌지
+    않는다. 계약에 항목을 추가하는 것은 되돌리기 어렵다 (§7).
+    """
     ext: dict = {
         "action": str(action),
         "guardrail": guardrail,
         "guardrail_version": guardrail_version,
         "mode": str(mode),
         "audit_id": audit_id,
+        "inspected": list(inspected),
+        "checks": list(checks),
     }
     if mode is Mode.DRY_RUN:
         ext["dry_run"] = True
@@ -99,4 +120,39 @@ def response_headers(
         HEADER_MODE: str(mode),
         HEADER_AUDIT_ID: audit_id,
         HEADER_LATENCY_MS: f"{latency_ms:.3f}",
+    }
+
+
+def blocked_input_body(*, extension: dict, reason: str = BLOCKED_MESSAGE) -> dict:
+    """① 입력 차단 — HTTP 400 + ``error.code = content_filter`` (§7.3).
+
+    입력이 막히면 업스트림 응답이 아예 없으므로 OpenAI 의 오류 형태를 쓴다.
+    """
+    return {
+        "error": {
+            "message": reason,
+            "type": "invalid_request_error",
+            "code": FINISH_CONTENT_FILTER,
+            "param": None,
+        },
+        EXTENSION_KEY: extension,
+    }
+
+
+def blocked_output_body(*, extension: dict, reason: str = BLOCKED_MESSAGE) -> dict:
+    """③ 출력 차단 — HTTP 200 + ``finish_reason = content_filter`` (§7.3).
+
+    업스트림은 정상 응답했으므로 200 이다. 커스텀 finish_reason 은 SDK 의 Literal
+    검증에 걸리므로 표준 값만 쓴다 (§11.9).
+    """
+    return {
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": FINISH_CONTENT_FILTER,
+                "logprobs": None,
+                "message": {"role": "assistant", "content": reason},
+            }
+        ],
+        EXTENSION_KEY: extension,
     }
