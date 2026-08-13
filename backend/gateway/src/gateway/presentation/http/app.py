@@ -3,18 +3,22 @@
 import logging
 from contextlib import asynccontextmanager
 
+import clickhouse_connect
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from gateway.domain.models.api_key import ApiKey
+from gateway.infrastructure.audit import ClickHouseAuditSink
 from gateway.infrastructure.engine import dispose_engine, get_session_factory
 from gateway.infrastructure.repository import (
     CachedApiKeyRepository,
     SqlAlchemyApiKeyRepository,
 )
-from gateway.presentation.http import health
+from gateway.infrastructure.upstream import HttpxUpstream
+from gateway.presentation.http import chat_completions, health
 from gateway.settings import GatewaySettings, get_settings
 from shared_kernel.exception import ErrorCode, error_response, register_exception_handlers
 from shared_kernel.log import RequestContextMiddleware, configure_logging
@@ -87,9 +91,33 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
         app.state.key_cache = CachedApiKeyRepository(
             SessionScopedApiKeyRepository(factory), ttl_s=settings.key_cache_ttl_s
         )
+
+        ch = settings.clickhouse
+        clickhouse = clickhouse_connect.get_client(
+            host=ch.host,
+            port=ch.port,
+            username=ch.user,
+            password=ch.password,
+            database=ch.database,
+        )
+        app.state.clickhouse = clickhouse
+        app.state.audit_sink = ClickHouseAuditSink(
+            clickhouse,
+            batch_size=settings.audit_batch_size,
+            flush_interval_s=settings.audit_flush_interval_s,
+            queue_maxsize=settings.audit_queue_maxsize,
+        )
+        await app.state.audit_sink.start()
+
+        http_client = httpx.AsyncClient()
+        app.state.upstream = HttpxUpstream(http_client, timeout_s=settings.upstream_timeout_s)
+
         try:
             yield
         finally:
+            # stop() 은 멱등이다 — 테스트가 명시적으로 부를 수 있다.
+            await app.state.audit_sink.stop()
+            await http_client.aclose()
             await dispose_engine()
 
     app = FastAPI(title="gardevoir gateway", version="0.1.0", lifespan=lifespan)
@@ -103,4 +131,5 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
     _register_framework_exception_handlers(app)
 
     app.include_router(health.router)
+    app.include_router(chat_completions.router)
     return app
