@@ -4,6 +4,7 @@
 여기서 서비스만 가져간다 (skills/gardevoir-be).
 """
 
+import logging
 from collections.abc import AsyncIterator
 from typing import Annotated
 
@@ -15,6 +16,8 @@ from gateway.application.service.proxy_service import ProxyService
 from gateway.domain.models.api_key import Scope
 from gateway.infrastructure.dao.guardrail_dao import SqlAlchemyGuardrailDao
 from gateway.infrastructure.repository.guardrail_repository import SqlAlchemyGuardrailRepository
+
+logger = logging.getLogger(__name__)
 
 
 def provide_authentication_service(request: Request) -> AuthenticationService:
@@ -38,11 +41,24 @@ async def provide_guardrail_service(request: Request) -> AsyncIterator[Guardrail
     경로에만 적용된다).
     """
     async with request.app.state.session_factory() as session:
-        yield GuardrailService(
+        service = GuardrailService(
             guardrails=SqlAlchemyGuardrailRepository(session),
             dao=SqlAlchemyGuardrailDao(session),
         )
+        yield service
         await session.commit()
+
+        # 커밋 뒤에 재컴파일한다. 레지스트리는 새 세션을 열기 때문에, 커밋 전에 부르면
+        # 아직 보이지 않는 행 대신 이전 버전을 컴파일한다. 실패하면 폴러가 다음
+        # 주기에 집어간다 — 응답을 막을 이유가 없다 (§6).
+        plans = getattr(request.app.state, "plans", None)
+        for name in service.published:
+            if plans is None:
+                break
+            try:
+                await plans.refresh(name)
+            except Exception:
+                logger.exception("refreshing the plan for %r failed; the poller will retry", name)
 
 
 AuthenticationServiceDep = Annotated[AuthenticationService, Depends(provide_authentication_service)]

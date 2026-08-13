@@ -495,3 +495,80 @@ async def test_responses_carry_the_request_id(client):
 async def test_the_caller_request_id_is_reused(client):
     r = await client.get(BASE, headers={REQUEST_ID_HEADER: "corr-1"})
     assert r.headers[REQUEST_ID_HEADER] == "corr-1"
+
+
+# --- 발행 -> 컴파일 ----------------------------------------------------------
+
+
+BLOCKING = {
+    "nodes": [
+        {"id": "e", "type": "extract", "config": {"checkpoint": "input"}},
+        {"id": "r", "type": "regex", "config": {"pattern": "alpha"}},
+        {"id": "v", "type": "verdict", "config": {"decision": "conclusive", "action": "block"}},
+    ],
+    "edges": [{"src": "e", "dst": "r"}, {"src": "r", "dst": "v"}],
+}
+
+
+def _swap_pattern(pattern: str) -> dict:
+    graph = {"nodes": [dict(n) for n in BLOCKING["nodes"]], "edges": BLOCKING["edges"]}
+    graph["nodes"][1]["config"] = {"pattern": pattern}
+    return graph
+
+
+async def test_a_draft_is_not_compiled(client, app):
+    """draft 는 운영에 영향이 없다 (§6)."""
+    await client.post(BASE, json={"name": "live", "graph": BLOCKING})
+    assert app.state.plans.get("live") is None
+
+
+async def test_publishing_compiles_the_plan_without_waiting_for_the_poller(client, app):
+    """커밋 뒤에 재컴파일해야 한다 — 커밋 전이면 새 세션이 그 행을 못 본다."""
+    await client.post(BASE, json={"name": "live", "graph": BLOCKING})
+    await client.post(f"{BASE}/live/publish")
+
+    plan = app.state.plans.get("live")
+    assert plan is not None
+    assert plan.version_number == 1
+    assert plan.checkpoints == frozenset({"input"})
+
+
+async def test_republishing_swaps_the_plan(client, app):
+    from gateway.application.plan.executor import execute
+    from gateway.domain.models.guardrail import VerdictAction
+
+    await client.post(BASE, json={"name": "live", "graph": BLOCKING})
+    await client.post(f"{BASE}/live/publish")
+    await client.put(f"{BASE}/live/draft", json={"graph": _swap_pattern("bravo")})
+    await client.post(f"{BASE}/live/publish")
+
+    plan = app.state.plans.get("live")
+    assert plan is not None
+    assert plan.version_number == 2
+
+    program = plan.program_for("input")
+    assert program is not None
+    assert execute(program, "bravo").action is VerdictAction.BLOCK
+    assert execute(program, "alpha").is_allow, "이전 버전이 남아 있다"
+
+
+async def test_a_failed_publish_does_not_change_the_plan(client, app):
+    """422 로 끝난 요청이 계획을 건드리면, 실패한 발행이 정책을 바꾼 셈이 된다."""
+    await client.post(BASE, json={"name": "live", "graph": BLOCKING})
+    await client.post(f"{BASE}/live/publish")
+
+    r = await client.put(f"{BASE}/live/draft", json={"graph": CYCLIC})
+    assert r.status_code == 422
+
+    plan = app.state.plans.get("live")
+    assert plan is not None
+    assert plan.version_number == 1
+
+
+async def test_updating_a_draft_does_not_recompile(client, app):
+    await client.post(BASE, json={"name": "live", "graph": BLOCKING})
+    await client.post(f"{BASE}/live/publish")
+    before = app.state.plans.compiles
+
+    await client.put(f"{BASE}/live/draft", json={"graph": _swap_pattern("bravo")})
+    assert app.state.plans.compiles == before, "draft 수정이 재컴파일을 걸었다"

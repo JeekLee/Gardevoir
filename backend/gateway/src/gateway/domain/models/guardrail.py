@@ -36,6 +36,9 @@ NAME_PATTERN = re2.compile(r"[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?")
 #: 않는다 — 경로 조각은 몇 KB 일 수도 있다.
 _NAME_ECHO_LIMIT = 64
 
+#: arity 상한이 없다는 표시. sys.maxsize 를 쓰면 오류 메시지에 그 숫자가 나온다.
+_MANY = -1
+
 
 def require_valid_name(name: object) -> str:
     """Reject anything that is not a guardrail name.
@@ -165,6 +168,7 @@ class Guardrail:
             node.validate()
         self._validate_edges()
         self._validate_acyclic()
+        self._validate_arity()
 
     def published_as(self, version_number: int) -> "Guardrail":
         """Return a published copy. The draft itself is left editable (§6)."""
@@ -192,6 +196,33 @@ class Guardrail:
                     details={"edge": [edge.src, edge.dst], "missing": missing}
                 )
 
+    def _validate_arity(self) -> None:
+        """How many inputs each node type may read.
+
+        컴파일러가 "regex 는 읽을 슬롯이 정확히 하나"를 가정할 수 있어야 한다.
+        여기(도메인)에 두는 이유: 컴파일 시점에 처음 터지면 발행이 문법 오류로
+        실패하는데, §6 이 문법 검증을 저작 시점으로 옮긴 이유가 그것이다.
+
+        나가는 엣지는 세지 않는다 — 한 extract 를 여러 체크가 읽는 전개는 정상이다.
+        """
+        incoming = dict.fromkeys((node.id for node in self.nodes), 0)
+        for edge in self.edges:
+            incoming[edge.dst] += 1
+
+        for node in self.nodes:
+            low, high = NODE_ARITY[node.type]
+            count = incoming[node.id]
+            if count >= low and (high == _MANY or count <= high):
+                continue
+            GuardrailError.INVALID_ARITY.raise_(
+                f"node {node.id!r}: expected {_arity_text(low, high)} input(s), got {count}",
+                details={
+                    "node_id": node.id,
+                    "inputs": count,
+                    "expected": _arity_text(low, high),
+                },
+            )
+
     def _validate_acyclic(self) -> None:
         """Kahn's algorithm. A self-loop is a cycle too."""
         indegree = {node.id: 0 for node in self.nodes}
@@ -213,6 +244,24 @@ class Guardrail:
         if visited != len(self.nodes):
             unresolved = sorted(node for node, degree in indegree.items() if degree > 0)
             GuardrailError.CYCLE.raise_(details={"nodes": unresolved})
+
+
+#: 노드 타입별 허용 입력 개수 (최소, 최대). verdict 의 여러 입력은 OR 다.
+NODE_ARITY: dict[NodeType, tuple[int, int]] = {
+    NodeType.EXTRACT: (0, 0),
+    NodeType.REGEX: (1, 1),
+    NodeType.LENGTH: (1, 1),
+    NodeType.TRANSFORM: (1, 1),
+    NodeType.VERDICT: (1, _MANY),
+}
+
+
+def _arity_text(low: int, high: int) -> str:
+    if low == high:
+        return str(low)
+    if high == _MANY:
+        return f"{low} or more"
+    return f"{low}-{high}"
 
 
 # -- serialised graph parsing -----------------------------------------------
