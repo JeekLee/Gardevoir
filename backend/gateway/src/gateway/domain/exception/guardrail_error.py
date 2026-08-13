@@ -41,3 +41,8 @@ class GuardrailError(ErrorCatalog):
         "a verdict may not combine checks from different checkpoints",
         ValidationError,
     )
+    UNMASKABLE = (
+        "GUARDRAIL-014",
+        "a mask verdict may only depend on regex checks reading the extracted text",
+        ValidationError,
+    )

@@ -558,3 +558,125 @@ def test_roots_are_emitted_in_declaration_order():
     lengths = [i for i in program.instructions if isinstance(i, Length)]
     by_source = {i.src: i.max_chars for i in lengths}
     assert by_source == {0: 30, 1: 10, 2: 20}
+
+
+# --- MASK 는 위치가 필요하다 --------------------------------------------------
+#
+# 실행기는 "걸렸다/안 걸렸다"만 안다. 마스킹은 위치가 필요해서 걸린 패턴을 원본에
+# 다시 돌려야 하는데, 그 패턴이 transform 출력(소문자화 등)을 읽었으면 원본에서는
+# 안 걸릴 수 있다. 그러면 action=mask 라고 응답하면서 아무것도 가리지 않는다 —
+# 조용한 fail-open 이다. 런타임에 그 상황이 오지 않게 컴파일 시점에 거부한다.
+
+
+def _mask(node_id: str = "v") -> Node:
+    return _verdict(node_id, action="mask")
+
+
+def test_a_mask_verdict_on_a_direct_regex_compiles():
+    plan = compile_guardrail(
+        _graph((_extract("e"), _regex("r"), _mask()), (Edge("e", "r"), Edge("r", "v")))
+    )
+    assert plan.program_for("input") is not None
+
+
+def test_a_mask_verdict_behind_a_transform_is_rejected():
+    with pytest.raises(ValidationError) as exc:
+        compile_guardrail(
+            _graph(
+                (_extract("e"), _transform("t"), _regex("r"), _mask()),
+                (Edge("e", "t"), Edge("t", "r"), Edge("r", "v")),
+            )
+        )
+    assert exc.value.code == GuardrailError.UNMASKABLE.code
+    assert exc.value.details["node_id"] == "v"
+
+
+def test_a_mask_verdict_on_a_length_check_is_rejected():
+    """length 는 위치가 없다 — 무엇을 가릴지 정할 수 없다."""
+    with pytest.raises(ValidationError) as exc:
+        compile_guardrail(
+            _graph((_extract("e"), _length("l"), _mask()), (Edge("e", "l"), Edge("l", "v")))
+        )
+    assert exc.value.code == GuardrailError.UNMASKABLE.code
+
+
+def test_a_mask_verdict_with_one_bad_input_is_rejected():
+    """입력이 여러 개면 OR 다 — 하나만 위치를 모르면 그 하나로 fail-open 이 된다."""
+    with pytest.raises(ValidationError) as exc:
+        compile_guardrail(
+            _graph(
+                (_extract("e"), _regex("ok"), _length("bad"), _mask()),
+                (Edge("e", "ok"), Edge("e", "bad"), Edge("ok", "v"), Edge("bad", "v")),
+            )
+        )
+    assert exc.value.code == GuardrailError.UNMASKABLE.code
+
+
+def test_a_block_verdict_behind_a_transform_still_compiles():
+    """제한은 MASK 만이다. 차단은 위치가 필요 없다."""
+    plan = compile_guardrail(
+        _graph(
+            (_extract("e"), _transform("t"), _regex("r"), _verdict("v")),
+            (Edge("e", "t"), Edge("t", "r"), Edge("r", "v")),
+        )
+    )
+    assert plan.program_for("input") is not None
+
+
+def test_a_block_verdict_on_a_length_check_still_compiles():
+    plan = compile_guardrail(
+        _graph((_extract("e"), _length("l"), _verdict("v")), (Edge("e", "l"), Edge("l", "v")))
+    )
+    assert plan.program_for("input") is not None
+
+
+def test_an_allow_verdict_is_not_restricted():
+    plan = compile_guardrail(
+        _graph(
+            (_extract("e"), _length("l"), _verdict("v", action="allow")),
+            (Edge("e", "l"), Edge("l", "v")),
+        )
+    )
+    assert plan.program_for("input") is not None
+
+
+# --- 마스킹용 패턴 -----------------------------------------------------------
+
+
+def test_patterns_by_slot_covers_every_regex_slot():
+    """마스킹은 걸린 슬롯에서 패턴을 되찾아야 한다."""
+    plan = compile_guardrail(
+        _graph(
+            (_extract("e"), _regex("r1", "aa"), _regex("r2", "bb"), _mask()),
+            (Edge("e", "r1"), Edge("e", "r2"), Edge("r1", "v"), Edge("r2", "v")),
+        )
+    )
+    program = plan.program_for("input")
+    assert program is not None
+    regex_slots = {o for i in program.instructions if isinstance(i, RegexSet) for o in i.outs}
+    regex_slots |= {i.out for i in program.instructions if isinstance(i, RegexOne)}
+    assert set(program.patterns_by_slot) == regex_slots
+
+
+def test_patterns_by_slot_is_empty_without_regexes():
+    plan = compile_guardrail(
+        _graph((_extract("e"), _length("l"), _verdict("v")), (Edge("e", "l"), Edge("l", "v")))
+    )
+    program = plan.program_for("input")
+    assert program is not None
+    assert program.patterns_by_slot == {}
+
+
+def test_patterns_by_slot_finds_the_right_pattern():
+    plan = compile_guardrail(
+        _graph(
+            (_extract("e"), _regex("r1", "alpha"), _regex("r2", "bravo"), _mask()),
+            (Edge("e", "r1"), Edge("e", "r2"), Edge("r1", "v"), Edge("r2", "v")),
+        )
+    )
+    program = plan.program_for("input")
+    assert program is not None
+    matched = {
+        slot for slot, pattern in program.patterns_by_slot.items() if pattern.search("alpha")
+    }
+    assert len(matched) == 1
