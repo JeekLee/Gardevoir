@@ -25,16 +25,20 @@ from typing import Any
 import orjson
 
 
-def extract_tool_calls(body: Any) -> list[tuple[int, dict]]:
-    """``(choice 위치, tool_call)``. 위치는 리스트 인덱스다 — ``index`` 필드는 못 믿는다."""
+def extract_tool_calls(body: Any) -> list[dict]:
+    """응답에 담긴 tool_call 전부.
+
+    choice 위치를 함께 내지 않는다. ④ 는 응답 **전체** 를 막으므로 어느 choice 였는지가
+    쓰이지 않고, 쓰이지 않는 값은 테스트로 고정할 수도 없다. 필요해지면 그때 더한다.
+    """
     if not isinstance(body, dict):
         return []
     choices = body.get("choices")
     if not isinstance(choices, list):
         return []
 
-    found: list[tuple[int, dict]] = []
-    for position, choice in enumerate(choices):
+    found: list[dict] = []
+    for choice in choices:
         if not isinstance(choice, dict):
             continue
         message = choice.get("message")
@@ -43,7 +47,7 @@ def extract_tool_calls(body: Any) -> list[tuple[int, dict]]:
         calls = message.get("tool_calls")
         if not isinstance(calls, list):
             continue
-        found.extend((position, call) for call in calls if isinstance(call, dict))
+        found.extend(call for call in calls if isinstance(call, dict))
     return found
 
 

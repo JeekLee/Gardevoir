@@ -116,7 +116,7 @@ class Inspector:
         evidence: list[dict] = []
         blocked = False
 
-        for _position, call in calls:
+        for call in calls:
             name = tool_name(call)
             foreign = (
                 foreign_arguments(

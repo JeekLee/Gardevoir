@@ -177,11 +177,9 @@ def _response(*calls_per_choice) -> dict:
     }
 
 
-def test_extract_tool_calls_carries_the_choice_position():
+def test_extract_tool_calls_spans_every_choice():
     body = _response([_call("a")], [_call("b")])
-    found = extract_tool_calls(body)
-    assert [position for position, _ in found] == [0, 1]
-    assert [tool_name(call) for _, call in found] == ["a", "b"]
+    assert [tool_name(call) for call in extract_tool_calls(body)] == ["a", "b"]
 
 
 def test_extract_tool_calls_finds_several_in_one_choice():
@@ -203,9 +201,7 @@ def test_extract_tool_calls_skips_malformed_entries():
             {"message": {"tool_calls": ["oops", _call("real")]}},
         ]
     }
-    found = extract_tool_calls(body)
-    assert [tool_name(call) for _, call in found] == ["real"]
-    assert found[0][0] == 3
+    assert [tool_name(call) for call in extract_tool_calls(body)] == ["real"]
 
 
 @pytest.mark.parametrize("body", [{}, None, {"choices": "nope"}, "text"])
