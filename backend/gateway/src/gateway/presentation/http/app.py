@@ -18,7 +18,7 @@ from gateway.infrastructure.repository import (
     SqlAlchemyApiKeyRepository,
 )
 from gateway.infrastructure.upstream import HttpxUpstream
-from gateway.presentation.http import chat_completions, health
+from gateway.presentation.http import admin_guardrails, chat_completions, health
 from gateway.settings import GatewaySettings, get_settings
 from shared_kernel.exception import ErrorCode, error_response, register_exception_handlers
 from shared_kernel.log import RequestContextMiddleware, configure_logging
@@ -88,6 +88,9 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         factory = get_session_factory(settings.database.dsn, echo=settings.database.echo)
+        # 저작 API 는 요청마다 세션을 연다. 프록시 경로는 키 캐시 덕분에 DB 를
+        # 건드리지 않는다 (§6).
+        app.state.session_factory = factory
         app.state.key_cache = CachedApiKeyRepository(
             SessionScopedApiKeyRepository(factory), ttl_s=settings.key_cache_ttl_s
         )
@@ -120,7 +123,19 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
             await http_client.aclose()
             await dispose_engine()
 
-    app = FastAPI(title="gardevoir gateway", version="0.1.0", lifespan=lifespan)
+    # 스펙은 debug 에서만 열린다. 기본값으로 두면 /openapi.json 이 익명으로 컨트롤
+    # 플레인 경로 전체를 알려주므로, infra/README.md 가 권하는 완화책
+    # ("인그레스에서 /v1/admin/* 차단")이 그 구멍을 덮지 못한다.
+    #
+    # docs_url/redoc_url 을 따로 끄지 않는 이유: FastAPI 는 openapi_url 이 없으면
+    # /docs 와 /redoc 라우트를 아예 등록하지 않는다. 같은 조건으로 한 번 더 쓰면
+    # 반증할 수 없는 줄이 된다 — 돌연변이 테스트에서 그것이 드러났다.
+    app = FastAPI(
+        title="gardevoir gateway",
+        version="0.1.0",
+        lifespan=lifespan,
+        openapi_url="/openapi.json" if settings.debug else None,
+    )
 
     # 미들웨어를 먼저 등록해 상관 ID 가 핸들러보다 바깥에 있게 한다. 다만 미처리
     # 예외 핸들러는 ServerErrorMiddleware 안에서 돌아 이 미들웨어를 못 지나므로,
@@ -132,4 +147,7 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(chat_completions.router)
+    # ⚠️ 사람 인증이 아직 없다 — admin 스코프 키만 요구한다. 외부에 노출하지 말 것.
+    # admin_guardrails 의 모듈 독스트링과 infra/README.md 참조.
+    app.include_router(admin_guardrails.router)
     return app

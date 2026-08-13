@@ -126,3 +126,87 @@ async def test_timestamps_are_populated_by_the_database(session):
     assert row.created_at is not None
     assert row.updated_at is not None
     assert row.created_at.tzinfo is not None
+
+
+# --- 스코프 왕복 -------------------------------------------------------------
+
+
+def test_mapper_round_trips_scopes():
+    from gateway.domain.models.api_key import Scope
+
+    raw = generate_key()
+    key = _key(raw, scopes=(Scope.PROXY, Scope.ADMIN))
+    assert to_domain(to_model(key)).scopes == (Scope.PROXY, Scope.ADMIN)
+
+
+def test_mapper_stores_scopes_as_strings():
+    """jsonb 에는 StrEnum 이 아니라 문자열이 들어가야 한다."""
+    from gateway.domain.models.api_key import Scope
+
+    model = to_model(_key(generate_key(), scopes=(Scope.ADMIN,)))
+    assert model.scopes == ["admin"]
+    assert all(isinstance(s, str) and type(s) is str for s in model.scopes)
+
+
+def test_mapper_drops_unknown_scope_strings():
+    """오타가 권한을 주면 안 된다. 알 수 없는 값은 버리고 proxy 로 떨어진다."""
+    from gateway.domain.models.api_key import Scope
+
+    model = ApiKeyModel(
+        id="k1",
+        name="n",
+        key_hash="h",
+        upstream_base_url="u",
+        upstream_api_key="s",
+        allowed_guardrails=["base"],
+        default_guardrail="base",
+        disabled=False,
+        scopes=["admn", "superuser"],  # 오타 + 존재하지 않는 스코프
+    )
+    assert to_domain(model).scopes == (Scope.PROXY,)
+
+
+def test_mapper_defaults_to_proxy_when_scopes_are_empty():
+    from gateway.domain.models.api_key import Scope
+
+    model = ApiKeyModel(
+        id="k1",
+        name="n",
+        key_hash="h",
+        upstream_base_url="u",
+        upstream_api_key="s",
+        allowed_guardrails=["base"],
+        default_guardrail="base",
+        disabled=False,
+        scopes=[],
+    )
+    assert to_domain(model).scopes == (Scope.PROXY,)
+
+
+async def test_scopes_survive_the_database(session):
+    """DB 를 거쳐도 스코프가 유지되어야 한다 — 여기가 실제 경로다."""
+    from gateway.domain.models.api_key import Scope
+
+    raw = generate_key()
+    repo = SqlAlchemyApiKeyRepository(session)
+    await repo.add(_key(raw, id="k-admin", scopes=(Scope.PROXY, Scope.ADMIN)))
+    await session.commit()
+
+    found = await repo.find_by_hash(hash_key(raw))
+    assert found is not None
+    assert found.scopes == (Scope.PROXY, Scope.ADMIN)
+    assert found.has_scope(Scope.ADMIN)
+
+
+async def test_default_key_persists_as_proxy_only(session):
+    from gateway.domain.models.api_key import Scope
+
+    raw = generate_key()
+    repo = SqlAlchemyApiKeyRepository(session)
+    await repo.add(_key(raw, id="k-default"))
+    await session.commit()
+
+    found = await repo.find_by_hash(hash_key(raw))
+    assert found is not None
+    assert found.scopes == (Scope.PROXY,)
+    assert found.has_scope(Scope.ADMIN) is False

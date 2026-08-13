@@ -28,3 +28,8 @@ class ApiKeyError(ErrorCatalog):
         "an API key with this name already exists",
         ConflictError,
     )
+    SCOPE_NOT_GRANTED = (
+        "APIKEY-005",
+        "this key does not have the required scope",
+        ForbiddenError,
+    )

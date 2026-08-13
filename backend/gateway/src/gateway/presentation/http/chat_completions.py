@@ -10,6 +10,7 @@ from fastapi.responses import Response, StreamingResponse
 from gateway.application.service.proxy_service import wants_stream
 from gateway.composition import AuthenticationServiceDep, ProxyServiceDep
 from gateway.contract import API_PREFIX, HEADER_GUARDRAIL, HEADER_MODE, HEADER_REQUEST_ID
+from gateway.domain.models.api_key import Scope
 
 router = APIRouter(prefix=API_PREFIX)
 
@@ -24,6 +25,7 @@ async def chat_completions(
         authorization=request.headers.get("authorization"),
         guardrail=request.headers.get(HEADER_GUARDRAIL),
         mode=request.headers.get(HEADER_MODE),
+        require=Scope.PROXY,
     )
     payload = await request.body()
     request_id = request.headers.get(HEADER_REQUEST_ID, "")

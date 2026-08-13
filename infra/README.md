@@ -69,3 +69,24 @@ Postgres      35 MiB / 512 MiB  (6.9%)
 ```
 
 상한에 근접하면 `compose.env`의 값을 올린다.
+
+## ⚠️ Admin API 노출 금지 (Phase 5 까지)
+
+`/v1/admin/*` 은 아직 **사람 인증이 없다.** `admin` 스코프를 가진 API 키만 요구하므로,
+그 키가 새면 가드레일 정책 전체를 바꿀 수 있다 — 즉 프록시 검사를 무력화할 수 있다.
+
+Phase 5(콘솔)가 관리자 인증(세션/OIDC)을 정할 때까지:
+
+- `/v1/admin/*` 을 리버스 프록시/인그레스에서 차단하거나, gateway 를 사설망에만 노출한다.
+- `admin` 스코프 키는 운영자 로컬에서만 쓰고 애플리케이션에 배포하지 않는다.
+- 프록시용 키에는 `admin` 을 주지 않는다 (기본값은 `proxy` 뿐이다).
+
+```bash
+# 프록시 키 (기본)
+uv run gardevoir-createkey --name my-app --upstream-base-url https://api.openai.com/v1 ...
+
+# 관리자 키 — 별도로 만든다
+uv run gardevoir-createkey --name ops-console --scope admin ...
+```
+
+설계 문서 §14 에 미해결 항목으로 기록돼 있다.

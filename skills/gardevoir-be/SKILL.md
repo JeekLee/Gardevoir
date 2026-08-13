@@ -59,6 +59,42 @@ backend/<bc>/
 └── tests/                    # mirror layout; TDD
 ```
 
+## Single deployment — do not split the backend
+
+**gardevoir ships as one backend service.** The control plane (guardrail
+authoring, `/v1/admin/**`) and the data plane (`/v1/chat/completions`) live in the
+same process, separated by route prefix and by credential scope — not by topology.
+
+This is a decision, not an accident. Do not re-litigate it:
+
+- **RE2 automata cannot be serialised (§11.5).** The compiler must run inside the
+  process that serves requests, so the control plane cannot be moved away from the
+  data plane without leaving the compiler homeless.
+- **The hot path must have no network hop (§6).** Every boundary added is latency
+  the design promised not to add. A guardrail that calls another service to decide
+  is exactly the architecture §9 rejected — it is why AWS's ApplyGuardrail has to
+  batch 1000 words at a time, and beating that trade-off is our main advantage.
+- **"One container" is the product proposition.** A self-hosted gateway that needs
+  five services orchestrated is a much harder thing to adopt.
+- **One business domain.** Other CryptoLab repos have several bounded contexts
+  because they have several domains. gardevoir has one: guardrails. Copying a
+  topology without the domain multiplicity that justified it is cargo cult.
+
+Scale horizontally with replicas, not by splitting. §6 already assumes this: each
+instance polls Postgres and compiles into its own memory.
+
+Ollama (Phase 4) and the Next.js console (Phase 5) are separate processes but not
+our microservices — one is an external dependency, the other a frontend.
+
+**Authorisation, not topology.** Admin routes are gated by the `admin` scope on the
+API key; proxy routes by `proxy`. Identity, allowed guardrails, and scope all come
+from the credential (§7.2) — never from a header.
+
+Splitting becomes worth considering only when one of these is true, and none is
+today: the audit dashboard outgrows serving from the gateway; the approval flow
+(Phase 6) grows a state machine and notifications; the model tier needs to be ours
+rather than external.
+
 ## Dependency direction (strict)
 
 - **domain** — pure / persistence-ignorant. May import only `shared_kernel.exception`
@@ -148,6 +184,66 @@ Rules that must hold:
   them (5% saving, §11.5). Each process compiles into its own memory.
 - **Instruction execution stays a flat loop over an array with a slot array for outputs.**
   No per-node object graph walk, no dict-keyed variable environment.
+
+## Mutation testing against a shared database
+
+The suite runs against a real Postgres, so mutation runs need two guards. Both
+were learned the hard way.
+
+**1. Restore on any exit.** A killed mutation script leaves the source mutated,
+and the next run measures the wrong code.
+
+```bash
+restore() { git checkout -- src/; find src -name __pycache__ -type d -print0 | xargs -0 rm -rf; }
+trap restore EXIT INT TERM
+```
+
+`__pycache__` must go with it: a same-length edit restored within the same second
+is byte-identical in size and mtime, so both of CPython's invalidation checks pass
+and the stale `.pyc` keeps running.
+
+**2. Never let a pytest run be killed mid-test.** A SIGKILLed pytest leaves its
+Postgres backend `idle in transaction` holding locks on the test tables. Every
+later run then blocks in the session fixture's `TRUNCATE`/`drop_all` — the symptom
+is a *different* set of failures on each run, or a suite that hangs before the
+first test, which reads like flaky tests rather than a wedged database.
+
+Diagnose it:
+
+```sql
+SELECT pid, state, wait_event_type, xact_start, left(query, 60)
+FROM pg_stat_activity WHERE datname = 'gardevoir' AND pid <> pg_backend_pid();
+-- 'idle in transaction' holding a lock while others wait on TRUNCATE = wedged
+SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity
+WHERE datname = 'gardevoir' AND pid <> pg_backend_pid();
+```
+
+Also check for *other* mutation scripts still looping — several killed shells can
+survive and run pytest concurrently against the same database, which produces the
+same symptom and is easy to misread as a code defect.
+
+## Alembic autogenerate and the test fixtures
+
+**`alembic revision --autogenerate` will produce an empty migration if the test
+suite has run against the same database.** The session fixture calls
+`Base.metadata.create_all`, so the tables already match the models and autogenerate
+sees no diff. This has bitten twice.
+
+Reset the database to the *migrated* state first:
+
+```bash
+docker exec gardevoir-postgres-1 psql -U gardevoir -q \
+  -c 'DROP TABLE IF EXISTS api_keys CASCADE; DROP TABLE IF EXISTS alembic_version CASCADE;'
+uv run alembic upgrade head          # applies the existing chain only
+uv run alembic revision --autogenerate -m "..."
+```
+
+Then verify the generated file is not `pass`, apply it, and check the
+upgrade/downgrade round trip.
+
+**A new ORM model must also be re-exported from `infrastructure/models/__init__.py`**
+— `alembic/env.py` imports only the package, so a model missing from that file is
+absent from `Base.metadata` and silently absent from the migration.
 
 ## Request-path constraints (measured, not aspirational)
 
