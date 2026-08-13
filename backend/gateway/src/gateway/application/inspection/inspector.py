@@ -12,7 +12,12 @@ from gateway.application.inspection.outcome import (
     TIER_RULES,
     Inspection,
 )
-from gateway.application.inspection.text import extract_input_text, extract_output_texts
+from gateway.application.inspection.text import (
+    extract_input_text,
+    extract_output_texts,
+    extract_tool_result_text,
+    is_tainted,
+)
 from gateway.application.plan.execution_plan import ExecutionPlan, Program
 from gateway.application.plan.executor import Subject, execute
 from gateway.application.plan.registry import PlanRegistry
@@ -22,7 +27,9 @@ from gateway.domain.models.guardrail import VerdictAction
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_INPUT = "input"
+CHECKPOINT_TOOL_RESULT = "tool_result"
 CHECKPOINT_OUTPUT = "output"
+CHECKPOINT_TOOL_CALL = "tool_call"
 
 
 class Inspector:
@@ -46,6 +53,24 @@ class Inspector:
             return NOT_INSPECTED
         subject = Subject(text=extract_input_text(payload), tainted=tainted)
         return self._run(program, subject, mode=mode)
+
+    def tool_result(
+        self, plan: ExecutionPlan | None, payload: object, *, mode: Mode, tainted: bool = False
+    ) -> Inspection:
+        """② 검사 — 툴 결과에 심긴 지시를 잡는다 (§8).
+
+        업스트림 호출 **전** 이다. 오염된 데이터를 모델에 먹이지 않는 것이 방어다.
+        """
+        program = plan.program_for(CHECKPOINT_TOOL_RESULT) if plan is not None else None
+        if program is None:
+            return NOT_INSPECTED
+        subject = Subject(text=extract_tool_result_text(payload), tainted=tainted)
+        return self._run(program, subject, mode=mode)
+
+    @staticmethod
+    def tainted(payload: object) -> bool:
+        """오염 여부. 요청마다 새로 계산한다 (§7.4)."""
+        return is_tainted(payload)
 
     def output(
         self, plan: ExecutionPlan | None, body: dict, *, mode: Mode, tainted: bool = False
