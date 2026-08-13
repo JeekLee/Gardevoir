@@ -316,3 +316,30 @@ async def test_update_draft_rejects_an_invalid_name(service):
     with pytest.raises(ValidationError) as exc:
         await service.update_draft("x\x00y", UpdateDraft(graph=_graph()))
     assert exc.value.code == GuardrailError.INVALID_NAME.code
+
+
+# -- arity -------------------------------------------------------------------
+
+ORPHAN_REGEX = {"nodes": [{"id": "r", "type": "regex", "config": {"pattern": "x"}}], "edges": []}
+
+
+async def test_create_rejects_a_node_with_no_input(service):
+    """컴파일러는 regex 가 읽을 슬롯이 하나라고 가정한다 (§6, Phase 2b)."""
+    with pytest.raises(ValidationError) as exc:
+        await service.create(CreateGuardrail(name="orphan", graph=ORPHAN_REGEX))
+    assert exc.value.code == GuardrailError.INVALID_ARITY.code
+    assert exc.value.details["node_id"] == "r"
+
+
+async def test_publish_rejects_a_node_with_no_input(service, session):
+    """저작 시점에 통과했더라도 발행이 다시 본다 — 규칙이 나중에 추가될 수 있다."""
+    await service.create(CreateGuardrail(name="doc-agent", graph=_graph()))
+    await session.execute(
+        sqlalchemy.update(GuardrailModel)
+        .where(GuardrailModel.version == DRAFT_VERSION)
+        .values(graph=ORPHAN_REGEX)
+    )
+
+    with pytest.raises(ValidationError) as exc:
+        await service.publish("doc-agent")
+    assert exc.value.code == GuardrailError.INVALID_ARITY.code

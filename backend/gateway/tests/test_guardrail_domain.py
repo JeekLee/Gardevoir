@@ -91,7 +91,10 @@ def test_duplicate_node_id_is_rejected():
 
 def test_regex_pattern_is_validated_with_re2():
     """re2 는 (a+)+$ 를 안전하게 다루므로 거부하지 않는다 (§11.1)."""
-    _draft(nodes=(_regex("n1", r"(a+)+$"),), edges=()).validate()
+    _draft(
+        nodes=(_extract("n0"), _regex("n1", r"(a+)+$"), _verdict("n2")),
+        edges=(Edge("n0", "n1"), Edge("n1", "n2")),
+    ).validate()
 
 
 def test_uncompilable_regex_is_rejected():
@@ -131,7 +134,10 @@ def test_length_requires_a_positive_max():
 
 def test_length_accepts_a_positive_int():
     node = Node(id="ok", type=NodeType.LENGTH, config={"max_chars": 4000})
-    _draft(nodes=(node,), edges=()).validate()
+    _draft(
+        nodes=(_extract("n0"), node, _verdict("n2")),
+        edges=(Edge("n0", "ok"), Edge("ok", "n2")),
+    ).validate()
 
 
 def test_transform_requires_a_known_op():
@@ -263,3 +269,105 @@ def test_a_rejected_name_names_itself():
     with pytest.raises(ValidationError) as info:
         _draft(name="Bad Name")
     assert info.value.details == {"name": "Bad Name"}
+
+
+# --- 입력 개수(arity) -------------------------------------------------------
+#
+# 컴파일러가 "regex 는 읽을 슬롯이 정확히 하나"를 가정할 수 있어야 한다.
+# 도메인에 두는 이유: 컴파일 시점에 처음 터지면 발행이 문법 오류로 실패하는데,
+# §6 이 문법 검증을 저작 시점으로 옮긴 이유가 바로 그것이다.
+
+
+def _length(node_id: str = "n1", max_chars: int = 100) -> Node:
+    return Node(id=node_id, type=NodeType.LENGTH, config={"max_chars": max_chars})
+
+
+def _transform(node_id: str = "n1", op: str = "lower") -> Node:
+    return Node(id=node_id, type=NodeType.TRANSFORM, config={"op": op})
+
+
+def test_extract_may_not_have_inputs():
+    """extract 는 소스다. 무언가를 읽는 extract 는 의미가 없다."""
+    with pytest.raises(ValidationError) as info:
+        _draft(
+            nodes=(_extract("a"), _extract("b")),
+            edges=(Edge("a", "b"),),
+        ).validate()
+    assert info.value.code == "GUARDRAIL-012"
+    assert info.value.details["node_id"] == "b"
+
+
+@pytest.mark.parametrize("factory", [_regex, _length, _transform])
+def test_a_single_input_node_rejects_zero_inputs(factory):
+    with pytest.raises(ValidationError) as info:
+        _draft(nodes=(factory("solo"),), edges=()).validate()
+    assert info.value.code == "GUARDRAIL-012"
+    assert info.value.details["node_id"] == "solo"
+
+
+@pytest.mark.parametrize("factory", [_regex, _length, _transform])
+def test_a_single_input_node_rejects_two_inputs(factory):
+    """입력이 둘이면 어느 텍스트를 볼지 정할 수 없다."""
+    with pytest.raises(ValidationError) as info:
+        _draft(
+            nodes=(_extract("a"), _extract("b", "output"), factory("mid")),
+            edges=(Edge("a", "mid"), Edge("b", "mid")),
+        ).validate()
+    assert info.value.code == "GUARDRAIL-012"
+    assert info.value.details["node_id"] == "mid"
+
+
+@pytest.mark.parametrize("factory", [_regex, _length, _transform])
+def test_a_single_input_node_accepts_one_input(factory):
+    _draft(
+        nodes=(_extract("a"), factory("mid"), _verdict("v")),
+        edges=(Edge("a", "mid"), Edge("mid", "v")),
+    ).validate()
+
+
+def test_verdict_requires_at_least_one_input():
+    """읽을 것이 없는 판정은 영원히 걸리지 않는다."""
+    with pytest.raises(ValidationError) as info:
+        _draft(nodes=(_verdict("v"),), edges=()).validate()
+    assert info.value.code == "GUARDRAIL-012"
+    assert info.value.details["node_id"] == "v"
+
+
+def test_verdict_accepts_many_inputs():
+    """여러 입력은 OR 다 — 하나라도 걸리면 판정이 선다."""
+    _draft(
+        nodes=(_extract("a"), _regex("r1"), _length("l1"), _verdict("v")),
+        edges=(Edge("a", "r1"), Edge("a", "l1"), Edge("r1", "v"), Edge("l1", "v")),
+    ).validate()
+
+
+def test_the_arity_error_reports_the_expected_count():
+    """UI 가 무엇이 틀렸는지 말해줄 수 있어야 한다."""
+    with pytest.raises(ValidationError) as info:
+        _draft(nodes=(_regex("solo"),), edges=()).validate()
+    assert info.value.details["inputs"] == 0
+    assert "1" in info.value.details["expected"]
+
+
+def test_an_empty_graph_still_validates():
+    """노드 0개는 아무것도 하지 않는 가드레일이다 — 2a 의 성질을 유지한다."""
+    _draft(nodes=(), edges=()).validate()
+
+
+def test_arity_does_not_count_outgoing_edges():
+    """전개(fan-out)는 정상이다 — 한 extract 를 여러 체크가 읽는다."""
+    _draft(
+        nodes=(_extract("a"), _regex("r1"), _regex("r2"), _verdict("v")),
+        edges=(Edge("a", "r1"), Edge("a", "r2"), Edge("r1", "v"), Edge("r2", "v")),
+    ).validate()
+
+
+def test_a_bad_config_is_reported_before_arity():
+    """노드 설정 오류가 arity 보다 먼저 나와야 한다.
+
+    그러지 않으면 설정만 확인하려는 테스트와 UI 피드백이 전부 GUARDRAIL-012 로
+    덮여버린다 — 저작자는 오타를 고칠 방법을 알 수 없게 된다.
+    """
+    with pytest.raises(ValidationError) as info:
+        _draft(nodes=(_regex("bad", "[unclosed"),), edges=()).validate()
+    assert info.value.code == "GUARDRAIL-005"
