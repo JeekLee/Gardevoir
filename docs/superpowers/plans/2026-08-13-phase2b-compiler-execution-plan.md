@@ -128,7 +128,7 @@ tests/
 - `GuardrailError.INVALID_ARITY = ("GUARDRAIL-012", ..., ValidationError)`
 - `Guardrail._validate_arity()` — `validate()` 에서 호출
 
-- [ ] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
+- [x] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
 
 테스트 성질:
 1. `test_extract_may_not_have_inputs`
@@ -181,7 +181,7 @@ bool 이 아니라 action·decision·node_id 가 필요하다.
 `node_id` 를 명령에 담는 이유: 감사 로그의 `checks_fired` 가 정책 튜닝의 유일한
 입력이다 (§4). 원본 노드 dict 를 붙들지 않으려면 필요한 필드만 복사해야 한다 (§11.6).
 
-- [ ] Step 1~4
+- [x] Step 1~4
 
 테스트 성질:
 1. `test_program_for_returns_none_for_an_unused_checkpoint`
@@ -217,7 +217,7 @@ bool 이 아니라 action·decision·node_id 가 필요하다.
 **⑦ 비용 순서:** `length < transform < regex`. 조기 종료가 빨라진다.
 위상 순서를 깨뜨리지 않는 범위에서만 재정렬한다 (레벨 안에서 안정 정렬).
 
-- [ ] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
+- [x] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
 
 테스트 성질:
 1. `test_a_single_checkpoint_graph_compiles`
@@ -259,7 +259,7 @@ def execute(program: Program, text: str, *, collect_all: bool = False) -> Execut
 - 힌트형/모델형이 걸리면 `pending_model` 에 들어간다 — 실행기가 판정하지 않는다
 - `collect_all=False` 이고 결론형 BLOCK 이 나오면 즉시 종료
 
-- [ ] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
+- [x] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
 
 테스트 성질:
 1. `test_a_clean_text_is_allowed`
@@ -314,7 +314,7 @@ class PlanRegistry:
 `SessionScopedGuardrailSource` 가 호출마다 짧은 세션을 연다 —
 `SessionScopedApiKeyRepository`(1c)와 같은 패턴이다.
 
-- [ ] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
+- [x] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
 
 테스트 성질:
 1. `test_get_returns_none_for_an_unknown_guardrail`
@@ -356,7 +356,7 @@ class PlanRegistry:
 성능 테스트는 **회귀 감시**로만 둔다 — 절대값을 단정하면 다른 하드웨어에서 깨진다.
 넉넉한 상한(예: 실행 5 ms, 컴파일 100 ms)만 걸고, 실제 숫자는 문서에 기록한다.
 
-- [ ] Step 1~3: 측정 → 문서 갱신 → 커밋
+- [x] Step 1~3: 측정 → 문서 갱신 → 커밋
 
 ---
 
@@ -393,3 +393,69 @@ class PlanRegistry:
 - LRU 계획 캐시(§6): `get`/`refresh` 인터페이스가 그대로다.
 - `SharedNode`/`BaseGuardrail` 병합: 컴파일 입력이 `Guardrail` 하나이므로, 병합은
   컴파일 앞단에 함수 하나로 들어간다.
+
+---
+
+## 실행 결과 (2026-08-13)
+
+전부 완료. `feat/phase2b-compiler-execution-plan`. 593 tests (gateway 537 +
+shared_kernel 56).
+
+### 계획대로 되지 않은 것
+
+**1. 단독 regex 가 명령에서 빠졌다.** `_emit` 이 `merged` 에 없는 regex 를
+`continue` 로 넘겨버려서 `RegexOne` 이 아예 생성되지 않았다. 첫 테스트가 잡았다.
+
+**2. verdict 에도 슬롯을 배정했다.** verdict 는 슬롯에 쓰지 않으므로 배열이 판정
+개수만큼 커지고 `slot_count` 가 실제 사용량과 어긋났다. `test_slots_are_dense` 가
+잡았다.
+
+**3. 발행 직후 재컴파일을 서비스 안에서 부를 수 없었다.** 레지스트리는 새 세션을
+열고, 그 세션은 아직 커밋되지 않은 행을 보지 못해서 이전 버전을 컴파일한다.
+서비스가 발행한 이름을 남기고 조립 루트가 커밋 뒤에 재컴파일을 건다.
+
+**4. 명령 순서가 해시 시드에 흔들렸다.** `_topological` 이 `live` 집합을
+순회했고, set 순회 순서는 문자열 해시에 달려 있어 프로세스마다 다르다. 루트가
+여러 개인 그래프에 해시 시드 8개를 넣으니 서로 다른 순서 8개가 나왔다.
+
+§6 이 워커별 독립 컴파일이므로, 순서가 워커마다 다르면 조기 종료 지점이 달라지고
+같은 요청의 `checks_fired` 가 워커마다 달라진다 — 감사 로그로 정책을 튜닝할 수
+없게 된다. 노드 선언 순서로 시작하게 고쳤다.
+
+**돌연변이 테스트가 이것을 찾았고, 일반 테스트는 원리적으로 찾을 수 없었다.**
+한 프로세스에서 두 번 컴파일하면 해시 시드가 같아서 항상 일치한다.
+
+### §11 재측정
+
+§11.3/11.4/11.6 은 프로토타입 값이었다. 구현으로 다시 재서 §11.11 에 기록했다.
+
+**단위를 맞추는 것이 절반이었다.** 처음 만든 합성 그래프는 패턴 90개가
+`re2.Set` 두 개로 합쳐져 명령이 5개뿐이었고, 그 단위로 재면 0.0101 ms 다.
+§11.4 의 0.618 ms 는 명령 255개 기준이므로 비교 대상이 아니다. 합침이 듣지 않는
+그래프(명령 252개)를 따로 만들어 다시 쟀다 — 합침이 잘 되는 구성에서만 빠르면
+설계 근거로 쓸 수 없다.
+
+비율이 10배에서 **5.9배**로 줄었다. 이쪽 "매번 걷기" 구현이 프로토타입보다
+가벼워서다. 결론은 그대로지만 "10배"를 인용하면 안 된다.
+
+### 돌연변이 테스트
+
+44개 중 40 CAUGHT. 생존자 4개 중 **1개가 실제 결함**(위 4번), 1개는 죽은 코드
+(`RegexSet` 이 걸리지 않은 슬롯을 `False` 로 덮는 줄 — 슬롯은 `None` 으로 시작하고
+`None` 은 falsy 라 관측 가능한 차이가 없었다), 2개는 하네스 결함이었다.
+
+**하네스가 행(hang)을 SURVIVED 로 두 번 오분류했다.**
+`out=$(timeout 300 pytest | tail -3); rc=$?` 는 `tail` 의 상태를 읽는다. 파이프를
+빼고 출력을 통째로 받아야 `timeout` 의 124 가 보인다. `PIPESTATUS[0]` 도 명령 치환
+안에서는 전파되지 않는다. `skills/gardevoir-be` 에 적었다.
+
+**커밋 전에 돌연변이를 돌려서 수정을 한 번 더 날렸다.** 생존자를 고치는 중에
+`git checkout -- src/` 가 돌았고, 다음 두 돌연변이가 대상 문자열을 못 찾아 SKIP 이
+됐다. AGENTS.md 에 내가 써 둔 규칙이다. 세 번째다.
+
+### 남긴 것
+
+- 힌트형/모델형의 실제 판정 (Phase 4). 지금은 `pending_model` 로 넘긴다
+- 체크포인트를 섞는 verdict — `GUARDRAIL-013` 으로 거부. Phase 3 의 오염 추적
+- `SharedNode`/`BaseGuardrail` 병합 — 컴파일 앞단 함수 하나로 들어갈 자리
+- LRU 계획 캐시 (§6) — `get`/`refresh` 인터페이스가 그대로다

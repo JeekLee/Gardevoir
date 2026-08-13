@@ -227,15 +227,20 @@ same symptom and is easy to misread as a code defect.
 `failed`/`error` line. Check the exit code:
 
 ```bash
-out=$(timeout 300 uv run pytest -q 2>&1 | tail -3); rc=$?
-if [ $rc -eq 124 ]; then echo "HANG (=CAUGHT)"
-elif echo "$out" | grep -qE "[0-9]+ (failed|error)"; then echo CAUGHT
+# 파이프를 쓰지 않는다. $? 는 파이프라인의 *마지막* 명령(tail)의 상태다.
+out=$(timeout 300 uv run pytest -q 2>&1); rc=$?
+if [ "$rc" -eq 124 ]; then echo "HANG (=CAUGHT)"
+elif printf '%s' "$out" | grep -qE "[0-9]+ (failed|error)"; then echo CAUGHT
 else echo SURVIVED; fi
 ```
 
-This misclassified a real result once: removing `task.cancel()` from a background
-task's `stop()` made every test wait forever on the poller, and the harness
-reported the mutation as surviving.
+`... | tail -3); rc=$?` 는 늘 0 이다 — `tail` 의 상태를 읽는다. `PIPESTATUS[0]` 도
+명령 치환 안의 파이프라인에는 전파되지 않으니 쓰지 말 것. 출력을 통째로 받아서
+나중에 자르는 것이 유일하게 맞는 형태다.
+
+This misclassified a real result twice: removing `task.cancel()` from a background
+task's `stop()` made every test wait forever on the poller, and both the naive
+classifier *and* the pipeline-based "fix" reported the mutation as surviving.
 
 **4. Commit before mutating, every time.** The `git checkout -- src/` that restores
 a mutation also discards uncommitted source fixes. This has bitten three times in

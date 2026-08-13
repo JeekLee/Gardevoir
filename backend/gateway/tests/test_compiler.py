@@ -519,3 +519,42 @@ def test_declaration_order_survives_the_cost_sort():
     assert program is not None
     lengths = [i.max_chars for i in program.instructions if isinstance(i, Length)]
     assert lengths == [30, 10, 20], "선언 순서가 아니라 다른 것으로 정렬됐다"
+
+
+def test_roots_are_emitted_in_declaration_order():
+    """루트(extract)가 여러 개면 그 순서가 슬롯 번호와 명령 순서를 정한다.
+
+    해시 시드 테스트는 '일관성'만 본다 — 순서를 뒤집어도 일관되므로 통과한다.
+    저작자가 읽을 수 있는 순서(선언 순서)인지는 따로 고정해야 한다.
+    """
+    plan = compile_guardrail(
+        _graph(
+            (
+                _extract("e_third"),
+                _extract("e_first"),
+                _extract("e_second"),
+                _length("l_third", 30),
+                _length("l_first", 10),
+                _length("l_second", 20),
+                _verdict("v"),
+            ),
+            (
+                Edge("e_third", "l_third"),
+                Edge("e_first", "l_first"),
+                Edge("e_second", "l_second"),
+                Edge("l_third", "v"),
+                Edge("l_first", "v"),
+                Edge("l_second", "v"),
+            ),
+        )
+    )
+    program = plan.program_for("input")
+    assert program is not None
+
+    extracts = [i for i in program.instructions if isinstance(i, Extract)]
+    assert [i.out for i in extracts] == [0, 1, 2]
+
+    # e_third 가 먼저 선언됐으므로 슬롯 0 이고, 그것을 읽는 length 가 max_chars=30 이다
+    lengths = [i for i in program.instructions if isinstance(i, Length)]
+    by_source = {i.src: i.max_chars for i in lengths}
+    assert by_source == {0: 30, 1: 10, 2: 20}
