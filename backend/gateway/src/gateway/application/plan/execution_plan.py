@@ -68,6 +68,30 @@ class Taint:
 
 
 @dataclass(frozen=True, slots=True)
+class SideEffect:
+    """이 tool_call 이 부작용 툴인가 (§7.6).
+
+    ``read_only`` 에 없으면 부작용 있음 — 미등록 툴이 안전한 쪽으로 기본 처리된다.
+    새 툴이 추가됐을 때 조용히 방어가 비는 것을 막는다.
+    """
+
+    out: int
+    read_only: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class Provenance:
+    """인수 값이 외부 데이터에서 왔는가 (§8 3단계).
+
+    실제 비교는 검사기가 하고(요청 본문이 필요하다) 이 명령은 그 결과를 읽는다.
+    ``min_length`` 는 검사기가 읽어 쓴다 — 짧은 값은 툴 결과에 우연히 나타난다.
+    """
+
+    out: int
+    min_length: int
+
+
+@dataclass(frozen=True, slots=True)
 class All:
     """입력이 전부 참인가.
 
@@ -93,7 +117,18 @@ class Verdict:
     node_id: str
 
 
-type Instruction = Extract | Transform | Length | RegexOne | RegexSet | Taint | All | Verdict
+type Instruction = (
+    Extract
+    | Transform
+    | Length
+    | RegexOne
+    | RegexSet
+    | Taint
+    | SideEffect
+    | Provenance
+    | All
+    | Verdict
+)
 
 
 @dataclass(frozen=True, slots=True)

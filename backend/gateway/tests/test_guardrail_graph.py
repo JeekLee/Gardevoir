@@ -80,7 +80,8 @@ def test_an_unknown_node_type_names_the_node():
         "node_id": "n9",
         "reason": (
             "type must be one of "
-            "['all', 'extract', 'length', 'regex', 'taint', 'transform', 'verdict']"
+            "['all', 'extract', 'length', 'provenance', 'regex', 'side_effect', "
+            "'taint', 'transform', 'verdict']"
         ),
     }
 

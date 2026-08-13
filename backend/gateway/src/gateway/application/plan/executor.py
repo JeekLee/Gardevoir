@@ -13,8 +13,10 @@ from gateway.application.plan.execution_plan import (
     Extract,
     Length,
     Program,
+    Provenance,
     RegexOne,
     RegexSet,
+    SideEffect,
     Taint,
     Transform,
     Verdict,
@@ -47,6 +49,11 @@ class Subject:
 
     text: str = ""
     tainted: bool = False
+    #: ④ 에서 평가 중인 호출의 툴 이름. 빈 문자열이면 미등록으로 취급된다 (§7.6).
+    tool_name: str = ""
+    #: 외부 데이터에서 온 인수의 이름 (§8 3단계). 값은 담지 않는다 — 감사 로그에
+    #: 인수 값을 남기지 않기 때문이다 (§10).
+    foreign_args: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +117,11 @@ def execute(program: Program, subject: Subject, *, collect_all: bool = False) ->
                 _run_regex_set(instruction, slots)
             case Taint():
                 slots[instruction.out] = subject.tainted
+            case SideEffect():
+                # 목록에 없으면 부작용 있음 (§7.6). 이름을 못 읽었어도 마찬가지다.
+                slots[instruction.out] = subject.tool_name not in instruction.read_only
+            case Provenance():
+                slots[instruction.out] = bool(subject.foreign_args)
             case All():
                 slots[instruction.out] = all(slots[src] for src in instruction.srcs)
             case Verdict():

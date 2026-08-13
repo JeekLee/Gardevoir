@@ -24,6 +24,14 @@ DRAFT_VERSION = "draft"
 VALID_CHECKPOINTS = frozenset({"input", "output", "tool_result", "tool_call"})
 VALID_TRANSFORMS = frozenset({"lower", "strip"})
 
+#: ④ 전용 노드가 붙을 수 있는 체크포인트. 다른 곳에서는 평가할 tool_call 이 없으므로
+#: 아무 값이나 내면 조용히 통과한다 — 거부하는 편이 낫다.
+CHECKPOINT_TOOL_CALL = "tool_call"
+
+#: 출처 검사의 기본 임계값. "1"·"true"·"id" 같은 짧은 값은 툴 결과에 우연히 나타나므로
+#: 임계값이 없으면 정상 호출이 전부 걸린다. 8 은 메일 주소·URL·경로를 잡는 값이다.
+DEFAULT_PROVENANCE_MIN_LENGTH = 8
+
 #: 이름은 URL 경로 조각이자 X-Gardevoir-Guardrail 헤더 값이고, API 키의
 #: allowed_guardrails 와 문자열 비교된다. 세 자리 모두에서 모호하지 않아야 하므로
 #: 슬러그로 제한한다. 프레젠테이션이 아니라 도메인에서 막는다 — CLI 든 라우터든
@@ -73,6 +81,11 @@ class NodeType(StrEnum):
     #: 입력이 전부 참인가. VERDICT 의 여러 입력은 OR 이므로 AND 가 따로 필요하다 —
     #: §8 2단계가 "오염됨 AND 부작용 툴"이다.
     ALL = "all"
+    #: 이 tool_call 이 부작용 툴인가 (§7.6). 목록에 없으면 부작용 있음 — 미등록 툴이
+    #: 안전한 쪽으로 기본 처리된다.
+    SIDE_EFFECT = "side_effect"
+    #: 인수 값이 외부 데이터(툴 결과)에서 왔는가 (§8 3단계).
+    PROVENANCE = "provenance"
 
 
 class Decision(StrEnum):
@@ -258,6 +271,8 @@ NODE_ARITY: dict[NodeType, tuple[int, int]] = {
     NodeType.TRANSFORM: (1, 1),
     NodeType.VERDICT: (1, _MANY),
     NodeType.TAINT: (0, 0),
+    NodeType.SIDE_EFFECT: (0, 0),
+    NodeType.PROVENANCE: (0, 0),
     #: 입력이 하나면 AND 가 무의미하다 — 저작자가 뭔가 잘못 그린 것이다.
     NodeType.ALL: (2, _MANY),
 }
@@ -428,6 +443,39 @@ def _validate_all(node: Node) -> None:
     """설정이 없다. 입력 개수는 arity 가 본다."""
 
 
+def _require_tool_call(node: Node) -> None:
+    if node.config.get("checkpoint") != CHECKPOINT_TOOL_CALL:
+        GuardrailError.WRONG_CHECKPOINT.raise_(
+            f"node {node.id!r}: {node.type} only works at the {CHECKPOINT_TOOL_CALL!r} checkpoint",
+            details={
+                "node_id": node.id,
+                "type": str(node.type),
+                "checkpoint": CHECKPOINT_TOOL_CALL,
+            },
+        )
+
+
+def _validate_side_effect(node: Node) -> None:
+    """``read_only`` 목록에 없는 툴은 부작용 있음이다 (§7.6).
+
+    부작용 툴을 따로 나열하지 않는다. 목록이 둘이면 어느 쪽에도 없는 툴의 처리가 설정
+    실수에 달리게 된다 — 안전한 기본값은 정책 선택이 아니라 구조여야 한다.
+    """
+    _require_tool_call(node)
+    read_only = node.config.get("read_only", [])
+    if not isinstance(read_only, list) or not all(isinstance(name, str) for name in read_only):
+        node.fail("read_only must be a list of tool names")
+
+
+def _validate_provenance(node: Node) -> None:
+    _require_tool_call(node)
+    if "min_length" not in node.config:
+        return
+    min_length = node.config["min_length"]
+    if isinstance(min_length, bool) or not isinstance(min_length, int) or min_length <= 0:
+        node.fail("min_length must be a positive integer")
+
+
 _NODE_VALIDATORS = {
     NodeType.EXTRACT: _validate_extract,
     NodeType.REGEX: _validate_regex,
@@ -436,4 +484,6 @@ _NODE_VALIDATORS = {
     NodeType.VERDICT: _validate_verdict,
     NodeType.TAINT: _validate_taint,
     NodeType.ALL: _validate_all,
+    NodeType.SIDE_EFFECT: _validate_side_effect,
+    NodeType.PROVENANCE: _validate_provenance,
 }

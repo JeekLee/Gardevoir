@@ -263,6 +263,25 @@ empty strings.
 Prefer removing the dependency over stabilising it: iterate a declared order (a
 tuple, or a dict built from one) rather than sorting a set into place.
 
+## Editing code by string replacement
+
+`s.replace(old, new)` silently does nothing when `old` no longer matches — and
+after `ruff format` runs, multi-line call sites often collapse to one line, so a
+replacement written against the pre-format text stops matching. This happened three
+times in one session; every time, the test suite stayed green and only a real
+uvicorn run surfaced it (a checkpoint that never ran, a `checks` list that stayed
+empty).
+
+Always assert the match:
+
+```python
+assert old in s, old[:60]
+s = s.replace(old, new, 1)
+```
+
+Then grep for the new text to confirm it landed. `Edit` (which fails loudly on a
+non-match) is preferable to a scripted `replace` for exactly this reason.
+
 ## Behaviour tests cannot see: the response/cleanup boundary
 
 `httpx.ASGITransport` awaits the **entire** ASGI call, so a FastAPI `yield`
