@@ -59,6 +59,39 @@ def test_image_parts_are_ignored():
     assert extract_input_text(payload) == "describe"
 
 
+def test_a_non_text_part_is_ignored_even_if_it_carries_text():
+    """OpenAI 스펙은 type=text 조각만 텍스트를 담는다.
+
+    두 번째 검사(`text` 가 문자열인가)가 대부분을 걸러주므로, 이 케이스가 없으면
+    type 검사가 죽어도 테스트가 통과한다.
+    """
+    payload = _messages(
+        _user(
+            [
+                {"type": "input_audio", "text": "not really text"},
+                {"type": "text", "text": "real"},
+            ]
+        )
+    )
+    assert extract_input_text(payload) == "real"
+
+
+def test_output_ignores_a_non_text_part_carrying_text():
+    body = {
+        "choices": [
+            {
+                "message": {
+                    "content": [
+                        {"type": "refusal", "text": "ignored"},
+                        {"type": "text", "text": "real"},
+                    ]
+                }
+            }
+        ]
+    }
+    assert extract_output_texts(body) == [(0, "real")]
+
+
 def test_a_missing_messages_key_yields_empty():
     assert extract_input_text({"model": "gpt-4o"}) == ""
 

@@ -117,7 +117,7 @@ tests/
 - `extract_input_text(payload: dict) -> str`
 - `extract_output_texts(body: dict) -> list[tuple[int, str]]` — `(choice_index, text)`
 
-- [ ] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
+- [x] Step 1~4: 테스트 → 실패 확인 → 구현 → 커밋
 
 테스트 성질:
 1. `test_a_single_user_message` / `test_many_user_messages_are_joined`
@@ -145,7 +145,7 @@ tests/
 - 컴파일 시 MASK 판정의 조상 검사가 전부 `extract` 를 직접 읽는 regex 인지 확인
 - `Program.patterns_by_slot: dict[int, object]` — 마스킹용 개별 컴파일 패턴
 
-- [ ] Step 1~4
+- [x] Step 1~4
 
 테스트 성질:
 1. `test_a_mask_verdict_on_a_direct_regex_compiles`
@@ -187,7 +187,7 @@ class Inspector:
 `mode` 가 `dry-run` 이면 `collect_all=True` 로 돌리고 `action` 은 항상 allow 로
 두되 `would_have` 를 만들 재료를 남긴다.
 
-- [ ] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
+- [x] Step 1~5: 테스트 → 실패 확인 → 구현 → 커밋 → 돌연변이
 
 테스트 성질:
 1. `test_no_plan_inspects_nothing` — `inspected == ()`, version 0
@@ -221,7 +221,7 @@ class Inspector:
 **차단 응답의 `content` 에 사유를 넣는 것이 필수다** — 많은 앱이 `finish_reason` 을
 보지 않고 `content` 만 쓴다 (§7.3).
 
-- [ ] Step 1~5: 테스트 → 실패 확인 → 구현 → 실제 기동 → 커밋 → 돌연변이
+- [x] Step 1~5: 테스트 → 실패 확인 → 구현 → 실제 기동 → 커밋 → 돌연변이
 
 테스트 성질:
 1. `test_a_blocked_input_never_calls_upstream` — 호출 수 0
@@ -250,7 +250,7 @@ class Inspector:
 - ① 은 스트림에서도 돈다 (업스트림을 열기 전에 본문이 있다)
 - ③ 은 돌지 않는다. `inspected` 에서 빠지고, 출력 프로그램이 있으면 WARNING
 
-- [ ] Step 1~4
+- [x] Step 1~4
 
 테스트 성질:
 1. `test_a_blocked_input_never_opens_the_stream`
@@ -271,7 +271,7 @@ class Inspector:
   실제 값으로 채운다. Phase 1 은 전부 비어 있었다.
 - `tier_reached` = `"rules"` (Phase 4 가 `"model"` 을 더한다)
 
-- [ ] Step 1~4: 테스트 → 구현 → 실제 기동(uvicorn + Postgres + ClickHouse) → 커밋
+- [x] Step 1~4: 테스트 → 구현 → 실제 기동(uvicorn + Postgres + ClickHouse) → 커밋
 
 테스트 성질:
 1. `test_audit_row_lands_in_clickhouse_with_checks` — 실제 ClickHouse

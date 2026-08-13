@@ -261,22 +261,67 @@ def test_masking_only_applies_the_fired_verdicts_patterns():
     assert "SECRET" in content, "마스킹 판정이 읽지 않는 패턴까지 가렸다"
 
 
-def test_a_mask_that_matches_nothing_does_not_claim_masked(caplog):
-    """action=mask 라고 말하면서 원문을 내보내는 것이 조용한 fail-open 이다.
-
-    컴파일러 제한 덕분에 정상적으로는 올 수 없는 상태다. 그래도 거짓 보고를 하지
-    않는지 고정한다 — 나중에 제한이 느슨해지면 여기서 드러난다.
-    """
+def test_a_mask_with_no_patterns_does_not_claim_masked():
+    """마스킹할 패턴이 하나도 없으면 masked=False 다."""
     plan = _mask_plan()
     program = plan.program_for("output")
     assert program is not None
-    # 판정은 걸리게 두고 마스킹용 패턴만 비운다
     object.__setattr__(program, "patterns_by_slot", {})
 
     body = _completion("900101-1234567")
     result = _inspector().output(plan, body, mode=Mode.ENFORCE)
     assert result.masked is False
     assert body["choices"][0]["message"]["content"] == "900101-1234567"
+
+
+def test_a_mask_that_matches_nothing_does_not_claim_masked(caplog):
+    """action=mask 라고 말하면서 원문을 내보내는 것이 조용한 fail-open 이다.
+
+    컴파일러 제한(GUARDRAIL-014) 덕분에 정상적으로는 올 수 없는 상태다. 판정은 걸리게
+    두고 **마스킹용 패턴만 다른 것으로 바꿔** 그 분기를 실제로 지나게 만든다 —
+    패턴을 비우면 앞쪽 조기 반환에 걸려서 이 분기를 보지 못한다.
+    """
+    import re2
+
+    plan = _mask_plan()
+    program = plan.program_for("output")
+    assert program is not None
+    slot = next(iter(program.patterns_by_slot))
+    object.__setattr__(program, "patterns_by_slot", {slot: re2.compile("never-matches")})
+
+    body = _completion("900101-1234567")
+    result = _inspector().output(plan, body, mode=Mode.ENFORCE)
+    assert result.masked is False, "가리지 못했는데 가렸다고 보고했다"
+    assert body["choices"][0]["message"]["content"] == "900101-1234567"
+    assert "nothing matched" in caplog.text
+
+
+def test_overlapping_patterns_produce_one_placeholder():
+    """겹치는 span 을 병합하지 않으면 잘라 붙이기가 뒤엉킨다.
+
+    \\d{6} 은 \\d{6}-\\d{7} 안쪽에서도 걸린다.
+    """
+    plan = compile_guardrail(
+        _guardrail(
+            (
+                _node("e", NodeType.EXTRACT, checkpoint="output"),
+                _node("r_long", NodeType.REGEX, pattern=RRN),
+                _node("r_short", NodeType.REGEX, pattern=r"\d{6}"),
+                _node("v", NodeType.VERDICT, decision="conclusive", action="mask"),
+            ),
+            (
+                Edge("e", "r_long"),
+                Edge("e", "r_short"),
+                Edge("r_long", "v"),
+                Edge("r_short", "v"),
+            ),
+        )
+    )
+    body = _completion("id 900101-1234567 end")
+    result = _inspector().output(plan, body, mode=Mode.ENFORCE)
+
+    assert result.masked is True
+    assert body["choices"][0]["message"]["content"] == f"id {MASK_PLACEHOLDER} end"
 
 
 def test_block_beats_mask_on_output():
