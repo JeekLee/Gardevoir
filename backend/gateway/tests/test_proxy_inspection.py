@@ -1420,11 +1420,18 @@ async def test_the_streaming_audit_latency_includes_the_relay(
     감사에서 0 으로 보이고, 대부분의 챗봇이 스트리밍이므로 비용 전체가 안 보인다.
     """
     await _publish(admin, _graph("output", action="mask"))
+    # 청크를 많이 흘린다. 헤더는 소수 3자리로 잘리므로, 중계기가 쓴 시간이 그 반올림
+    # 오차보다 확실히 커야 "빠졌는지"를 볼 수 있다.
+    filler = {
+        "id": "c",
+        "choices": [{"index": 0, "delta": {"content": "평범한 문장이 이어진다. "}}],
+    }
     respx.post(f"{UPSTREAM}/chat/completions").mock(
         return_value=httpx.Response(
             200,
             content=_sse(
                 {"id": "c", "choices": [{"index": 0, "delta": {"role": "assistant"}}]},
+                *([filler] * 300),
                 {"id": "c", "choices": [{"index": 0, "delta": {"content": "번호는 900101-"}}]},
                 {"id": "c", "choices": [{"index": 0, "delta": {"content": "1234567 입니다"}}]},
                 {"id": "c", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
@@ -1443,4 +1450,4 @@ async def test_the_streaming_audit_latency_includes_the_relay(
     assert len(rows) == 1
     checkpoint, audit_ms = rows[0]
     assert checkpoint == "output"
-    assert audit_ms > header_ms, "중계기가 쓴 시간이 감사에서 빠졌다"
+    assert audit_ms - header_ms > 0.5, "중계기가 쓴 시간이 감사에서 빠졌다"
