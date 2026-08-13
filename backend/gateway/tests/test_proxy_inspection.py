@@ -1335,3 +1335,42 @@ async def test_the_openai_sdk_parses_a_streamed_tool_call(client, admin, keys, a
                 names.append(call.function.name)
 
     assert names == ["read_file"], "read_only 툴이므로 통과해야 한다"
+
+
+@respx.mock
+async def test_stream_latency_excludes_upstream_generation(client, admin, audit_table):
+    """스트리밍 지연은 '전체 - 업스트림 대기'로 계산할 수 없다 (§7.2).
+
+    청크 사이의 대기가 전부 업스트림 몫이고 우리는 그 시간을 잰 적이 없다. 실제 기동에서
+    이 값이 11~30 ms 로 나와서 발견했다 — 우리가 쓴 시간은 그것의 100분의 1 이다.
+    """
+    import asyncio
+
+    from gateway.contract import HEADER_LATENCY_MS
+
+    await _publish(admin, _graph("output", action="mask"))
+
+    async def slow_stream(request):
+        async def gen():
+            yield b'data: {"id":"c","choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\n'
+            for piece in ("아주 ", "천천히 ", "생성되는 ", "응답"):
+                await asyncio.sleep(0.05)
+                yield (
+                    b'data: {"id":"c","choices":[{"index":0,"delta":{"content":"'
+                    + piece.encode()
+                    + b'"}}]}\n\n'
+                )
+            yield b'data: {"id":"c","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n'
+            yield b"data: [DONE]\n\n"
+
+        return httpx.Response(200, content=gen())
+
+    respx.post(f"{UPSTREAM}/chat/completions").mock(side_effect=slow_stream)
+
+    payload = _conversation()
+    payload["stream"] = True
+    r = await client.post("/v1/chat/completions", json=payload)
+    assert "응답" in r.text
+
+    # 업스트림 생성만 200 ms 다. 우리 몫으로 보고하면 안 된다.
+    assert float(r.headers[HEADER_LATENCY_MS]) < 100

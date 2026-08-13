@@ -360,7 +360,10 @@ class ProxyService:
             payload=payload,
         )
         async with cm as upstream_stream:
-            upstream_elapsed = time.perf_counter() - started
+            # 스트리밍 지연은 "전체 - 업스트림 대기"로 계산할 수 없다. 청크 사이의
+            # 대기가 전부 업스트림 몫이고 그 시간은 우리가 잰 적이 없다. 그래서 우리가
+            # 실제로 쓴 구간만 더한다 (§7.2: 게이트웨이가 더한 지연만).
+            stream_latency_ms = self._added_latency_ms(started, 0.0)
 
             # 업스트림이 오류를 내면 본문이 SSE 가 아니다. 파싱·합성하면 오류 본문을
             # 망가뜨리므로 그대로 중계한다 — 우리가 응답을 잃는 것이 더 나쁘다.
@@ -385,6 +388,8 @@ class ProxyService:
                     output=relay.outcome.output,
                     tool_call=relay.outcome.tool_call,
                 )
+                nonlocal stream_latency_ms
+                stream_latency_ms += relay.outcome.processing_ms
                 extension = self._extension(auth, audit_id, verdicts)
                 if relay.outcome.unmaskable:
                     # 가리지 못한 구간이 있다 — 말하지 않으면 호출자는 가려진 줄 안다.
@@ -395,12 +400,7 @@ class ProxyService:
                 yield ProxyStream(
                     status_code=upstream_stream.status_code,
                     media_type=upstream_stream.headers.get("content-type", SSE_MEDIA_TYPE),
-                    headers=self._headers(
-                        auth,
-                        audit_id,
-                        self._added_latency_ms(started, upstream_elapsed),
-                        verdicts,
-                    ),
+                    headers=self._headers(auth, audit_id, stream_latency_ms, verdicts),
                     audit_id=audit_id,
                     _chunks=chunks(),
                 )
@@ -408,15 +408,16 @@ class ProxyService:
                 # 소비자가 터져도 감사는 남아야 한다 — 그러지 않으면 기록에 구멍이
                 # 생긴다. async 제너레이터의 finally 는 가비지 컬렉션 시점에 돌 수
                 # 있어 신뢰할 수 없으므로 여기에 둔다.
+                usage = relay.outcome.usage
                 await self._submit_audit(
                     auth=auth,
                     audit_id=audit_id,
                     request_id=request_id,
                     verdicts=verdicts,
-                    latency_ms=self._added_latency_ms(started, upstream_elapsed),
-                    model="",
-                    prompt_tokens=0,
-                    completion_tokens=0,
+                    latency_ms=stream_latency_ms,
+                    model=relay.outcome.model,
+                    prompt_tokens=int(usage.get("prompt_tokens") or 0),
+                    completion_tokens=int(usage.get("completion_tokens") or 0),
                 )
 
     # -- 체크포인트 ----------------------------------------------------------
