@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 from contextlib import asynccontextmanager
 
@@ -165,20 +166,44 @@ async def test_audit_id_matches_header_and_body():
     assert orjson.loads(result.body)[EXTENSION_KEY]["audit_id"] == result.audit_id
 
 
+class SlowUpstream(StubUpstream):
+    """Actually waits, so total elapsed really includes the upstream time.
+
+    스텁이 기다리지 않으면 total 이 극히 작아서 업스트림 대기를 빼든 안 빼든
+    같은 결과가 나온다 — 테스트가 아무것도 검증하지 못한다.
+    """
+
+    def __init__(self, wait_s: float) -> None:
+        super().__init__(
+            UpstreamResult(
+                status_code=200,
+                headers={"content-type": "application/json"},
+                body=orjson.dumps(_COMPLETION),
+                elapsed_s=wait_s,
+            )
+        )
+        self._wait_s = wait_s
+
+    async def complete(self, **kw) -> UpstreamResult:
+        await asyncio.sleep(self._wait_s)
+        return await super().complete(**kw)
+
+
 async def test_latency_excludes_upstream_wait():
     """게이트웨이가 추가한 지연만 보고한다 (§7.2). 비용을 숨기지 않는 것이 핵심."""
-    upstream = StubUpstream(
-        UpstreamResult(
-            status_code=200,
-            headers={"content-type": "application/json"},
-            body=orjson.dumps(_COMPLETION),
-            elapsed_s=0.5,
-        )
-    )
-    service, _, _ = _service(upstream)
+    service, _, _ = _service(SlowUpstream(0.3))
     result = await service.complete(auth=_auth(), payload=b"{}", request_id="req_1")
 
-    assert float(result.headers[HEADER_LATENCY_MS]) < 100.0
+    reported = float(result.headers[HEADER_LATENCY_MS])
+    # 업스트림이 300ms 걸렸으므로 빼지 않으면 300 이상이 나온다.
+    assert reported < 50.0, f"업스트림 대기가 포함됐다 ({reported:.1f}ms)"
+
+
+async def test_audit_latency_also_excludes_upstream_wait():
+    """감사 로그의 지연도 같은 정의여야 한다 — 대시보드가 이 값을 집계한다."""
+    service, _, sink = _service(SlowUpstream(0.3))
+    await service.complete(auth=_auth(), payload=b"{}", request_id="req_1")
+    assert sink.events[0].latency_ms < 50.0
 
 
 async def test_audit_event_carries_usage_and_context():
