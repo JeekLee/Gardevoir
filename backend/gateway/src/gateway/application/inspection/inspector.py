@@ -12,13 +12,19 @@ from gateway.application.inspection.outcome import (
     TIER_RULES,
     Inspection,
 )
+from gateway.application.inspection.provenance import (
+    extract_tool_calls,
+    foreign_arguments,
+    tool_name,
+)
 from gateway.application.inspection.text import (
     extract_input_text,
     extract_output_texts,
     extract_tool_result_text,
+    extract_trusted_text,
     is_tainted,
 )
-from gateway.application.plan.execution_plan import ExecutionPlan, Program
+from gateway.application.plan.execution_plan import ExecutionPlan, Program, Provenance
 from gateway.application.plan.executor import Subject, execute
 from gateway.application.plan.registry import PlanRegistry
 from gateway.contract import Action, Mode
@@ -71,6 +77,82 @@ class Inspector:
     def tainted(payload: object) -> bool:
         """오염 여부. 요청마다 새로 계산한다 (§7.4)."""
         return is_tainted(payload)
+
+    def tool_call(
+        self,
+        plan: ExecutionPlan | None,
+        body: dict,
+        payload: object,
+        *,
+        mode: Mode,
+        tainted: bool = False,
+    ) -> Inspection:
+        """④ 검사 — 호출마다 한 번씩 (§8 2·3단계).
+
+        하나라도 걸리면 응답 전체를 막는다. 호출 하나만 빼고 나머지를 넘기면 모델의
+        계획이 반쯤 실행되고, 앱은 남은 툴을 불러 그 결과로 다시 요청한다.
+
+        출처 검사는 요청 본문이 필요하다 — 인수 값이 사용자 메시지에서 왔는지 툴
+        결과에서 왔는지를 봐야 한다. 그래서 ``payload`` 를 함께 받는다.
+        """
+        program = plan.program_for(CHECKPOINT_TOOL_CALL) if plan is not None else None
+        if program is None:
+            return NOT_INSPECTED
+
+        calls = extract_tool_calls(body)
+        if not calls:
+            return Inspection(action=Action.ALLOW, tier=TIER_RULES)
+
+        # 출처 검사를 쓰는 프로그램일 때만 텍스트를 모은다 — 안 쓰면 비용이 0 이다.
+        thresholds = [i.min_length for i in program.instructions if isinstance(i, Provenance)]
+        needs_provenance = bool(thresholds)
+        trusted = extract_trusted_text(payload) if needs_provenance else ""
+        external = extract_tool_result_text(payload) if needs_provenance else ""
+        # 노드가 여러 개면 가장 낮은 임계값을 쓴다 — 가장 엄격한 정책이 이긴다.
+        min_length = min(thresholds) if thresholds else 0
+
+        checks: list[str] = []
+        pending: list[str] = []
+        evidence: list[dict] = []
+        blocked = False
+
+        for _position, call in calls:
+            name = tool_name(call)
+            foreign = (
+                foreign_arguments(
+                    tool_call=call, trusted=trusted, external=external, min_length=min_length
+                )
+                if needs_provenance
+                else ()
+            )
+            result = execute(
+                program,
+                Subject(tainted=tainted, tool_name=name, foreign_args=foreign),
+                collect_all=mode is Mode.DRY_RUN,
+            )
+            checks.extend(result.checks_fired)
+            pending.extend(result.pending_model)
+            if result.action is VerdictAction.BLOCK:
+                blocked = True
+                # 증거는 이름만 남긴다 — 인수 값은 감사 로그에 넣지 않는다 (§10).
+                evidence.append({"tool": name, "arguments": list(foreign)})
+
+        if blocked and mode is Mode.DRY_RUN:
+            return Inspection(
+                action=Action.ALLOW,
+                tier=TIER_RULES,
+                checks_fired=tuple(checks),
+                pending_model=tuple(pending),
+                would_have=Action.BLOCKED,
+                evidence=tuple(evidence),
+            )
+        return Inspection(
+            action=Action.BLOCKED if blocked else Action.ALLOW,
+            tier=TIER_RULES,
+            checks_fired=tuple(checks),
+            pending_model=tuple(pending),
+            evidence=tuple(evidence),
+        )
 
     def output(
         self, plan: ExecutionPlan | None, body: dict, *, mode: Mode, tainted: bool = False

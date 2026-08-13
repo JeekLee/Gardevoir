@@ -63,6 +63,15 @@ def extract_tool_result_text(payload: Any) -> str:
     return _JOIN.join(_texts_for_roles(payload, TOOL_RESULT_ROLES))
 
 
+def extract_trusted_text(payload: Any) -> str:
+    """출처 판정의 신뢰 원천 — 사용자 메시지와 시스템 프롬프트 (§8 3단계).
+
+    시스템 프롬프트를 신뢰하는 이유: 앱이 통제하는 값이다. 공격자가 심을 수 있는 것은
+    툴 결과다.
+    """
+    return _JOIN.join(_texts_for_roles(payload, TRUSTED_ROLES))
+
+
 def is_tainted(payload: Any) -> bool:
     """대화에 외부 데이터가 들어왔는가 (§8 1단계).
 
@@ -127,5 +136,6 @@ __all__ = [
     "extract_input_text",
     "extract_output_texts",
     "extract_tool_result_text",
+    "extract_trusted_text",
     "is_tainted",
 ]

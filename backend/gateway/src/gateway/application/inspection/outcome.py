@@ -27,6 +27,8 @@ class Inspection:
     pending_model: tuple[str, ...] = ()
     masked: bool = False
     would_have: Action | None = None
+    #: ④ 가 막은 이유 — 툴 이름과 인수 **이름**. 값은 담지 않는다 (§10).
+    evidence: tuple[dict, ...] = ()
 
     @property
     def blocked(self) -> bool:

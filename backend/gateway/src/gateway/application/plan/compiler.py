@@ -19,14 +19,17 @@ from gateway.application.plan.execution_plan import (
     Instruction,
     Length,
     Program,
+    Provenance,
     RegexOne,
     RegexSet,
+    SideEffect,
     Taint,
     Transform,
     Verdict,
 )
 from gateway.domain.exception.guardrail_error import GuardrailError
 from gateway.domain.models.guardrail import (
+    DEFAULT_PROVENANCE_MIN_LENGTH,
     Decision,
     Guardrail,
     Node,
@@ -42,6 +45,8 @@ UNPUBLISHED = 0
 _COST = {
     NodeType.EXTRACT: 0,
     NodeType.TAINT: 0,
+    NodeType.SIDE_EFFECT: 0,
+    NodeType.PROVENANCE: 0,
     NodeType.LENGTH: 1,
     NodeType.ALL: 1,
     NodeType.TRANSFORM: 2,
@@ -51,7 +56,12 @@ _COST = {
 
 #: 체크포인트를 고르는 노드 = 부분 그래프의 뿌리. taint 는 텍스트를 읽지 않지만
 #: 어느 체크포인트에서 평가될지는 명시돼야 한다 (도메인 검증이 강제한다).
-SOURCE_TYPES = (NodeType.EXTRACT, NodeType.TAINT)
+SOURCE_TYPES = (
+    NodeType.EXTRACT,
+    NodeType.TAINT,
+    NodeType.SIDE_EFFECT,
+    NodeType.PROVENANCE,
+)
 
 
 def compile_guardrail(guardrail: Guardrail) -> ExecutionPlan:
@@ -299,6 +309,16 @@ class _Graph:
                 return Extract(out=slots[node.id], checkpoint=checkpoint)
             case NodeType.TAINT:
                 return Taint(out=slots[node.id])
+            case NodeType.SIDE_EFFECT:
+                return SideEffect(
+                    out=slots[node.id],
+                    read_only=frozenset(node.config.get("read_only") or ()),
+                )
+            case NodeType.PROVENANCE:
+                return Provenance(
+                    out=slots[node.id],
+                    min_length=node.config.get("min_length", DEFAULT_PROVENANCE_MIN_LENGTH),
+                )
             case NodeType.ALL:
                 return All(
                     out=slots[node.id],
