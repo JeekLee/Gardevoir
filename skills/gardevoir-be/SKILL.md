@@ -59,6 +59,42 @@ backend/<bc>/
 └── tests/                    # mirror layout; TDD
 ```
 
+## Single deployment — do not split the backend
+
+**gardevoir ships as one backend service.** The control plane (guardrail
+authoring, `/v1/admin/**`) and the data plane (`/v1/chat/completions`) live in the
+same process, separated by route prefix and by credential scope — not by topology.
+
+This is a decision, not an accident. Do not re-litigate it:
+
+- **RE2 automata cannot be serialised (§11.5).** The compiler must run inside the
+  process that serves requests, so the control plane cannot be moved away from the
+  data plane without leaving the compiler homeless.
+- **The hot path must have no network hop (§6).** Every boundary added is latency
+  the design promised not to add. A guardrail that calls another service to decide
+  is exactly the architecture §9 rejected — it is why AWS's ApplyGuardrail has to
+  batch 1000 words at a time, and beating that trade-off is our main advantage.
+- **"One container" is the product proposition.** A self-hosted gateway that needs
+  five services orchestrated is a much harder thing to adopt.
+- **One business domain.** Other CryptoLab repos have several bounded contexts
+  because they have several domains. gardevoir has one: guardrails. Copying a
+  topology without the domain multiplicity that justified it is cargo cult.
+
+Scale horizontally with replicas, not by splitting. §6 already assumes this: each
+instance polls Postgres and compiles into its own memory.
+
+Ollama (Phase 4) and the Next.js console (Phase 5) are separate processes but not
+our microservices — one is an external dependency, the other a frontend.
+
+**Authorisation, not topology.** Admin routes are gated by the `admin` scope on the
+API key; proxy routes by `proxy`. Identity, allowed guardrails, and scope all come
+from the credential (§7.2) — never from a header.
+
+Splitting becomes worth considering only when one of these is true, and none is
+today: the audit dashboard outgrows serving from the gateway; the approval flow
+(Phase 6) grows a state machine and notifications; the model tier needs to be ours
+rather than external.
+
 ## Dependency direction (strict)
 
 - **domain** — pure / persistence-ignorant. May import only `shared_kernel.exception`
