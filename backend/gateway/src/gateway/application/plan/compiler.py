@@ -136,6 +136,12 @@ class _Graph:
                 for node_id in order
                 if self.nodes[node_id].type is NodeType.REGEX
             },
+            mask_slots={
+                node_id: tuple(slots[src] for src in self.inputs[node_id] if src in slots)
+                for node_id in order
+                if self.nodes[node_id].type is NodeType.VERDICT
+                and VerdictAction(self.nodes[node_id].config["action"]) is VerdictAction.MASK
+            },
         )
 
     def _validate_maskable(self, live: set[str]) -> None:
