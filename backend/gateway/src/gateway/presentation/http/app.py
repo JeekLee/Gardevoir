@@ -10,9 +10,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from gateway.application.plan.registry import PlanRegistry
 from gateway.domain.models.api_key import ApiKey
 from gateway.infrastructure.audit import ClickHouseAuditSink
 from gateway.infrastructure.engine import dispose_engine, get_session_factory
+from gateway.infrastructure.plan import SessionScopedGuardrailSource
 from gateway.infrastructure.repository import (
     CachedApiKeyRepository,
     SqlAlchemyApiKeyRepository,
@@ -115,10 +117,21 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
         http_client = httpx.AsyncClient()
         app.state.upstream = HttpxUpstream(http_client, timeout_s=settings.upstream_timeout_s)
 
+        # 발행된 가드레일을 프로세스 메모리로 컴파일한다 (§6). 요청 경로는 이
+        # 레지스트리의 dict 조회로 끝난다.
+        app.state.plans = PlanRegistry(
+            source=SessionScopedGuardrailSource(factory),
+            poll_interval_s=settings.plan_poll_interval_s,
+        )
+        loaded = await app.state.plans.load_all()
+        logger.info("compiled %d guardrail plan(s) at startup", loaded)
+        await app.state.plans.start()
+
         try:
             yield
         finally:
             # stop() 은 멱등이다 — 테스트가 명시적으로 부를 수 있다.
+            await app.state.plans.stop()
             await app.state.audit_sink.stop()
             await http_client.aclose()
             await dispose_engine()

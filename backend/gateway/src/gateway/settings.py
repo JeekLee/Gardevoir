@@ -25,6 +25,11 @@ class GatewaySettings(BaseAppSettings):
     #: 0이면 즉시 방출(사후 검출)이 된다.
     stream_holdback_tokens: int = Field(default=32, ge=0)
 
+    #: 발행 전파 주기. uvicorn 워커는 별도 프로세스라 한 워커의 발행이 다른 워커에
+    #: 보이지 않는다. §14 가 "LISTEN/NOTIFY 는 후속, 폴링으로 시작"이라고 했다.
+    #: 사용자가 체감하는 것은 "발행 후 반영까지 이 주기"뿐이다.
+    plan_poll_interval_s: float = Field(default=5.0, gt=0)
+
 
 @lru_cache
 def get_settings() -> GatewaySettings:

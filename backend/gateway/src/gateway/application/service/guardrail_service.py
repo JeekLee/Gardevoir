@@ -21,6 +21,10 @@ class GuardrailService:
     def __init__(self, *, guardrails: GuardrailRepository, dao: GuardrailDao) -> None:
         self._guardrails = guardrails
         self._dao = dao
+        #: 이 요청에서 발행된 이름. 조립 루트가 **커밋 뒤에** 재컴파일을 걸 때 읽는다.
+        #: 여기서 직접 부를 수 없다 — 레지스트리는 새 세션을 열고, 그 세션은 아직
+        #: 커밋되지 않은 행을 보지 못해서 이전 버전을 컴파일한다.
+        self.published: list[str] = []
 
     async def create(self, cmd: CreateGuardrail) -> GuardrailDetail:
         draft = Guardrail.draft(cmd.name, cmd.graph)
@@ -52,6 +56,7 @@ class GuardrailService:
 
         version_number = await self._guardrails.next_version_number(name)
         await self._guardrails.add(draft.published_as(version_number), id=_new_id())
+        self.published.append(name)
         # draft 행은 그대로 남는다 — 발행 후에도 계속 편집할 수 있어야 한다 (§6).
         return await self._detail(name, str(version_number))
 
