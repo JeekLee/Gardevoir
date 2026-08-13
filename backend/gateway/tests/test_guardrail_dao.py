@@ -118,6 +118,15 @@ async def test_list_summaries_reports_latest_and_draft_presence(repo, dao):
     assert by_name["published-only"].has_draft is False
 
 
+async def test_list_summaries_reports_the_highest_version_number(repo, dao):
+    """가장 최근 발행본이어야 한다 — 첫 발행본이 아니라."""
+    for n in (1, 2, 3):
+        await repo.add(_draft().published_as(n), id=f"v{n}")
+
+    items, _ = await dao.list_summaries()
+    assert items[0].latest_version_number == 3
+
+
 async def test_list_summaries_returns_one_row_per_name(repo, dao):
     """행이 아니라 가드레일을 센다."""
     await repo.add(_draft(), id="a")

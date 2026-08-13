@@ -44,6 +44,11 @@ def test_null_keys_yield_an_empty_graph():
     "graph",
     [
         {"nodes": "not a list"},
+        # 순회 불가능한 값은 TypeError -> 500 이 된다. 문자열은 우연히 순회되므로
+        # 이 케이스가 없으면 nodes/edges 타입 검사가 죽어도 테스트가 통과한다.
+        {"nodes": 42},
+        {"edges": 5},
+        {"nodes": True},
         {"edges": {"src": "a"}},
         {"nodes": ["not an object"]},
         {"nodes": [{"type": "regex"}]},
