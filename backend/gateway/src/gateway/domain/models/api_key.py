@@ -10,13 +10,25 @@ duplicate it.
 
 import hashlib
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import StrEnum
 
 from gateway.domain.exception.api_key_error import ApiKeyError
 
 KEY_PREFIX = "gdv_live_"
 
 _TOKEN_BYTES = 32
+
+
+class Scope(StrEnum):
+    """What a credential is allowed to reach.
+
+    인가는 토폴로지가 아니라 크레덴셜에서 온다 (§7.2, §12). Admin 표면을 별도
+    배포로 떼어 네트워크로 막는 대신 스코프로 막는다.
+    """
+
+    PROXY = "proxy"
+    ADMIN = "admin"
 
 
 def generate_key() -> str:
@@ -52,6 +64,18 @@ class ApiKey:
     allowed_guardrails: tuple[str, ...]
     default_guardrail: str | None
     disabled: bool = False
+    #: 기본값을 안전한 쪽으로 둔다 — 스코프가 명시되지 않은 키는 admin 에
+    #: 접근할 수 없다.
+    scopes: tuple[Scope, ...] = field(default=(Scope.PROXY,))
+
+    def has_scope(self, scope: Scope) -> bool:
+        return scope in self.scopes
+
+    def require_scope(self, scope: Scope) -> None:
+        if not self.has_scope(scope):
+            ApiKeyError.SCOPE_NOT_GRANTED.raise_(
+                details={"required": str(scope), "granted": [str(s) for s in self.scopes]}
+            )
 
     def resolve_guardrail(self, requested: str | None) -> str:
         """Resolve the effective guardrail, never escaping the allowed set."""

@@ -1,4 +1,3 @@
-import ast
 import dataclasses
 import pathlib
 
@@ -14,6 +13,7 @@ from gateway.domain.models.api_key import (
     parse_bearer,
 )
 from shared_kernel.exception import ConflictError, ForbiddenError, UnauthorizedError
+from tests.layering import imports_of
 
 
 def _key(allowed=("base", "doc-agent"), default="base", **kw) -> ApiKey:
@@ -124,22 +124,6 @@ _FORBIDDEN_GATEWAY = {
 }
 
 
-def _imports_of(path: pathlib.Path) -> set[str]:
-    """Collect imported module names from a file's AST.
-
-    독스트링·주석에 모듈 이름이 등장할 수 있으므로 텍스트가 아니라 임포트 구문을
-    본다. 소스 문자열 매칭은 자기 문서에 걸려 오탐을 낸다.
-    """
-    tree = ast.parse(path.read_text())
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            names.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            names.add(node.module)
-    return names
-
-
 def test_domain_imports_nothing_from_outer_layers():
     """domain은 순수해야 한다 (skills/gardevoir-be).
 
@@ -152,7 +136,7 @@ def test_domain_imports_nothing_from_outer_layers():
 
     violations: list[str] = []
     for path in files:
-        for name in _imports_of(path):
+        for name in imports_of(path):
             top = name.split(".")[0]
             if top in _FORBIDDEN_TOP_LEVEL:
                 violations.append(f"{path.name} -> {name}")
@@ -168,6 +152,56 @@ def test_the_layering_check_actually_detects_a_violation(tmp_path):
     """
     bad = tmp_path / "bad.py"
     bad.write_text("import sqlalchemy\nfrom gateway.infrastructure import x\n")
-    names = _imports_of(bad)
+    names = imports_of(bad)
     assert "sqlalchemy" in names
     assert "gateway.infrastructure" in names
+
+
+# --- 스코프 -----------------------------------------------------------------
+
+
+def test_default_scope_is_proxy_only():
+    """스코프 없는 키가 admin 에 접근하면 안 된다 — 기본값은 안전한 쪽으로."""
+    from gateway.domain.models.api_key import Scope
+
+    key = _key()
+    assert key.scopes == (Scope.PROXY,)
+    assert key.has_scope(Scope.PROXY) is True
+    assert key.has_scope(Scope.ADMIN) is False
+
+
+def test_scope_values_are_stable():
+    from gateway.domain.models.api_key import Scope
+
+    assert Scope.PROXY == "proxy"
+    assert Scope.ADMIN == "admin"
+
+
+def test_require_scope_raises_forbidden_when_missing():
+    from gateway.domain.models.api_key import Scope
+
+    with pytest.raises(ForbiddenError) as info:
+        _key().require_scope(Scope.ADMIN)
+    assert info.value.code == "APIKEY-005"
+    assert info.value.details == {"required": "admin", "granted": ["proxy"]}
+
+
+def test_require_scope_passes_when_granted():
+    from gateway.domain.models.api_key import Scope
+
+    _key(scopes=(Scope.PROXY, Scope.ADMIN)).require_scope(Scope.ADMIN)
+
+
+def test_a_key_can_hold_both_scopes():
+    from gateway.domain.models.api_key import Scope
+
+    key = _key(scopes=(Scope.PROXY, Scope.ADMIN))
+    assert key.has_scope(Scope.PROXY) and key.has_scope(Scope.ADMIN)
+
+
+def test_admin_only_key_cannot_use_the_proxy():
+    """반대 방향도 막혀야 한다 — admin 키가 프록시를 쓰면 스코프가 무의미해진다."""
+    from gateway.domain.models.api_key import Scope
+
+    with pytest.raises(ForbiddenError):
+        _key(scopes=(Scope.ADMIN,)).require_scope(Scope.PROXY)
