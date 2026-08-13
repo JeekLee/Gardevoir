@@ -35,3 +35,9 @@ class GuardrailError(ErrorCatalog):
         "another write to this guardrail won the race; retry",
         ConflictError,
     )
+    INVALID_ARITY = ("GUARDRAIL-012", "a node has the wrong number of inputs", ValidationError)
+    MIXED_CHECKPOINTS = (
+        "GUARDRAIL-013",
+        "a verdict may not combine checks from different checkpoints",
+        ValidationError,
+    )
