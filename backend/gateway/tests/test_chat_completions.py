@@ -400,3 +400,39 @@ async def test_sdk_surfaces_upstream_errors_as_its_own(app, api_key, audit_table
             await oai.chat.completions.create(
                 model="gpt-4o", messages=[{"role": "user", "content": "hi"}]
             )
+
+
+# --- 스코프 -----------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def admin_only_key(session):
+    """admin 스코프만 가진 키 — 프록시를 쓸 수 없어야 한다."""
+    from gateway.domain.models.api_key import Scope
+
+    raw = generate_key()
+    session.add(
+        ApiKeyModel(
+            id="k-admin-only",
+            name="admin-only",
+            key_hash=hash_key(raw),
+            upstream_base_url=UPSTREAM,
+            upstream_api_key="sk-upstream",
+            allowed_guardrails=["base"],
+            default_guardrail="base",
+            scopes=[str(Scope.ADMIN)],
+        )
+    )
+    await session.commit()
+    return raw
+
+
+async def test_admin_only_key_cannot_use_the_proxy(client, admin_only_key):
+    """프록시 라우트가 proxy 스코프를 요구해야 한다."""
+    r = await client.post(
+        "/v1/chat/completions",
+        json=_body(),
+        headers={"authorization": f"Bearer {admin_only_key}"},
+    )
+    assert r.status_code == 403
+    assert r.json()["code"] == "APIKEY-005"
