@@ -193,3 +193,21 @@ def test_the_window_overlaps_a_replacement():
     h.offer("tail")
     text, _ = h.inspection_window()
     assert MASK in text or text.endswith("tail")
+
+
+def test_the_window_reaches_back_over_a_masked_span():
+    """치환은 버퍼 길이를 바꾼다. 검사 위치를 되돌리지 않으면 창의 왼쪽 끝이 그만큼
+    밀려서, 치환 직후에 붙는 텍스트가 검사되지 않고 지나갈 수 있다.
+
+    창을 2자로 줄여 차이를 드러낸다 — 기본값 512자에서는 치환 1회의 길이 변화가 창
+    안에 묻힌다. 그래도 이 성질이 창 크기와 무관하게 성립해야 "치환 뒤의 텍스트는
+    반드시 검사된다"고 말할 수 있다.
+    """
+    h = Holdback(chars=0, window=2)
+    h.append("x" * 10 + "900101-1234567")
+    h.inspection_window()
+    assert h.mask(10, 24, "[가림]") is True  # 14자 -> 4자, 10자 줄어든다
+
+    h.append("ab")
+    text, _start = h.inspection_window()
+    assert "ab" in text, "치환으로 줄어든 만큼 창이 새 텍스트를 놓쳤다"

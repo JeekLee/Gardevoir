@@ -407,3 +407,43 @@ async def test_every_holdback_size_relays_a_clean_stream(holdback):
         _finish(),
     )
     assert text == "아무 문제 없는 응답입니다"
+
+
+# --- 치환 순서 ---------------------------------------------------------------
+
+
+async def test_two_patterns_in_one_window_are_both_masked():
+    """치환을 앞에서부터 적용하면 뒤 구간의 오프셋이 밀린다.
+
+    자리표(10자)가 원본(14자)보다 짧아 버퍼가 줄어들므로, 앞을 먼저 바꾸면 뒤 구간이
+    버퍼 밖을 가리키게 되고 두 번째 패턴이 그대로 나간다.
+    """
+    relay = _relay(_plan(action="mask"), holdback=64)
+    text, _ = await _run(
+        relay,
+        _chunk(content="앞 900101-1234567 뒤 900202-7654321 끝"),
+        _finish(),
+    )
+    assert "900101-1234567" not in text
+    assert "900202-7654321" not in text, "두 번째 구간이 밀려서 그대로 나갔다"
+    assert text.count(MASK_PLACEHOLDER) == 2
+    assert relay.outcome.unmaskable == 0
+
+
+# --- 첫 청크 ------------------------------------------------------------------
+
+
+async def test_content_in_the_first_chunk_is_not_relayed_unheld():
+    """role 과 content 를 같이 보내는 업스트림이 있다.
+
+    첫 청크를 무조건 그대로 흘리면 그 내용이 홀드백과 검사를 건너뛴다 — ③ 이 통째로
+    비활성화되는 구멍이다.
+    """
+    relay = _relay(_plan(action="mask"), holdback=64)
+    text, _ = await _run(
+        relay,
+        _chunk(role="assistant", content="주민번호 900101-1234567"),
+        _finish(),
+    )
+    assert "900101-1234567" not in text
+    assert MASK_PLACEHOLDER in text
