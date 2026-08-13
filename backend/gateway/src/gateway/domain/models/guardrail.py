@@ -19,10 +19,9 @@ from gateway.domain.exception.guardrail_error import GuardrailError
 
 DRAFT_VERSION = "draft"
 
-#: Phase 2 는 텍스트 검사만 다룬다. Phase 3 이 tool_result/tool_call 을 더한다.
-#: 감사 모듈의 Checkpoint 와 어긋나지 않는지는 2c 에서 테스트로 고정한다 —
-#: 도메인이 감사 모듈을 임포트하면 의존 방향이 뒤집힌다.
-VALID_CHECKPOINTS = frozenset({"input", "output"})
+#: §3 의 네 검사 지점. 감사 모듈의 Checkpoint 와 어긋나지 않는지는 테스트로
+#: 고정한다 — 도메인이 감사 모듈을 임포트하면 의존 방향이 뒤집힌다.
+VALID_CHECKPOINTS = frozenset({"input", "output", "tool_result", "tool_call"})
 VALID_TRANSFORMS = frozenset({"lower", "strip"})
 
 #: 이름은 URL 경로 조각이자 X-Gardevoir-Guardrail 헤더 값이고, API 키의
@@ -69,6 +68,11 @@ class NodeType(StrEnum):
     LENGTH = "length"
     TRANSFORM = "transform"
     VERDICT = "verdict"
+    #: 대화에 외부 데이터(role:tool 결과)가 들어왔는가 (§8 1단계). 소스다.
+    TAINT = "taint"
+    #: 입력이 전부 참인가. VERDICT 의 여러 입력은 OR 이므로 AND 가 따로 필요하다 —
+    #: §8 2단계가 "오염됨 AND 부작용 툴"이다.
+    ALL = "all"
 
 
 class Decision(StrEnum):
@@ -253,6 +257,9 @@ NODE_ARITY: dict[NodeType, tuple[int, int]] = {
     NodeType.LENGTH: (1, 1),
     NodeType.TRANSFORM: (1, 1),
     NodeType.VERDICT: (1, _MANY),
+    NodeType.TAINT: (0, 0),
+    #: 입력이 하나면 AND 가 무의미하다 — 저작자가 뭔가 잘못 그린 것이다.
+    NodeType.ALL: (2, _MANY),
 }
 
 
@@ -407,10 +414,26 @@ def _validate_verdict(node: Node) -> None:
         node.fail(f"action must be one of {sorted(a.value for a in VerdictAction)}")
 
 
+def _validate_taint(node: Node) -> None:
+    """extract 와 같은 규칙으로 체크포인트를 요구한다.
+
+    오염 여부는 대화 전체의 성질이라 체크포인트와 무관한 값이지만, 컴파일러가
+    부분 그래프를 소스의 체크포인트로 나누므로 어디서 실행할지는 명시돼야 한다.
+    """
+    if node.config.get("checkpoint") not in VALID_CHECKPOINTS:
+        node.fail(f"checkpoint must be one of {sorted(VALID_CHECKPOINTS)}")
+
+
+def _validate_all(node: Node) -> None:
+    """설정이 없다. 입력 개수는 arity 가 본다."""
+
+
 _NODE_VALIDATORS = {
     NodeType.EXTRACT: _validate_extract,
     NodeType.REGEX: _validate_regex,
     NodeType.LENGTH: _validate_length,
     NodeType.TRANSFORM: _validate_transform,
     NodeType.VERDICT: _validate_verdict,
+    NodeType.TAINT: _validate_taint,
+    NodeType.ALL: _validate_all,
 }

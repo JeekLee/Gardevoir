@@ -371,3 +371,127 @@ def test_a_bad_config_is_reported_before_arity():
     with pytest.raises(ValidationError) as info:
         _draft(nodes=(_regex("bad", "[unclosed"),), edges=()).validate()
     assert info.value.code == "GUARDRAIL-005"
+
+
+# --- ②④ 체크포인트 + 오염 노드 ---------------------------------------------
+#
+# §8 의 공격은 ①도 ③도 정상이다 — ②로 들어와 ④로 나간다.
+
+
+def _taint(node_id: str = "t", checkpoint: str = "tool_call") -> Node:
+    return Node(id=node_id, type=NodeType.TAINT, config={"checkpoint": checkpoint})
+
+
+def _all(node_id: str = "a") -> Node:
+    return Node(id=node_id, type=NodeType.ALL, config={})
+
+
+@pytest.mark.parametrize("checkpoint", ["input", "output", "tool_result", "tool_call"])
+def test_every_checkpoint_is_valid(checkpoint):
+    _draft(nodes=(_extract("e", checkpoint),), edges=()).validate()
+
+
+def test_an_unknown_checkpoint_is_still_rejected():
+    with pytest.raises(ValidationError) as info:
+        _draft(nodes=(_extract("e", "nowhere"),), edges=()).validate()
+    assert info.value.code == "GUARDRAIL-005"
+
+
+def test_taint_requires_a_checkpoint():
+    """taint 만 조상인 부분 그래프를 어디서 실행할지 정할 수 없다."""
+    node = Node(id="t", type=NodeType.TAINT, config={})
+    with pytest.raises(ValidationError) as info:
+        _draft(nodes=(node,), edges=()).validate()
+    assert info.value.code == "GUARDRAIL-005"
+    assert info.value.details["node_id"] == "t"
+
+
+def test_taint_rejects_an_unknown_checkpoint():
+    with pytest.raises(ValidationError):
+        _draft(nodes=(_taint("t", "nowhere"),), edges=()).validate()
+
+
+def test_taint_may_not_have_inputs():
+    """소스다. extract 와 같은 자리."""
+    with pytest.raises(ValidationError) as info:
+        _draft(
+            nodes=(_extract("e"), _taint("t")),
+            edges=(Edge("e", "t"),),
+        ).validate()
+    assert info.value.code == "GUARDRAIL-012"
+    assert info.value.details["node_id"] == "t"
+
+
+def test_a_taint_only_graph_validates():
+    """extract 가 없어도 유효하다 — 오염은 텍스트가 아니라 구조적 사실이다."""
+    _draft(nodes=(_taint("t"), _verdict("v")), edges=(Edge("t", "v"),)).validate()
+
+
+def test_all_requires_at_least_two_inputs():
+    """입력이 하나면 AND 가 무의미하다 — 저작자가 뭔가 잘못 그린 것이다."""
+    with pytest.raises(ValidationError) as info:
+        _draft(
+            nodes=(_taint("t"), _all("a"), _verdict("v")),
+            edges=(Edge("t", "a"), Edge("a", "v")),
+        ).validate()
+    assert info.value.code == "GUARDRAIL-012"
+    assert info.value.details["node_id"] == "a"
+
+
+def test_all_rejects_zero_inputs():
+    with pytest.raises(ValidationError) as info:
+        _draft(nodes=(_all("a"), _verdict("v")), edges=(Edge("a", "v"),)).validate()
+    assert info.value.code == "GUARDRAIL-012"
+
+
+def test_all_accepts_two_inputs():
+    """§8 2단계의 모양: 오염됨 AND 부작용 툴."""
+    _draft(
+        nodes=(_taint("t"), _extract("e", "tool_call"), _regex("r"), _all("a"), _verdict("v")),
+        edges=(
+            Edge("e", "r"),
+            Edge("t", "a"),
+            Edge("r", "a"),
+            Edge("a", "v"),
+        ),
+    ).validate()
+
+
+def test_all_accepts_three_inputs():
+    _draft(
+        nodes=(
+            _taint("t"),
+            _extract("e", "tool_call"),
+            _regex("r1", "aa"),
+            _regex("r2", "bb"),
+            _all("a"),
+            _verdict("v"),
+        ),
+        edges=(
+            Edge("e", "r1"),
+            Edge("e", "r2"),
+            Edge("t", "a"),
+            Edge("r1", "a"),
+            Edge("r2", "a"),
+            Edge("a", "v"),
+        ),
+    ).validate()
+
+
+def test_all_takes_no_config():
+    """설정이 늘어나면 저장된 그래프가 그만큼 깨질 여지가 생긴다."""
+    _draft(
+        nodes=(_taint("t"), _taint("t2", "tool_result"), _all("a"), _verdict("v")),
+        edges=(Edge("t", "a"), Edge("t2", "a"), Edge("a", "v")),
+    )
+
+
+def test_node_type_values_are_stable():
+    """저장된 그래프에 문자열로 남으므로 계약이다."""
+    assert NodeType.EXTRACT == "extract"
+    assert NodeType.REGEX == "regex"
+    assert NodeType.LENGTH == "length"
+    assert NodeType.TRANSFORM == "transform"
+    assert NodeType.VERDICT == "verdict"
+    assert NodeType.TAINT == "taint"
+    assert NodeType.ALL == "all"

@@ -14,7 +14,7 @@ from gateway.application.inspection.outcome import (
 )
 from gateway.application.inspection.text import extract_input_text, extract_output_texts
 from gateway.application.plan.execution_plan import ExecutionPlan, Program
-from gateway.application.plan.executor import execute
+from gateway.application.plan.executor import Subject, execute
 from gateway.application.plan.registry import PlanRegistry
 from gateway.contract import Action, Mode
 from gateway.domain.models.guardrail import VerdictAction
@@ -38,13 +38,18 @@ class Inspector:
         """
         return self._plans.get(guardrail)
 
-    def input(self, plan: ExecutionPlan | None, payload: object, *, mode: Mode) -> Inspection:
+    def input(
+        self, plan: ExecutionPlan | None, payload: object, *, mode: Mode, tainted: bool = False
+    ) -> Inspection:
         program = plan.program_for(CHECKPOINT_INPUT) if plan is not None else None
         if program is None:
             return NOT_INSPECTED
-        return self._run(program, extract_input_text(payload), mode=mode)
+        subject = Subject(text=extract_input_text(payload), tainted=tainted)
+        return self._run(program, subject, mode=mode)
 
-    def output(self, plan: ExecutionPlan | None, body: dict, *, mode: Mode) -> Inspection:
+    def output(
+        self, plan: ExecutionPlan | None, body: dict, *, mode: Mode, tainted: bool = False
+    ) -> Inspection:
         """③ 검사. MASK 가 걸리면 ``body`` 를 제자리에서 고친다."""
         program = plan.program_for(CHECKPOINT_OUTPUT) if plan is not None else None
         if program is None:
@@ -60,7 +65,11 @@ class Inspector:
         masked = False
 
         for position, text in texts:
-            result = execute(program, text, collect_all=mode is Mode.DRY_RUN)
+            result = execute(
+                program,
+                Subject(text=text, tainted=tainted),
+                collect_all=mode is Mode.DRY_RUN,
+            )
             checks.extend(result.checks_fired)
             pending.extend(result.pending_model)
 
@@ -90,8 +99,8 @@ class Inspector:
 
     # -- helpers ------------------------------------------------------------
 
-    def _run(self, program: Program, text: str, *, mode: Mode) -> Inspection:
-        result = execute(program, text, collect_all=mode is Mode.DRY_RUN)
+    def _run(self, program: Program, subject: Subject, *, mode: Mode) -> Inspection:
+        result = execute(program, subject, collect_all=mode is Mode.DRY_RUN)
         blocked = result.action is VerdictAction.BLOCK
 
         if blocked and mode is Mode.DRY_RUN:

@@ -558,7 +558,7 @@ async def test_publish_returns_the_version_the_registry_holds(client, app):
 
 
 async def test_republishing_swaps_the_plan(client, app):
-    from gateway.application.plan.executor import execute
+    from gateway.application.plan.executor import Subject, execute
     from gateway.domain.models.guardrail import VerdictAction
 
     await client.post(BASE, json={"name": "live", "graph": BLOCKING})
@@ -572,8 +572,8 @@ async def test_republishing_swaps_the_plan(client, app):
 
     program = plan.program_for("input")
     assert program is not None
-    assert execute(program, "bravo").action is VerdictAction.BLOCK
-    assert execute(program, "alpha").is_allow, "이전 버전이 남아 있다"
+    assert execute(program, Subject(text="bravo")).action is VerdictAction.BLOCK
+    assert execute(program, Subject(text="alpha")).is_allow, "이전 버전이 남아 있다"
 
 
 async def test_a_failed_publish_does_not_change_the_plan(client, app):

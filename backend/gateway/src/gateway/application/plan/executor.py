@@ -9,11 +9,13 @@
 from dataclasses import dataclass
 
 from gateway.application.plan.execution_plan import (
+    All,
     Extract,
     Length,
     Program,
     RegexOne,
     RegexSet,
+    Taint,
     Transform,
     Verdict,
 )
@@ -30,6 +32,21 @@ _TRANSFORMS = {
     "lower": str.lower,
     "strip": str.strip,
 }
+
+
+@dataclass(frozen=True, slots=True)
+class Subject:
+    """검사 대상 — 텍스트와 **구조적 사실**.
+
+    ②④ 는 텍스트만으로 판단할 수 없다. "대화가 오염됐나"는 문자열이 아니라 대화의
+    구조에서 나오는 사실이고(§8), 그래서 인코딩을 바꿔도 우회되지 않는다.
+
+    dict 를 넘기지 않는 이유: 요청 경로에서 슬롯 dataclass 가 더 싸고, 필드가 계약이
+    되어야 Phase 3b 가 항목을 더할 때 조용히 깨지지 않는다.
+    """
+
+    text: str = ""
+    tainted: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,8 +71,8 @@ class ExecutionResult:
 ALLOWED = ExecutionResult(action=VerdictAction.ALLOW, checks_fired=(), pending_model=())
 
 
-def execute(program: Program, text: str, *, collect_all: bool = False) -> ExecutionResult:
-    """Run one checkpoint's program against one text.
+def execute(program: Program, subject: Subject, *, collect_all: bool = False) -> ExecutionResult:
+    """Run one checkpoint's program against one subject.
 
     ``collect_all`` 이 조기 종료를 끈다. enforce 는 어차피 막으므로 첫 BLOCK 에서
     멈추는 것이 맞지만, dry-run 은 튜닝이 존재 이유이므로 걸린 체크가 전부 필요하다
@@ -64,6 +81,7 @@ def execute(program: Program, text: str, *, collect_all: bool = False) -> Execut
     if program.is_empty:
         return ALLOWED
 
+    text = subject.text
     slots: list = [None] * program.slot_count
     action = VerdictAction.ALLOW
     fired: list[str] = []
@@ -90,6 +108,10 @@ def execute(program: Program, text: str, *, collect_all: bool = False) -> Execut
                 )
             case RegexSet():
                 _run_regex_set(instruction, slots)
+            case Taint():
+                slots[instruction.out] = subject.tainted
+            case All():
+                slots[instruction.out] = all(slots[src] for src in instruction.srcs)
             case Verdict():
                 if not any(slots[src] for src in instruction.srcs):
                     continue
