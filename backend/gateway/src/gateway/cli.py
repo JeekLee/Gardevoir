@@ -6,9 +6,9 @@ import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
-from gateway.domain.models.api_key import ApiKey, Scope, generate_key, hash_key
+from gateway.identity.domain.api_key import ApiKey, Scope, generate_key, hash_key
+from gateway.identity.infrastructure import SqlAlchemyApiKeyRepository
 from gateway.infrastructure.engine import dispose_engine, get_session_factory
-from gateway.infrastructure.repository import SqlAlchemyApiKeyRepository
 from gateway.settings import get_settings
 
 
@@ -48,7 +48,7 @@ def migrate() -> None:
 
     import clickhouse_connect
 
-    from gateway.infrastructure.audit.schema import apply_clickhouse_schema
+    from gateway.audit.infrastructure.schema import apply_clickhouse_schema
 
     ch = get_settings().clickhouse
     client = clickhouse_connect.get_client(

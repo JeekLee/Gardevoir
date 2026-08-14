@@ -10,13 +10,15 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
-from gateway.application.inspection.inspector import Inspector
-from gateway.application.service.authentication_service import AuthenticationService
-from gateway.application.service.guardrail_service import GuardrailService
-from gateway.application.service.proxy_service import ProxyService
-from gateway.domain.models.api_key import Scope
-from gateway.infrastructure.dao.guardrail_dao import SqlAlchemyGuardrailDao
-from gateway.infrastructure.repository.guardrail_repository import SqlAlchemyGuardrailRepository
+from gateway.guardrail.definition.application.guardrail_service import GuardrailService
+from gateway.guardrail.definition.infrastructure.guardrail_dao import SqlAlchemyGuardrailDao
+from gateway.guardrail.definition.infrastructure.guardrail_repository import (
+    SqlAlchemyGuardrailRepository,
+)
+from gateway.guardrail.inspection.application.inspector import Inspector
+from gateway.identity.application.authentication_service import AuthenticationService
+from gateway.identity.domain.api_key import Scope
+from gateway.proxy.application.proxy_service import ProxyService
 
 logger = logging.getLogger(__name__)
 
