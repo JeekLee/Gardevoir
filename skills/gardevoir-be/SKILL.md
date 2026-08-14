@@ -63,9 +63,9 @@ service**, and the bounded contexts live *inside* it as packages — they share 
 
 ```
 backend/gateway/src/gateway/
-├── app.py              create_app(): lifespan, middleware, exception handlers, routers
-├── composition.py      COMPOSITION ROOT — the only place importing infra concretes + Depends
-│                       (app.py also wires, in lifespan: engine, sinks, bootstrap admin key)
+├── app.py              COMPOSITION ROOT — lifespan builds the process-lifetime object graph
+│                       (engine, key cache, audit sink, upstream, plan registry) into app.state;
+│                       also middleware, exception handlers, router mounting
 ├── contract.py         wire contract (§7): headers, Action/Mode, gardevoir extension
 ├── settings.py  health.py
 ├── orm.py              ORM registration point — imports every model for Base.metadata
@@ -73,6 +73,7 @@ backend/gateway/src/gateway/
 ├── identity/           ApiKey — 크레덴셜과 스코프 (§7.2). 두 플레인의 상류
 │   ├── domain/         api_key.py  api_key_error.py
 │   ├── application/    authentication_service.py · api_key_service.py · repo/dao ports · DTOs
+│   ├── composition.py  request-scoped wiring + require_admin_scope (AdminScopeDep)
 │   ├── presentation/   admin_router.py  → /v1/admin/api-keys
 │   └── infrastructure/ sqlalchemy · cached · session-scoped repos, dao, ORM model, mapper
 │
@@ -86,12 +87,14 @@ backend/gateway/src/gateway/
 │   │   ├── domain/          execution_plan.py (Program·instructions·slots) · executor.py
 │   │   ├── application/     compiler.py · registry.py · guardrail_source.py (port)
 │   │   └── infrastructure/  guardrail_source.py (발행본 읽기)
-│   └── inspection/     체크포인트 ①②③④ → 판정 (§3, §4)
-│       └── application/     inspector · outcome · provenance · text
+│   ├── inspection/     체크포인트 ①②③④ → 판정 (§3, §4)
+│   │   └── application/     inspector · outcome · provenance · text
+│   └── composition.py  request-scoped wiring (GuardrailServiceDep)
 │
 ├── proxy/              LLM 쿼리 입출력 — 데이터 플레인 (§7, §9)
 │   ├── application/    proxy_service.py · llm_upstream.py (port) · streaming/
 │   ├── infrastructure/ httpx_upstream.py
+│   ├── composition.py  request-scoped wiring (ProxyServiceDep)
 │   └── presentation/   chat_router.py  → /v1/chat/completions
 │
 └── audit/              AuditEvent (§10). 저장소가 다르다 — ClickHouse
@@ -167,8 +170,25 @@ rather than external.
   plan types, command/result DTOs, service classes.
 - **infrastructure** — implements application ports. SQLAlchemy, httpx, clickhouse-connect,
   and `re2` compilation live ONLY here.
-- **presentation** — depends on application + composition. **MUST NOT import infrastructure.**
-- **composition.py** — the ONLY place wiring infra concretes → services via `fastapi.Depends`.
+- **presentation** — depends on application + its context's composition. **MUST NOT import
+  infrastructure.**
+- **`<bc>/composition.py`** — that context's request-scoped wiring: infra concretes → services,
+  exposed as `Annotated[..., Depends(...)]` aliases. `fastapi.Depends` does not leave this file.
+
+### Wiring is split by lifetime, and the names must say so
+
+`app.py` is the composition root: its lifespan builds the object graph that lives as long as
+the process and puts it on `app.state`. A context's `composition.py` takes a `Request` and
+assembles per-request services out of what is already there.
+
+This was wrong for a while and it cost something. A root `composition.py` called itself "the
+ONLY place importing infra concretes" while `app.py` was doing the same thing, and the layering
+rule exempted both as "wiring roots". An infrastructure adapter (`SessionScopedApiKeyRepository`)
+sat inside `app.py` and nothing could see it, because the two files' roles had never been named
+correctly.
+
+**A composition root does not take an HTTP request.** If a wiring function's signature starts
+with `request: Request`, it is framework glue, not the root.
 
 ## Reuse shared_kernel (don't reinvent)
 
@@ -204,7 +224,7 @@ depend on any private repository. Keep it to what is actually used.
    NO class-per-error. Handler = `shared_kernel.register_exception_handlers`.
 
 5. **Non-DB dependencies use port/adapter.** A `Protocol` port in `application/port/`, an
-   adapter in `infrastructure/`, wired in `composition.py`. This covers the upstream LLM
+   adapter in `infrastructure/`, wired in that context's `composition.py`. This covers the upstream LLM
    relay, the audit sink, and the judgement model tier. §12 requires the model tier to be
    swappable (Ollama → vLLM → Bedrock) without touching the core — the port is how.
 
@@ -456,7 +476,9 @@ Contexts are packages inside `gateway`, not workspace members — they share the
 2. `domain/` aggregate + `<aggregate>_error.py` catalog, if the context owns an aggregate.
 3. `application/`: service, write repository + read dao Protocols, ports, command/result DTOs.
 4. `infrastructure/`: ORM model, mapper, adapters. Import any new model from `gateway/orm.py`.
-5. `presentation/<name>_router.py`; wire in `composition.py`, mount in `app.py`.
+5. `<bc>/composition.py` for request-scoped wiring; `presentation/<name>_router.py` importing
+   only the `...Dep` aliases; mount the router in `app.py`. Process-lifetime resources go in
+   `app.py`'s lifespan, not here.
 6. Verify by importing every module, `ruff`, and a real uvicorn run (see the top of this file).
 
 **Before adding one, check it is actually a context.** The signals that justified the current
@@ -472,7 +494,9 @@ files are related" is not one — that is a package.
 | three DTO tiers | **single** application-owned `CamelModel` at the boundary |
 | use cases as loose functions; a class per error | **service classes**; one `ErrorCatalog` enum per aggregate |
 | one `models.py` / one `mappers.py` | per-model file in the owning context's `infrastructure/`, all imported from `gateway/orm.py` |
-| DI in presentation | DI in `composition.py`; presentation never imports infrastructure |
+| DI in presentation | DI in the context's `composition.py`; presentation never imports infrastructure |
+| one root `composition.py` for every context | one per context — a shared file is a chokepoint every new context edits |
+| defaulting a wired dependency (`getattr(state, "x", None)`) | let it fail. A missing wire becomes a silent no-op otherwise — `plans=None` made publish return 200 without recompiling |
 | per-BC exception handler | reuse `shared_kernel.register_exception_handlers` |
 | `Program` as a `CamelModel` | slotted dataclass — Pydantic must not run on the request path |
 | walking the guardrail DAG per request | compile at publish, execute a flat instruction array (§11.4) |
