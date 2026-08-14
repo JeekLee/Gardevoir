@@ -68,7 +68,7 @@ class AuthService:
             SessionError.INVALID.raise_()
         user.ensure_active()
 
-        await self._sessions.save(session.revoke())
+        await self._sessions.remove(session)
         pair = await self._issue(user)
         await self._commit()
         return pair
@@ -76,7 +76,7 @@ class AuthService:
     async def logout(self, refresh_token: str) -> None:
         session = await self._sessions.find_by_token_hash(RefreshToken(refresh_token).hash)
         if session is not None:
-            await self._sessions.save(session.revoke())
+            await self._sessions.remove(session)
         await self._commit()
 
     async def _issue(self, user: User) -> TokenPair:

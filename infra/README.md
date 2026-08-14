@@ -16,6 +16,7 @@ cd backend && uv sync --all-packages
 ```bash
 docker compose --env-file infra/envs/example/compose.env \
   -f infra/docker-compose/postgres.yml \
+  -f infra/docker-compose/redis.yml \
   -f infra/docker-compose/clickhouse.yml \
   up -d
 ```

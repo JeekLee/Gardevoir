@@ -1,6 +1,10 @@
-"""리프레시 토큰이 뒷받침하는 로그인 세션."""
+"""리프레시 토큰이 뒷받침하는 로그인 세션.
 
-from dataclasses import dataclass, replace
+회수 상태를 들지 않는다 — 저장소가 만료를 TTL 로 처리하므로 세션은 **있거나 없다.**
+``ensure_active`` 의 만료 검사는 TTL 경계와 시계 오차에 대한 방어다.
+"""
+
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
@@ -14,7 +18,6 @@ class RefreshSession:
     user_id: UUID
     token_hash: str
     expires_at: datetime
-    revoked_at: datetime | None = None
 
     @classmethod
     def issue(cls, *, user_id: UUID, token: RefreshToken, ttl: timedelta) -> RefreshSession:
@@ -25,13 +28,8 @@ class RefreshSession:
             expires_at=datetime.now(UTC) + ttl,
         )
 
-    def revoke(self) -> RefreshSession:
-        if self.revoked_at is not None:
-            return self
-        return replace(self, revoked_at=datetime.now(UTC))
-
     def ensure_active(self) -> None:
-        if self.revoked_at is not None or self.expires_at <= datetime.now(UTC):
+        if self.expires_at <= datetime.now(UTC):
             SessionError.INVALID.raise_()
 
 

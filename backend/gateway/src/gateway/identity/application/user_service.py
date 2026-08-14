@@ -80,7 +80,7 @@ class UserService:
         if not user.password_hash.matches(cmd.current_password.get_secret_value()):
             UserError.WRONG_CURRENT_PASSWORD.raise_()
         await self._users.save(user.set_password(cmd.new_password.get_secret_value()))
-        await self._sessions.revoke_all_for_user(user_id)
+        await self._sessions.remove_all_for_user(user_id)
         await self._commit()
 
     async def change_role(self, user_id: UUID, cmd: ChangeRole) -> UserSummary:
@@ -95,7 +95,7 @@ class UserService:
         if user.role is Role.ADMIN:
             await self._reject_if_last_admin()
         await self._users.save(user.deactivate())
-        await self._sessions.revoke_all_for_user(user_id)
+        await self._sessions.remove_all_for_user(user_id)
         return await self._summary_after(user_id)
 
     async def ensure_root(self, *, email: str, password: str) -> bool:

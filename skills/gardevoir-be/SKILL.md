@@ -204,6 +204,7 @@ with `request: Request`, it is framework glue, not the root.
 - `database`: `Base` (DeclarativeBase + `NAMING_CONVENTION`), `TimestampMixin`, and the
   engine lifecycle — `get_engine` / `get_session_factory` (both `lru_cache`d) / `dispose_engine`.
 - `clickhouse`: `get_clickhouse_client` / `dispose_clickhouse`, deliberately the same shape.
+- `redis`: `get_redis_client` / `dispose_redis`, same again.
 
 **Both stores open and close in shared_kernel, not in the composition root.** The settings
 that *describe* a store (`DatabaseSettings`, `ClickHouseSettings`) were already there, so the
@@ -588,7 +589,7 @@ tool_call blocked  HTTP 200 + finish_reason = "content_filter"
 | Absent | Why |
 |---|---|
 | Kafka / outbox / CDC / domain events | Nothing publishes events (§12) |
-| Redis | Taint tracking is stateless — the `messages` array carries the full history (§7.4). Approvals are low-volume and live in Postgres |
+| Redis for taint / approvals | Taint tracking is stateless — the `messages` array carries the full history (§7.4). Approvals are low-volume and live in Postgres. **Redis is used, but only for refresh sessions**: TTL expiry means the store cannot grow unboundedly, and the refresh path is not latency-sensitive. Do not extend it to the proxy request path — a localhost GET is 91 µs against a 0.287 µs dict lookup |
 | JWT / `Principal` / header-trust auth | Callers authenticate with a gardevoir-issued API key; app identity comes from the credential, never a header (§7.2) |
 | Celery | No background fan-out; asyncio tasks suffice |
 | Object storage | ClickHouse `TTL` + partition drop covers retention (§10) |

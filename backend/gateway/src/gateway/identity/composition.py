@@ -15,8 +15,8 @@ from gateway.identity.application.bearer import parse_bearer
 from gateway.identity.application.user_service import UserService
 from gateway.identity.domain.enums.role import Role
 from gateway.identity.domain.exceptions.user_error import UserError
-from gateway.identity.infrastructure.refresh_session_repository import (
-    SqlAlchemyRefreshSessionRepository,
+from gateway.identity.infrastructure.redis_refresh_session_repository import (
+    RedisRefreshSessionRepository,
 )
 from gateway.identity.infrastructure.user_dao import SqlAlchemyUserDao
 from gateway.identity.infrastructure.user_repository import SqlAlchemyUserRepository
@@ -31,7 +31,7 @@ async def provide_auth_service(request: Request) -> AsyncIterator[AuthService]:
         yield AuthService(
             users=SqlAlchemyUserRepository(session),
             dao=SqlAlchemyUserDao(session),
-            sessions=SqlAlchemyRefreshSessionRepository(session),
+            sessions=RedisRefreshSessionRepository(request.app.state.redis),
             tokens=request.app.state.access_tokens,
             refresh_ttl=request.app.state.refresh_ttl,
             transaction=session,
@@ -44,7 +44,7 @@ async def provide_user_service(request: Request) -> AsyncIterator[UserService]:
         yield UserService(
             users=SqlAlchemyUserRepository(session),
             dao=SqlAlchemyUserDao(session),
-            sessions=SqlAlchemyRefreshSessionRepository(session),
+            sessions=RedisRefreshSessionRepository(request.app.state.redis),
             transaction=session,
         )
         await session.commit()
