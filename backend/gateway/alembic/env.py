@@ -25,20 +25,20 @@ config.set_main_option("sqlalchemy.url", get_settings().database.dsn)
 
 
 def _register_orm_models() -> None:
-    """모든 모듈을 임포트해 ``Base.metadata`` 를 완성한다.
+    """``infrastructure`` 아래를 훑어 ``Base.metadata`` 를 완성한다.
 
-    autogenerate 는 metadata 만 보고, metadata 는 **임포트된** 모델만 안다. 모델을 손으로
-    적은 목록에 의존하면 새 모델을 빠뜨릴 수 있고, 빠진 모델은 마이그레이션에서 조용히
-    사라진다 — autogenerate 가 그 테이블을 **drop 하는** 마이그레이션을 만들고, 배포한
-    뒤에야 알게 된다.
+    손으로 적은 목록에 의존하면 새 모델을 빠뜨릴 수 있고, 빠진 모델은 autogenerate 가
+    **그 테이블을 drop 하는** 마이그레이션을 만든다. 목록을 없애면 그 실패가 성립하지 않는다.
 
-    목록을 없애면 그 실패가 성립하지 않는다. 전 패키지 임포트는 269 ms 이고 여기는 요청
-    경로가 아니다.
+    ``infrastructure`` 로 한정하는 이유: 마이그레이션이 HTTP 계층 임포트에 의존하면 안 된다.
+    라우터 하나가 깨져도 DB 는 올릴 수 있어야 한다. 모델은 규약상 각 컨텍스트의
+    ``infrastructure/`` 에 있다 (skills/gardevoir-be).
     """
     import gateway
 
     for module in pkgutil.walk_packages(gateway.__path__, f"{gateway.__name__}."):
-        importlib.import_module(module.name)
+        if ".infrastructure" in module.name:
+            importlib.import_module(module.name)
 
 
 _register_orm_models()
