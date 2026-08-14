@@ -55,11 +55,6 @@ class User:
         if self.deactivated_at is not None:
             UserError.DEACTIVATED.raise_(details={"id": str(self.id)})
 
-    def ensure_admin(self) -> None:
-        self.ensure_active()
-        if self.role is not Role.ADMIN:
-            UserError.NOT_ADMIN.raise_(details={"id": str(self.id), "role": str(self.role)})
-
     def authenticate(self, password: str) -> None:
         self.ensure_active()
         if not self.password_hash.matches(password):

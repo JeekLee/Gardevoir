@@ -43,9 +43,9 @@ uv run ruff format . && uv run ruff check .
 uv run uvicorn --factory gateway.app:create_app --port 21011
 ```
 
-Then exercise the real path: start with `GARDEVOIR_BOOTSTRAP_ADMIN_KEY` set, create a proxy
-key via `POST /v1/admin/api-keys`, author a guardrail via `/v1/admin/guardrails`, publish it,
-send a request that should be blocked, and read the ClickHouse audit row. Running it end to end catches a class of defect the old suite never
+Then exercise the real path: start with `GARDEVOIR_JWT_SECRET` and `GARDEVOIR_ROOT_EMAIL` /
+`GARDEVOIR_ROOT_PASSWORD` set, `POST /v1/auth/login`, author a guardrail via `/v1/guardrails`,
+publish it, send a request that should be blocked, and read the ClickHouse audit row. Running it end to end catches a class of defect the old suite never
 did — see "The response/cleanup boundary" below.
 
 ## When to use
@@ -74,8 +74,8 @@ backend/gateway/src/gateway/
 │   │   ├── models/         api_key.py
 │   │   └── exceptions/     api_key_error.py
 │   ├── application/    authentication_service.py · api_key_service.py · repo/dao ports · DTOs
-│   ├── composition.py  request-scoped wiring (deleted in #20, being rebuilt)
-│   ├── presentation/   admin_router.py  → /v1/admin/api-keys
+│   ├── composition.py  provide_* + require_role(Role) — no Depends aliases
+│   ├── presentation/   auth_router.py → /v1/auth/*, user_router.py → /v1/users/*
 │   └── infrastructure/ sqlalchemy · cached · session-scoped repos, dao, ORM model, mapper
 │
 ├── guardrail/          CORE DOMAIN. 세 관심사가 domain/ 의 집합체를 공유한다
@@ -85,7 +85,7 @@ backend/gateway/src/gateway/
 │   ├── definition/     정의·초안·발행·버전 — 컨트롤 플레인 (§5)
 │   │   ├── application/     guardrail_service · command · result · dao/repo ports · transaction
 │   │   ├── infrastructure/  guardrail_model · guardrail_mapper · repository · dao
-│   │   └── presentation/    admin_router.py  → /v1/admin/guardrails
+│   │   └── presentation/    guardrail_router.py  → /v1/guardrails
 │   ├── plan/           컴파일 → 명령·슬롯 → 실행 (§6, §11.4)
 │   │   ├── domain/          models/execution_plan.py (Program·instructions·slots)
 │   │   │                    executor.py — 도메인 서비스라 층 루트에 둔다
@@ -134,7 +134,7 @@ directories to make the contexts look symmetric.
 ## Single deployment — do not split the backend
 
 **gardevoir ships as one backend service.** The control plane (guardrail
-authoring, `/v1/admin/**`) and the data plane (`/v1/chat/completions`) live in the
+authoring, `/v1/guardrails` and `/v1/users`) and the data plane (`/v1/chat/completions`) live in the
 same process, separated by route prefix and by credential scope — not by topology.
 
 This is a decision, not an accident. Do not re-litigate it:
@@ -527,7 +527,7 @@ treats the protocol as the part that is hard to change and configuration as the 
 easy.** Adding a field here can break deployed applications; adding a guardrail check cannot.
 §7.2 makes the URL prefix the contract version, so it is not in any contract module: `app.py`
 applies it at `include_router(..., prefix=API_PREFIX)` and routers declare only their sub-path
-(`/admin/guardrails`, `/chat/completions`). Mounting is a composition-root decision — `/healthz`
+(`/guardrails`, `/chat/completions`). Mounting is a composition-root decision — `/healthz`
 deliberately gets no prefix because it is operational, not part of the contract — and keeping
 the version there means one place to change when it moves to `/v2`.
 

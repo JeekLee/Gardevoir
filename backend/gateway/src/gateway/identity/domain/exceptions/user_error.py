@@ -17,7 +17,7 @@ class UserError(ErrorCatalog):
     DEACTIVATED = ("USER-002", "this account has been deactivated", UnauthorizedError)
     EMAIL_TAKEN = ("USER-003", "an account with this email already exists", ConflictError)
     WEAK_PASSWORD = ("USER-004", "the password is too short", ValidationError)
-    NOT_ADMIN = ("USER-005", "this action requires the admin role", ForbiddenError)
+    ROLE_REQUIRED = ("USER-005", "this action requires a different role", ForbiddenError)
     NOT_FOUND = ("USER-009", "no such user", NotFoundError)
     INVALID_TOKEN = ("USER-006", "the access token is not valid", UnauthorizedError)
     LAST_ADMIN = (

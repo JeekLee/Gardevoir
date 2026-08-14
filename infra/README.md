@@ -71,45 +71,54 @@ Postgres      35 MiB / 512 MiB  (6.9%)
 
 상한에 근접하면 `compose.env`의 값을 올린다.
 
-## ⚠️ Admin API 노출 금지 (Phase 5 까지)
+## 최초 계정과 로그인
 
-`/v1/admin/*` 은 아직 **사람 인증이 없다.** `admin` 스코프를 가진 API 키만 요구하므로,
-그 키가 새면 가드레일 정책 전체를 바꿀 수 있다 — 즉 프록시 검사를 무력화할 수 있다.
+관리 경로는 **관리자 사용자의 액세스 토큰**을 요구한다. 경로에 `admin` 접두어는 없다 —
+권한은 자원의 성질이 아니라 호출자의 성질이므로 라우트마다 역할로 붙는다.
 
-Phase 5(콘솔)가 관리자 인증(세션/OIDC)을 정할 때까지:
-
-- `/v1/admin/*` 을 리버스 프록시/인그레스에서 차단하거나, gateway 를 사설망에만 노출한다.
-- `admin` 스코프 키는 운영자 로컬에서만 쓰고 애플리케이션에 배포하지 않는다.
-- 프록시용 키에는 `admin` 을 주지 않는다 (기본값은 `proxy` 뿐이다).
-
-최초 admin 키는 **환경변수로 심는다.** 관리 API 를 부르려면 admin 키가 필요한데 키를
-만드는 것이 그 관리 API 라서, 이것이 순환을 끊는 유일한 장치다.
+최초 계정은 **환경변수로 심는다.** 계정을 만들려면 로그인해야 하고 로그인하려면 계정이
+있어야 하므로, 이것이 순환을 끊는 유일한 장치다. **사용자가 하나도 없을 때만** 만들어진다.
 
 ```bash
-GARDEVOIR_BOOTSTRAP_ADMIN_KEY=$(openssl rand -hex 32) \
+GARDEVOIR_JWT_SECRET=$(openssl rand -hex 32) \
+GARDEVOIR_ROOT_EMAIL=ops@example.com \
+GARDEVOIR_ROOT_PASSWORD='<12자 이상>' \
   uv run uvicorn --factory gateway.app:create_app --port 21000
 ```
 
-**활성 admin 키가 이미 있으면 무시된다** — 환경변수가 남아 있다는 이유로 키가
-되살아나면 회수가 성립하지 않는다. 이후 키는 전부 관리 API 로 만든다:
+`GARDEVOIR_JWT_SECRET` 에는 기본값이 없다 — 두면 그 값이 곧 취약점이다. RFC 7518 §3.2 가
+HS256 에 요구하는 32바이트 이상이어야 한다.
 
 ```bash
-A="authorization: Bearer <부트스트랩 키>"
+# 로그인 — 액세스 15분, 리프레시 14일
+curl -X POST localhost:21000/v1/auth/login -H 'content-type: application/json' \
+  -d '{"email":"ops@example.com","password":"..."}'
 
-# 앱용 프록시 키 — 응답의 key 가 원본이 보이는 유일한 순간이다
-curl -H "$A" -X POST localhost:21000/v1/admin/api-keys -H 'content-type: application/json' \
-  -d '{"name":"my-app","upstreamApiKey":"sk-...","allowedGuardrails":["base"]}'
+A="authorization: Bearer <accessToken>"
 
-# 관리자 키
-curl -H "$A" -X POST localhost:21000/v1/admin/api-keys -H 'content-type: application/json' \
-  -d '{"name":"ops-console","scopes":["admin"]}'
+# 사용자 생성 (admin 필요). 초기 비밀번호를 함께 준다
+curl -H "$A" -X POST localhost:21000/v1/users -H 'content-type: application/json' \
+  -d '{"email":"dev@example.com","name":"dev","password":"<12자 이상>"}'
 
-# 회수 (행은 지우지 않는다 — 감사 로그가 api_key_id 를 참조한다)
-curl -H "$A" -X POST localhost:21000/v1/admin/api-keys/<id>/revoke
+# 갱신 — 리프레시 토큰이 회전한다. 옛 토큰은 그 즉시 무효다
+curl -X POST localhost:21000/v1/auth/refresh -H 'content-type: application/json' \
+  -d '{"refreshToken":"..."}'
+
+# 로그아웃 — 세션을 없앤다
+curl -X POST localhost:21000/v1/auth/logout -H 'content-type: application/json' \
+  -d '{"refreshToken":"..."}'
 ```
 
-**회수는 즉시 반영된다.** 키 조회에 캐시가 없다 — 요청마다 Postgres 를 읽는다(1.2 ms,
-업스트림 300~2000 ms 의 0.4%). 대가로 **Postgres 가 죽으면 프록시가 서지 못한다.**
+세션은 Redis 에 있고 TTL 이 만료를 처리한다. 비밀번호 변경과 계정 비활성화는 그 사용자의
+세션을 **전부** 끊는다. 마지막 활성 관리자는 강등·비활성화할 수 없다.
+
+## API 키 (프록시용)
+
+⚠️ **현재 발급 경로가 없다.** identity 의 ApiKey 계층이 재구축 중이다. 복구되면 관리자
+토큰으로 발급한다.
+
+키 회수는 즉시 반영될 예정이다 — 키 조회에 캐시가 없고 요청마다 Postgres 를 읽는다
+(1.2 ms, 업스트림 300~2000 ms 의 0.4%). 대가로 **Postgres 가 죽으면 프록시가 서지 못한다.**
 
 ClickHouse 감사 스키마는 기동 시 자동 적용된다 (`CREATE TABLE IF NOT EXISTS` 라 멱등).
 

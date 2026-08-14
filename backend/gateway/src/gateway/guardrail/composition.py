@@ -4,9 +4,8 @@
 """
 
 from collections.abc import AsyncIterator
-from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Request
 
 from gateway.guardrail.definition.application.guardrail_service import GuardrailService
 from gateway.guardrail.definition.infrastructure.guardrail_dao import SqlAlchemyGuardrailDao
@@ -33,6 +32,3 @@ async def provide_guardrail_service(request: Request) -> AsyncIterator[Guardrail
         # 서비스가 자기 쓰기를 이미 커밋했다. 여기서는 남은 것을 정리한다 —
         # 읽기 전용 라우트의 트랜잭션을 닫고, 실패한 요청은 async with 가 롤백한다.
         await session.commit()
-
-
-GuardrailServiceDep = Annotated[GuardrailService, Depends(provide_guardrail_service)]

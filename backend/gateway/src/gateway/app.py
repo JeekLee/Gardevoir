@@ -164,12 +164,7 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
             dispose_clickhouse()
 
     # 스펙은 debug 에서만 열린다. 기본값으로 두면 /openapi.json 이 익명으로 컨트롤
-    # 플레인 경로 전체를 알려주므로, infra/README.md 가 권하는 완화책
-    # ("인그레스에서 /v1/admin/* 차단")이 그 구멍을 덮지 못한다.
-    #
-    # docs_url/redoc_url 을 따로 끄지 않는 이유: FastAPI 는 openapi_url 이 없으면
-    # /docs 와 /redoc 라우트를 아예 등록하지 않는다. 같은 조건으로 한 번 더 쓰면
-    # 반증할 수 없는 줄이 된다 — 돌연변이 테스트에서 그것이 드러났다.
+    # 플레인 경로 전체를 알려준다.
     app = FastAPI(
         title="gardevoir gateway",
         version="0.1.0",
@@ -188,8 +183,6 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
     # health 는 접두어 없이 붙는다 — 계약이 아니라 운영용이다.
     app.include_router(health.router)
     app.include_router(chat_router.router, prefix=API_PREFIX)
-    # ⚠️ 사람 인증이 아직 없다 — admin 스코프 키만 요구한다. 외부에 노출하지 말 것.
-    # admin_router 의 모듈 독스트링과 infra/README.md 참조.
     app.include_router(admin_router.router, prefix=API_PREFIX)
     # ⚠️ 키 발급·회수. admin 키가 새면 다른 키를 전부 만들 수 있어 더 위험하다.
     app.include_router(api_key_router.router, prefix=API_PREFIX)
