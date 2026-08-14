@@ -16,8 +16,11 @@ from gateway.guardrail.definition.infrastructure.guardrail_repository import (
     SqlAlchemyGuardrailRepository,
 )
 from gateway.guardrail.inspection.application.inspector import Inspector
+from gateway.identity.application.api_key_service import ApiKeyService
 from gateway.identity.application.authentication_service import AuthenticationService
 from gateway.identity.domain.api_key import Scope
+from gateway.identity.infrastructure.api_key_dao import SqlAlchemyApiKeyDao
+from gateway.identity.infrastructure.api_key_repository import SqlAlchemyApiKeyRepository
 from gateway.proxy.application.proxy_service import ProxyService
 
 logger = logging.getLogger(__name__)
@@ -63,9 +66,23 @@ async def provide_guardrail_service(request: Request) -> AsyncIterator[Guardrail
         await session.commit()
 
 
+async def provide_api_key_service(request: Request) -> AsyncIterator[ApiKeyService]:
+    """One session per request. 저작 API 와 같은 이유로 요청 경로가 아니다 (§6)."""
+    async with request.app.state.session_factory() as session:
+        yield ApiKeyService(
+            keys=SqlAlchemyApiKeyRepository(session),
+            dao=SqlAlchemyApiKeyDao(session),
+            # 발급·회수는 응답 전에 커밋돼야 한다. 조립 루트의 정리 코드에 맡기면
+            # FastAPI 가 응답을 보낸 뒤에 커밋한다.
+            transaction=session,
+        )
+        await session.commit()
+
+
 AuthenticationServiceDep = Annotated[AuthenticationService, Depends(provide_authentication_service)]
 ProxyServiceDep = Annotated[ProxyService, Depends(provide_proxy_service)]
 GuardrailServiceDep = Annotated[GuardrailService, Depends(provide_guardrail_service)]
+ApiKeyServiceDep = Annotated[ApiKeyService, Depends(provide_api_key_service)]
 
 
 async def require_admin_scope(request: Request, auth_service: AuthenticationServiceDep) -> None:

@@ -43,9 +43,9 @@ uv run ruff format . && uv run ruff check .
 uv run uvicorn --factory gateway.app:create_app --port 21011
 ```
 
-Then exercise the real path: create a key (`gardevoir-createkey`), author a guardrail via
-`/v1/admin/guardrails`, publish it, send a request that should be blocked, and read the
-ClickHouse audit row. Running it end to end catches a class of defect the old suite never
+Then exercise the real path: start with `GARDEVOIR_BOOTSTRAP_ADMIN_KEY` set, create a proxy
+key via `POST /v1/admin/api-keys`, author a guardrail via `/v1/admin/guardrails`, publish it,
+send a request that should be blocked, and read the ClickHouse audit row. Running it end to end catches a class of defect the old suite never
 did — see "The response/cleanup boundary" below.
 
 ## When to use
@@ -64,15 +64,17 @@ service**, and the bounded contexts live *inside* it as packages — they share 
 ```
 backend/gateway/src/gateway/
 ├── app.py              create_app(): lifespan, middleware, exception handlers, routers
-├── composition.py      COMPOSITION ROOT — the ONLY place importing infra concretes + Depends
+├── composition.py      COMPOSITION ROOT — the only place importing infra concretes + Depends
+│                       (app.py also wires, in lifespan: engine, sinks, bootstrap admin key)
 ├── contract.py         wire contract (§7): headers, Action/Mode, gardevoir extension
-├── settings.py  cli.py  health.py
+├── settings.py  health.py
 ├── orm.py              ORM registration point — imports every model for Base.metadata
 │
 ├── identity/           ApiKey — 크레덴셜과 스코프 (§7.2). 두 플레인의 상류
 │   ├── domain/         api_key.py  api_key_error.py
-│   ├── application/    authentication_service.py  api_key_repository.py (port)
-│   └── infrastructure/ sqlalchemy · cached · session-scoped repos, ORM model, mapper
+│   ├── application/    authentication_service.py · api_key_service.py · repo/dao ports · DTOs
+│   ├── presentation/   admin_router.py  → /v1/admin/api-keys
+│   └── infrastructure/ sqlalchemy · cached · session-scoped repos, dao, ORM model, mapper
 │
 ├── guardrail/          CORE DOMAIN. 세 관심사가 domain/ 의 집합체를 공유한다
 │   ├── domain/         guardrail.py (Guardrail·Node·Edge·VerdictAction·Decision)

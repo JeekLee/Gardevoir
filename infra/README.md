@@ -81,13 +81,36 @@ Phase 5(콘솔)가 관리자 인증(세션/OIDC)을 정할 때까지:
 - `admin` 스코프 키는 운영자 로컬에서만 쓰고 애플리케이션에 배포하지 않는다.
 - 프록시용 키에는 `admin` 을 주지 않는다 (기본값은 `proxy` 뿐이다).
 
-```bash
-# 프록시 키 (기본)
-uv run gardevoir-createkey --name my-app --upstream-base-url https://api.openai.com/v1 ...
+최초 admin 키는 **환경변수로 심는다.** 관리 API 를 부르려면 admin 키가 필요한데 키를
+만드는 것이 그 관리 API 라서, 이것이 순환을 끊는 유일한 장치다.
 
-# 관리자 키 — 별도로 만든다
-uv run gardevoir-createkey --name ops-console --scope admin ...
+```bash
+GARDEVOIR_BOOTSTRAP_ADMIN_KEY=$(openssl rand -hex 32) \
+  uv run uvicorn --factory gateway.app:create_app --port 21000
 ```
+
+**활성 admin 키가 이미 있으면 무시된다** — 환경변수가 남아 있다는 이유로 키가
+되살아나면 회수가 성립하지 않는다. 이후 키는 전부 관리 API 로 만든다:
+
+```bash
+A="authorization: Bearer <부트스트랩 키>"
+
+# 앱용 프록시 키 — 응답의 key 가 원본이 보이는 유일한 순간이다
+curl -H "$A" -X POST localhost:21000/v1/admin/api-keys -H 'content-type: application/json' \
+  -d '{"name":"my-app","upstreamApiKey":"sk-...","allowedGuardrails":["base"]}'
+
+# 관리자 키
+curl -H "$A" -X POST localhost:21000/v1/admin/api-keys -H 'content-type: application/json' \
+  -d '{"name":"ops-console","scopes":["admin"]}'
+
+# 회수 (행은 지우지 않는다 — 감사 로그가 api_key_id 를 참조한다)
+curl -H "$A" -X POST localhost:21000/v1/admin/api-keys/<id>/disable
+```
+
+**회수는 키 캐시 TTL(`GARDEVOIR_KEY_CACHE_TTL_S`, 기본 30초)만큼 늦게 반영된다.**
+요청 경로에서 DB 를 없애려고 받아들인 값이다 (§6). 즉시여야 하면 이 값을 줄인다.
+
+ClickHouse 감사 스키마는 기동 시 자동 적용된다 (`CREATE TABLE IF NOT EXISTS` 라 멱등).
 
 설계 문서 §14 에 미해결 항목으로 기록돼 있다.
 
