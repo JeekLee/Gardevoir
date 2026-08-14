@@ -1,4 +1,12 @@
-"""FastAPI application factory."""
+"""Composition root.
+
+**객체 그래프가 여기서 만들어진다.** lifespan 이 프로세스 수명 자원을 조립한다 —
+엔진·세션 팩토리, 키 캐시, ClickHouse 싱크, httpx 업스트림, 계획 레지스트리. 그것들이
+``app.state`` 에 놓이고, 컨텍스트별 ``composition.py`` 가 요청 하나에 맞춰 꺼내 쓴다.
+
+그쪽을 조립 루트라고 부르지 않는 이유: 모든 함수가 ``Request`` 를 받아서 요청 없이는
+실행조차 안 된다. 조립 루트는 HTTP 요청을 인자로 받지 않는다.
+"""
 
 import asyncio
 import logging
