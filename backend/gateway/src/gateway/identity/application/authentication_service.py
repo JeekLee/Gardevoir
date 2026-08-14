@@ -10,7 +10,6 @@
 
 from dataclasses import dataclass
 
-from gateway.contract import Mode
 from gateway.identity.application.api_key_repository import ApiKeyRepository
 from gateway.identity.domain.api_key import ApiKey, Scope, hash_key, parse_bearer
 from gateway.identity.domain.api_key_error import ApiKeyError
@@ -20,7 +19,6 @@ from gateway.identity.domain.api_key_error import ApiKeyError
 class AuthenticatedRequest:
     key: ApiKey
     guardrail: str
-    mode: Mode
 
 
 class AuthenticationService:
@@ -52,18 +50,10 @@ class AuthenticationService:
         *,
         authorization: str | None,
         guardrail: str | None,
-        mode: str | None,
         require: Scope,
     ) -> AuthenticatedRequest:
         # 스코프는 가드레일 해석보다 먼저 본다 — 권한이 없으면 그 키가 어떤
         # 가드레일을 쓸 수 있는지 알려줄 이유가 없다.
         key = await self.authorise(authorization=authorization, require=require)
 
-        return AuthenticatedRequest(
-            key=key,
-            guardrail=key.resolve_guardrail(guardrail),
-            # 모드는 권한 검사 없이 자유 선택이다. 공격자는 대화 텍스트만 통제하고
-            # HTTP 헤더는 만지지 못하므로 dry-run 이 자유여도 도움이 되지 않는다.
-            # 남는 리스크는 거버넌스이고, 그것은 감사 로그에 모드를 남겨 드러낸다.
-            mode=Mode.parse(mode),
-        )
+        return AuthenticatedRequest(key=key, guardrail=key.resolve_guardrail(guardrail))

@@ -19,7 +19,8 @@ import time
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 
-from gateway.contract import FINISH_CONTENT_FILTER, Action, Mode
+from gateway.guardrail.domain.guardrail import VerdictAction
+from gateway.guardrail.domain.mode import Mode
 from gateway.guardrail.inspection.application.inspector import (
     CHECKPOINT_OUTPUT,
     CHECKPOINT_TOOL_CALL,
@@ -34,6 +35,7 @@ from gateway.guardrail.plan.domain.execution_plan import ExecutionPlan, Program
 from gateway.proxy.application.streaming.accumulator import Accumulator
 from gateway.proxy.application.streaming.holdback import Holdback
 from gateway.proxy.application.streaming.sse import parse_frames, render, render_done
+from gateway.proxy.contract import FINISH_CONTENT_FILTER
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +178,7 @@ class StreamRelay:
         previous = self.outcome.output
         blocked = previous.blocked or verdict.blocked
         self.outcome.output = Inspection(
-            action=Action.BLOCKED if blocked else Action.ALLOW,
+            action=VerdictAction.BLOCK if blocked else VerdictAction.ALLOW,
             tier=verdict.tier,
             checks_fired=tuple(dict.fromkeys(previous.checks_fired + verdict.checks_fired)),
             pending_model=tuple(dict.fromkeys(previous.pending_model + verdict.pending_model)),

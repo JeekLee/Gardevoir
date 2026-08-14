@@ -66,7 +66,7 @@ backend/gateway/src/gateway/
 ├── app.py              COMPOSITION ROOT — lifespan builds the process-lifetime object graph
 │                       (engine, key cache, audit sink, upstream, plan registry) into app.state;
 │                       also middleware, exception handlers, router mounting
-├── contract.py         wire contract (§7): headers, Action/Mode, gardevoir extension
+├── contract.py         API_PREFIX only — the contract version is the URL prefix (§7.2)
 ├── settings.py  health.py
 ├── orm.py              ORM registration point — imports every model for Base.metadata
 │
@@ -78,7 +78,7 @@ backend/gateway/src/gateway/
 │   └── infrastructure/ sqlalchemy · cached · session-scoped repos, dao, ORM model, mapper
 │
 ├── guardrail/          CORE DOMAIN. 세 관심사가 domain/ 의 집합체를 공유한다
-│   ├── domain/         guardrail.py (Guardrail·Node·Edge·VerdictAction·Decision)
+│   ├── domain/         guardrail.py (Guardrail·Node·Edge·VerdictAction·Decision) · mode.py
 │   ├── definition/     정의·초안·발행·버전 — 컨트롤 플레인 (§5)
 │   │   ├── application/     guardrail_service · command · result · dao/repo ports · transaction
 │   │   ├── infrastructure/  guardrail_model · guardrail_mapper · repository · dao
@@ -93,6 +93,7 @@ backend/gateway/src/gateway/
 │
 ├── proxy/              LLM 쿼리 입출력 — 데이터 플레인 (§7, §9)
 │   ├── application/    proxy_service.py · llm_upstream.py (port) · streaming/
+│   ├── contract.py     §7 wire contract: headers · extension · Action · to_wire_action
 │   ├── infrastructure/ httpx_upstream.py
 │   ├── composition.py  request-scoped wiring (ProxyServiceDep)
 │   └── presentation/   chat_router.py  → /v1/chat/completions
@@ -419,12 +420,35 @@ The following are load-bearing:
   `asyncio.to_thread`.
 - **Audit writes never block the response** (§10). Queue, then batch in the background.
 
-## Wire contract
+## Wire contract, and the two verdict vocabularies
 
-`contract.py` at the gateway root holds header names, `Action`/`Mode`, and the `gardevoir`
-extension object. **Keep it minimal — §7 treats the protocol as the part that is hard to
-change and configuration as the part that is easy.** Adding a field here can break deployed
-applications; adding a guardrail check cannot.
+`proxy/contract.py` holds the `/v1/chat/completions` protocol: header names, the `gardevoir`
+extension object, the blocked-response bodies, and the wire `Action`. **Keep it minimal — §7
+treats the protocol as the part that is hard to change and configuration as the part that is
+easy.** Adding a field here can break deployed applications; adding a guardrail check cannot.
+(`gateway/contract.py` keeps only `API_PREFIX`: §7.2 makes the URL prefix the contract version.)
+
+**Two verdict vocabularies, and they do not match. That is deliberate.**
+
+```
+VerdictAction   block · mask · allow                  domain — what a node declares (§5)
+Action          allow · blocked · approval_required   wire  — what the caller sees (§7.3)
+```
+
+`mask` has no wire counterpart: a masked response is, to the caller, an allowed response, and
+the fact that something was masked is carried separately in the extension object.
+`approval_required` has no domain counterpart yet (Phase 6).
+
+**`proxy/contract.to_wire_action` is the only translation point.** Everything upstream of it —
+`Inspection`, the compiler, the executor — speaks `VerdictAction`. This direction matters: the
+core domain must not import the wire contract, or a protocol change shakes the domain. It was
+the other way around for a while (`Inspection.action: Action` with `contract.py` at the root,
+so the inversion was invisible), which is why `Inspection` needed both `action` and a separate
+`masked` flag to say one thing.
+
+`Mode` is domain vocabulary too (`guardrail/domain/mode.py`) — dry-run is *how the inspector
+behaves*, and the header is only how the caller asks for it. The router parses it; identity
+does not know about it.
 
 - `finish_reason` takes **standard values only**: `stop` / `length` / `tool_calls` /
   `content_filter` / `function_call`. A custom value fails the OpenAI SDK's `Literal`

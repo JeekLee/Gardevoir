@@ -6,8 +6,8 @@ v38 로 검사하면 판정이 앞뒤가 안 맞고 나중에 재현이 불가�
 
 import logging
 
-from gateway.contract import Action, Mode
 from gateway.guardrail.domain.guardrail import VerdictAction
+from gateway.guardrail.domain.mode import Mode
 from gateway.guardrail.inspection.application.outcome import (
     MASK_PLACEHOLDER,
     NOT_INSPECTED,
@@ -101,7 +101,7 @@ class Inspector:
 
         calls = extract_tool_calls(body)
         if not calls:
-            return Inspection(action=Action.ALLOW, tier=TIER_RULES)
+            return Inspection(action=VerdictAction.ALLOW, tier=TIER_RULES)
 
         # 출처 검사를 쓰는 프로그램일 때만 텍스트를 모은다 — 안 쓰면 비용이 0 이다.
         thresholds = [i.min_length for i in program.instructions if isinstance(i, Provenance)]
@@ -139,15 +139,15 @@ class Inspector:
 
         if blocked and mode is Mode.DRY_RUN:
             return Inspection(
-                action=Action.ALLOW,
+                action=VerdictAction.ALLOW,
                 tier=TIER_RULES,
                 checks_fired=tuple(checks),
                 pending_model=tuple(pending),
-                would_have=Action.BLOCKED,
+                would_have=VerdictAction.BLOCK,
                 evidence=tuple(evidence),
             )
         return Inspection(
-            action=Action.BLOCKED if blocked else Action.ALLOW,
+            action=VerdictAction.BLOCK if blocked else VerdictAction.ALLOW,
             tier=TIER_RULES,
             checks_fired=tuple(checks),
             pending_model=tuple(pending),
@@ -164,7 +164,7 @@ class Inspector:
 
         texts = extract_output_texts(body)
         if not texts:
-            return Inspection(action=Action.ALLOW, tier=TIER_RULES)
+            return Inspection(action=VerdictAction.ALLOW, tier=TIER_RULES)
 
         checks: list[str] = []
         pending: list[str] = []
@@ -187,17 +187,17 @@ class Inspector:
                 if self._mask_choice(program, body, position, result.checks_fired):
                     masked = True
 
-        would_have = Action.BLOCKED if blocked else None
+        would_have = VerdictAction.BLOCK if blocked else None
         if blocked and mode is Mode.DRY_RUN:
             return Inspection(
-                action=Action.ALLOW,
+                action=VerdictAction.ALLOW,
                 tier=TIER_RULES,
                 checks_fired=tuple(checks),
                 pending_model=tuple(pending),
                 would_have=would_have,
             )
         return Inspection(
-            action=Action.BLOCKED if blocked else Action.ALLOW,
+            action=VerdictAction.BLOCK if blocked else VerdictAction.ALLOW,
             tier=TIER_RULES,
             checks_fired=tuple(checks),
             pending_model=tuple(pending),
@@ -212,14 +212,14 @@ class Inspector:
 
         if blocked and mode is Mode.DRY_RUN:
             return Inspection(
-                action=Action.ALLOW,
+                action=VerdictAction.ALLOW,
                 tier=TIER_RULES,
                 checks_fired=result.checks_fired,
                 pending_model=result.pending_model,
-                would_have=Action.BLOCKED,
+                would_have=VerdictAction.BLOCK,
             )
         return Inspection(
-            action=Action.BLOCKED if blocked else Action.ALLOW,
+            action=VerdictAction.BLOCK if blocked else VerdictAction.ALLOW,
             tier=TIER_RULES,
             checks_fired=result.checks_fired,
             pending_model=result.pending_model,
@@ -327,17 +327,17 @@ class Inspector:
         if blocked and mode is Mode.DRY_RUN:
             return (
                 Inspection(
-                    action=Action.ALLOW,
+                    action=VerdictAction.ALLOW,
                     tier=TIER_RULES,
                     checks_fired=result.checks_fired,
                     pending_model=result.pending_model,
-                    would_have=Action.BLOCKED,
+                    would_have=VerdictAction.BLOCK,
                 ),
                 [],
             )
         return (
             Inspection(
-                action=Action.BLOCKED if blocked else Action.ALLOW,
+                action=VerdictAction.BLOCK if blocked else VerdictAction.ALLOW,
                 tier=TIER_RULES,
                 checks_fired=result.checks_fired,
                 pending_model=result.pending_model,
