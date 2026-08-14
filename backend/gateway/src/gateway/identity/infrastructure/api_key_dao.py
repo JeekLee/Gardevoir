@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gateway.identity.application.api_key_result import ApiKeySummary
-from gateway.identity.domain.api_key import Scope
+from gateway.identity.domain.models.api_key import Scope
 from gateway.identity.infrastructure.api_key_model import ApiKeyModel
 
 

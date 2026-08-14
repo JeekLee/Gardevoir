@@ -6,8 +6,8 @@ v38 로 검사하면 판정이 앞뒤가 안 맞고 나중에 재현이 불가�
 
 import logging
 
-from gateway.guardrail.domain.guardrail import VerdictAction
-from gateway.guardrail.domain.mode import Mode
+from gateway.guardrail.domain.models.guardrail import VerdictAction
+from gateway.guardrail.domain.models.mode import Mode
 from gateway.guardrail.inspection.application.outcome import (
     MASK_PLACEHOLDER,
     NOT_INSPECTED,
@@ -27,8 +27,8 @@ from gateway.guardrail.inspection.application.text import (
     is_tainted,
 )
 from gateway.guardrail.plan.application.registry import PlanRegistry
-from gateway.guardrail.plan.domain.execution_plan import ExecutionPlan, Program, Provenance
 from gateway.guardrail.plan.domain.executor import Subject, execute
+from gateway.guardrail.plan.domain.models.execution_plan import ExecutionPlan, Program, Provenance
 
 logger = logging.getLogger(__name__)
 

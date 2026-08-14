@@ -10,7 +10,7 @@ Phase 1c 의 ``SessionScopedApiKeyRepository`` 와 같은 패턴이다.
 
 from typing import Protocol
 
-from gateway.guardrail.domain.guardrail import Guardrail
+from gateway.guardrail.domain.models.guardrail import Guardrail
 
 
 class GuardrailSource(Protocol):

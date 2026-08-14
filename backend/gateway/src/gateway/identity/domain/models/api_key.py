@@ -13,7 +13,7 @@ import secrets
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from gateway.identity.domain.api_key_error import ApiKeyError
+from gateway.identity.domain.exceptions.api_key_error import ApiKeyError
 
 KEY_PREFIX = "gdv_live_"
 

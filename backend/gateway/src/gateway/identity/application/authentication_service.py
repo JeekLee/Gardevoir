@@ -11,8 +11,8 @@
 from dataclasses import dataclass
 
 from gateway.identity.application.api_key_repository import ApiKeyRepository
-from gateway.identity.domain.api_key import ApiKey, Scope, hash_key, parse_bearer
-from gateway.identity.domain.api_key_error import ApiKeyError
+from gateway.identity.domain.exceptions.api_key_error import ApiKeyError
+from gateway.identity.domain.models.api_key import ApiKey, Scope, hash_key, parse_bearer
 
 
 @dataclass(frozen=True, slots=True)

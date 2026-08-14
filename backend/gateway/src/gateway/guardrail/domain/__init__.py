@@ -1,4 +1,5 @@
-from gateway.guardrail.domain.guardrail import (
+from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
+from gateway.guardrail.domain.models.guardrail import (
     DRAFT_VERSION,
     Decision,
     Edge,
@@ -7,8 +8,7 @@ from gateway.guardrail.domain.guardrail import (
     NodeType,
     VerdictAction,
 )
-from gateway.guardrail.domain.guardrail_error import GuardrailError
-from gateway.guardrail.domain.mode import Mode
+from gateway.guardrail.domain.models.mode import Mode
 
 __all__ = [
     "DRAFT_VERSION",

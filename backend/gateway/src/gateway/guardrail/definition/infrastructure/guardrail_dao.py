@@ -14,7 +14,7 @@ from gateway.guardrail.definition.application.guardrail_result import (
     GuardrailSummary,
 )
 from gateway.guardrail.definition.infrastructure.guardrail_model import GuardrailModel
-from gateway.guardrail.domain.guardrail import DRAFT_VERSION
+from gateway.guardrail.domain.models.guardrail import DRAFT_VERSION
 
 
 class SqlAlchemyGuardrailDao:

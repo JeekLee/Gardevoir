@@ -3,7 +3,7 @@
 from sqlalchemy import exists, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gateway.identity.domain.api_key import ApiKey
+from gateway.identity.domain.models.api_key import ApiKey
 from gateway.identity.infrastructure.api_key_mapper import to_domain, to_model
 from gateway.identity.infrastructure.api_key_model import ApiKeyModel
 

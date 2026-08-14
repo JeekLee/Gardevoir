@@ -12,7 +12,8 @@ from collections import defaultdict, deque
 
 import re2
 
-from gateway.guardrail.domain.guardrail import (
+from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
+from gateway.guardrail.domain.models.guardrail import (
     DEFAULT_PROVENANCE_MIN_LENGTH,
     Decision,
     Guardrail,
@@ -20,8 +21,7 @@ from gateway.guardrail.domain.guardrail import (
     NodeType,
     VerdictAction,
 )
-from gateway.guardrail.domain.guardrail_error import GuardrailError
-from gateway.guardrail.plan.domain.execution_plan import (
+from gateway.guardrail.plan.domain.models.execution_plan import (
     All,
     ExecutionPlan,
     Extract,
