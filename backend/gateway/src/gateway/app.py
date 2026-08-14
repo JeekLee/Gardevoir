@@ -13,7 +13,6 @@ import logging
 import pathlib
 from contextlib import asynccontextmanager
 
-import httpx
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import Response
@@ -141,8 +140,7 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
         )
         await app.state.audit_sink.start()
 
-        http_client = httpx.AsyncClient()
-        app.state.upstream = HttpxUpstream(http_client, timeout_s=settings.upstream_timeout_s)
+        app.state.upstream = HttpxUpstream(timeout_s=settings.upstream_timeout_s)
 
         # 발행된 가드레일을 프로세스 메모리로 컴파일한다 (§6). 요청 경로는 이
         # 레지스트리의 dict 조회로 끝난다.
@@ -160,7 +158,7 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
             # stop() 은 멱등이다 — 테스트가 명시적으로 부를 수 있다.
             await app.state.plans.stop()
             await app.state.audit_sink.stop()
-            await http_client.aclose()
+            await app.state.upstream.aclose()
             await dispose_engine()
             # clickhouse-connect 는 동기다. 닫지 않으면 HTTP 커넥션 풀이 남는다.
             dispose_clickhouse()

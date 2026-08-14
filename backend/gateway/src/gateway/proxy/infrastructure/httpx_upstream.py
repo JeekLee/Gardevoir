@@ -31,9 +31,25 @@ class HttpxUpstreamStream:
 
 
 class HttpxUpstream:
-    def __init__(self, client: httpx.AsyncClient, *, timeout_s: float) -> None:
-        self._client = client
+    """Owns its transport.
+
+    **프로세스에 클라이언트 하나다.** 요청마다 만들면 프로바이더로 가는 TCP + TLS
+    핸드셰이크를 매번 다시 하고, 원격 프로바이더의 핸드셰이크(보통 50~200 ms)가 게이트웨이
+    예산(§11.8 의 0.63 ms)을 통째로 삼킨다. 공유 클라이언트가 커넥션을 데워둔다.
+
+    클라이언트를 주입받지 않고 직접 만든다. 조립 루트가 드라이버를 알 이유가 없고,
+    어댑터가 자기 전송 계층을 소유하면 여는 곳과 닫는 곳이 한 파일에 있다. 접속 대상은
+    설정이 아니라 요청마다 온다(API 키 행의 base_url) — 그래서 클라이언트 자체에는
+    설정할 것이 없다.
+    """
+
+    def __init__(self, *, timeout_s: float, client: httpx.AsyncClient | None = None) -> None:
+        self._client = client or httpx.AsyncClient()
         self._timeout_s = timeout_s
+
+    async def aclose(self) -> None:
+        """Close the shared connection pool. 조립 루트의 lifespan 이 부른다."""
+        await self._client.aclose()
 
     @staticmethod
     def _url(base_url: str, path: str) -> str:
