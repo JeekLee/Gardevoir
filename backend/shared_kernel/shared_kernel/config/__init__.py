@@ -3,6 +3,13 @@ from shared_kernel.config.settings import (
     ClickHouseSettings,
     DatabaseSettings,
     LogSettings,
+    RedisSettings,
 )
 
-__all__ = ["BaseAppSettings", "ClickHouseSettings", "DatabaseSettings", "LogSettings"]
+__all__ = [
+    "BaseAppSettings",
+    "ClickHouseSettings",
+    "DatabaseSettings",
+    "LogSettings",
+    "RedisSettings",
+]
