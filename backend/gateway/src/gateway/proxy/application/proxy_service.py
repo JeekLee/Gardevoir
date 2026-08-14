@@ -29,16 +29,8 @@ import orjson
 
 from gateway.audit.application.audit_event import AuditEvent, Checkpoint, new_event_id
 from gateway.audit.application.audit_sink import AuditSink
-from gateway.contract import (
-    EXTENSION_KEY,
-    UNVERSIONED_GUARDRAIL,
-    Action,
-    Mode,
-    blocked_input_body,
-    blocked_output_body,
-    build_extension,
-    response_headers,
-)
+from gateway.guardrail.domain.guardrail import VerdictAction
+from gateway.guardrail.domain.mode import Mode
 from gateway.guardrail.inspection.application.inspector import (
     CHECKPOINT_INPUT,
     CHECKPOINT_OUTPUT,
@@ -51,6 +43,16 @@ from gateway.guardrail.plan.domain.execution_plan import ExecutionPlan
 from gateway.identity.application.authentication_service import AuthenticatedRequest
 from gateway.proxy.application.llm_upstream import LlmUpstream
 from gateway.proxy.application.streaming.relay import StreamRelay
+from gateway.proxy.contract import (
+    EXTENSION_KEY,
+    UNVERSIONED_GUARDRAIL,
+    Action,
+    blocked_input_body,
+    blocked_output_body,
+    build_extension,
+    response_headers,
+    to_wire_action,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,9 +103,18 @@ class ProxyStream:
 
 @dataclass(frozen=True, slots=True)
 class _Verdicts:
-    """요청 하나의 체크포인트 결과 모음."""
+    """요청 하나의 체크포인트 결과 모음.
+
+    ``mode`` 를 같이 든다. 헤더·확장 객체·감사가 전부 이것을 필요로 하고, 셋 다 이미
+    이 객체를 받고 있어서다.
+
+    ``mode`` 에 기본값을 두지 않는다. 한 번 빠뜨렸을 때 dry-run 요청이 감사와 응답에
+    ``enforce`` 로 기록됐고 — 검사는 제대로 dry-run 으로 돌았으므로 동작으로는 드러나지
+    않았다 — 실제 기동에서야 보였다. 기본값이 있으면 배선 누락이 조용한 오보가 된다.
+    """
 
     plan: ExecutionPlan | None
+    mode: Mode
     input: Inspection = NOT_INSPECTED
     tool_result: Inspection = NOT_INSPECTED
     output: Inspection = NOT_INSPECTED
@@ -146,18 +157,26 @@ class _Verdicts:
         )
 
     @property
-    def action(self) -> Action:
+    def verdict(self) -> VerdictAction:
+        """네 체크포인트를 합친 **도메인** 판정. 강한 것이 이긴다 (§4)."""
         if (
             self.input.blocked
             or self.tool_result.blocked
             or self.output.blocked
             or self.tool_call.blocked
         ):
-            return Action.BLOCKED
-        return Action.ALLOW
+            return VerdictAction.BLOCK
+        if self.output.masked:
+            return VerdictAction.MASK
+        return VerdictAction.ALLOW
 
     @property
-    def would_have(self) -> Action | None:
+    def action(self) -> Action:
+        """호출자가 보는 결과. 번역은 contract 가 한다 — 가린 응답도 통과한 응답이다."""
+        return to_wire_action(self.verdict)
+
+    @property
+    def would_have(self) -> VerdictAction | None:
         return (
             self.input.would_have
             or self.tool_result.would_have
@@ -227,14 +246,14 @@ class ProxyService:
         self._window_chars = window_chars
 
     async def complete(
-        self, *, auth: AuthenticatedRequest, payload: bytes, request_id: str
+        self, *, auth: AuthenticatedRequest, mode: Mode, payload: bytes, request_id: str
     ) -> ProxyResult:
         audit_id = new_event_id()
         started = time.perf_counter()
 
         plan = self._plan_for(auth)
         decoded = _decode(payload)
-        verdicts = self._inspect_before_upstream(plan, decoded, auth.mode)
+        verdicts = self._inspect_before_upstream(plan, decoded, mode)
 
         if verdicts.blocked_before_upstream:
             # 차단할 요청에 토큰을 쓸 이유가 없고, 오염된 데이터를 모델에 먹이지
@@ -258,9 +277,9 @@ class ProxyService:
         if isinstance(body, dict) and self._inspector is not None:
             verdicts = replace(
                 verdicts,
-                output=self._inspector.output(plan, body, mode=auth.mode, tainted=verdicts.tainted),
+                output=self._inspector.output(plan, body, mode=mode, tainted=verdicts.tainted),
                 tool_call=self._inspector.tool_call(
-                    plan, body, decoded, mode=auth.mode, tainted=verdicts.tainted
+                    plan, body, decoded, mode=mode, tainted=verdicts.tainted
                 ),
             )
 
@@ -317,7 +336,7 @@ class ProxyService:
 
     @asynccontextmanager
     async def stream(
-        self, *, auth: AuthenticatedRequest, payload: bytes, request_id: str
+        self, *, auth: AuthenticatedRequest, mode: Mode, payload: bytes, request_id: str
     ) -> AsyncIterator[ProxyStream]:
         """Relay SSE, inspecting ③④ on the way through (§9).
 
@@ -332,7 +351,7 @@ class ProxyService:
         started = time.perf_counter()
 
         plan = self._plan_for(auth)
-        verdicts = self._inspect_before_upstream(plan, _decode(payload), auth.mode)
+        verdicts = self._inspect_before_upstream(plan, _decode(payload), mode)
 
         if verdicts.blocked_before_upstream:
             yield await self._blocked_input_stream(
@@ -347,7 +366,7 @@ class ProxyService:
         relay = StreamRelay(
             inspector=self._inspector,
             plan=plan,
-            mode=auth.mode,
+            mode=mode,
             tainted=verdicts.tainted,
             payload=_decode(payload),
             holdback_chars=self._holdback_chars,
@@ -442,14 +461,15 @@ class ProxyService:
         하나로 답할 수 있어야 한다.
         """
         if self._inspector is None:
-            return _Verdicts(plan=plan)
+            return _Verdicts(plan=plan, mode=mode)
 
         tainted = self._inspector.tainted(decoded)
         first = self._inspector.input(plan, decoded, mode=mode, tainted=tainted)
         if first.blocked:
-            return _Verdicts(plan=plan, input=first, tainted=tainted)
+            return _Verdicts(plan=plan, mode=mode, input=first, tainted=tainted)
         return _Verdicts(
             plan=plan,
+            mode=mode,
             input=first,
             tool_result=self._inspector.tool_result(plan, decoded, mode=mode, tainted=tainted),
             tainted=tainted,
@@ -528,7 +548,7 @@ class ProxyService:
             guardrail=auth.guardrail,
             guardrail_version=verdicts.guardrail_version,
             audit_id=audit_id,
-            mode=auth.mode,
+            mode=verdicts.mode,
             inspected=verdicts.inspected,
             checks=verdicts.checks,
             dry_run_would_have=(
@@ -546,7 +566,7 @@ class ProxyService:
             action=verdicts.action,
             guardrail=auth.guardrail,
             guardrail_version=verdicts.guardrail_version,
-            mode=auth.mode,
+            mode=verdicts.mode,
             audit_id=audit_id,
             latency_ms=latency_ms,
         )
@@ -585,7 +605,7 @@ class ProxyService:
                 app_name=auth.key.name,
                 guardrail=auth.guardrail,
                 guardrail_version=verdicts.guardrail_version,
-                mode=str(auth.mode),
+                mode=str(verdicts.mode),
                 action=str(verdicts.action),
                 checkpoint=verdicts.checkpoint,
                 checks_fired=verdicts.checks,
