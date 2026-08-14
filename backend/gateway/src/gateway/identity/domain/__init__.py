@@ -1,19 +1,5 @@
+from gateway.identity.domain.enums.scope import Scope
 from gateway.identity.domain.exceptions.api_key_error import ApiKeyError
-from gateway.identity.domain.models.api_key import (
-    KEY_PREFIX,
-    ApiKey,
-    Scope,
-    generate_key,
-    hash_key,
-    parse_bearer,
-)
+from gateway.identity.domain.models.api_key import ApiKey
 
-__all__ = [
-    "KEY_PREFIX",
-    "ApiKey",
-    "ApiKeyError",
-    "Scope",
-    "generate_key",
-    "hash_key",
-    "parse_bearer",
-]
+__all__ = ["ApiKey", "ApiKeyError", "Scope"]

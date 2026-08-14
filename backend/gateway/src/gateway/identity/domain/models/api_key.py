@@ -1,95 +1,71 @@
 """ApiKey aggregate.
 
+**프록시를 호출할 수 있는 크레덴셜, 그것뿐이다.** 어떤 가드레일을 쓸 수 있는지, admin
+표면에 접근할 수 있는지는 이 집합체의 관심사가 아니다 — 크레덴셜의 정체성이 아니라 그
+크레덴셜에 붙은 권한이고, 회원 설계에서 자리를 정한다 (§14).
+
 Persistence-ignorant: no SQLAlchemy, no FastAPI, no httpx.
 
-Guardrail resolution lives here because "a request can never escape the key's
-allowed set" is a business rule, independent of how the key is stored or how the
-request arrived (§5, §7.2). Putting it in a router or a repository would
-duplicate it.
+**원본 키를 그대로 저장한다.** 해시만 저장하면 DB 덤프가 유출돼도 인증에 쓸 수 없지만,
+자체 호스팅에서 DB 접근자가 곧 운영자라는 판단으로 원본 저장을 택했다. 대신 되돌리기가
+어렵다는 것을 알고 있어야 한다 — 해시로 바꾸는 순간 발급된 키가 전부 무효가 된다.
 """
 
-import hashlib
 import secrets
-from dataclasses import dataclass, field
-from enum import StrEnum
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
+from uuid import UUID
 
 from gateway.identity.domain.exceptions.api_key_error import ApiKeyError
+from shared_kernel.database import uuid7
 
-KEY_PREFIX = "gdv_live_"
-
+_KEY_PREFIX = "gdv_live_"
 _TOKEN_BYTES = 32
-
-
-class Scope(StrEnum):
-    """What a credential is allowed to reach.
-
-    인가는 토폴로지가 아니라 크레덴셜에서 온다 (§7.2, §12). Admin 표면을 별도
-    배포로 떼어 네트워크로 막는 대신 스코프로 막는다.
-    """
-
-    PROXY = "proxy"
-    ADMIN = "admin"
-
-
-def generate_key() -> str:
-    return KEY_PREFIX + secrets.token_urlsafe(_TOKEN_BYTES)
-
-
-def hash_key(raw: str) -> str:
-    """Hash a key for storage and cache lookup.
-
-    An API key is high-entropy random, so a fast hash is the right choice.
-    bcrypt/argon2 exist for low-entropy human passwords and would be far too
-    slow on a path that runs for every request.
-    """
-    return hashlib.sha256(raw.encode()).hexdigest()
-
-
-def parse_bearer(header: str | None) -> str | None:
-    if not header:
-        return None
-    parts = header.split(None, 1)
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        return None
-    return parts[1].strip() or None
 
 
 @dataclass(frozen=True, slots=True)
 class ApiKey:
-    id: str
+    id: UUID
     name: str
-    key_hash: str
-    upstream_base_url: str
-    upstream_api_key: str
-    allowed_guardrails: tuple[str, ...]
-    default_guardrail: str | None
-    disabled: bool = False
-    #: 기본값을 안전한 쪽으로 둔다 — 스코프가 명시되지 않은 키는 admin 에
-    #: 접근할 수 없다.
-    scopes: tuple[Scope, ...] = field(default=(Scope.PROXY,))
+    #: 원본 키. ``repr`` 에서 빼는 것은 집합체를 로그에 찍는 실수 하나로 크레덴셜이
+    #: 새는 것을 막기 위한 것뿐이다.
+    key: str = field(repr=False)
+    #: 발급한 사람. 회원 설계 후 FK 로 승격한다.
+    user_id: UUID
+    expires_at: datetime | None = None
+    revoked_at: datetime | None = None
 
-    def has_scope(self, scope: Scope) -> bool:
-        return scope in self.scopes
+    @classmethod
+    def issue(cls, *, name: str, user_id: UUID, expires_at: datetime | None = None) -> "ApiKey":
+        """Mint a new credential."""
+        return cls(
+            id=uuid7(),
+            name=name,
+            key=_KEY_PREFIX + secrets.token_urlsafe(_TOKEN_BYTES),
+            user_id=user_id,
+            expires_at=expires_at,
+        )
 
-    def require_scope(self, scope: Scope) -> None:
-        if not self.has_scope(scope):
-            ApiKeyError.SCOPE_NOT_GRANTED.raise_(
-                details={"required": str(scope), "granted": [str(s) for s in self.scopes]}
-            )
+    def require_usable(self) -> None:
+        """회수·만료 판정.
 
-    def resolve_guardrail(self, requested: str | None) -> str:
-        """Resolve the effective guardrail, never escaping the allowed set."""
-        if requested:
-            if requested not in self.allowed_guardrails:
-                ApiKeyError.GUARDRAIL_NOT_ALLOWED.raise_(
-                    details={
-                        "requested": requested,
-                        "allowed": list(self.allowed_guardrails),
-                    }
-                )
-            return requested
-        if self.default_guardrail:
-            return self.default_guardrail
-        if self.allowed_guardrails:
-            return self.allowed_guardrails[0]
-        ApiKeyError.NO_GUARDRAIL_CONFIGURED.raise_(details={"key_id": self.id})
+        현재 시각을 인자로 받지 않는다. 만료 검사에 시각을 넘겨받으면 그것이 우회
+        경로가 된다 — 잘못된 값을 넘기면 만료된 키가 통과한다.
+        """
+        if self.revoked_at is not None:
+            ApiKeyError.REVOKED.raise_(details={"id": str(self.id)})
+        if self.expires_at is not None and self.expires_at <= datetime.now(UTC):
+            ApiKeyError.EXPIRED.raise_(details={"id": str(self.id)})
+
+    def revoke(self) -> "ApiKey":
+        """회수된 사본. 이미 회수됐으면 그대로 돌려준다 — 회수는 멱등이다.
+
+        행을 지우지 않는 이유: 감사 로그가 ``api_key_id`` 를 참조하므로, 지우면 과거
+        기록이 어느 키의 것인지 알 수 없어진다 (§10).
+        """
+        if self.revoked_at is not None:
+            return self
+        return replace(self, revoked_at=datetime.now(UTC))
+
+
+__all__ = ["ApiKey"]
