@@ -104,11 +104,11 @@ curl -H "$A" -X POST localhost:21000/v1/admin/api-keys -H 'content-type: applica
   -d '{"name":"ops-console","scopes":["admin"]}'
 
 # 회수 (행은 지우지 않는다 — 감사 로그가 api_key_id 를 참조한다)
-curl -H "$A" -X POST localhost:21000/v1/admin/api-keys/<id>/disable
+curl -H "$A" -X POST localhost:21000/v1/admin/api-keys/<id>/revoke
 ```
 
-**회수는 키 캐시 TTL(`GARDEVOIR_KEY_CACHE_TTL_S`, 기본 30초)만큼 늦게 반영된다.**
-요청 경로에서 DB 를 없애려고 받아들인 값이다 (§6). 즉시여야 하면 이 값을 줄인다.
+**회수는 즉시 반영된다.** 키 조회에 캐시가 없다 — 요청마다 Postgres 를 읽는다(1.2 ms,
+업스트림 300~2000 ms 의 0.4%). 대가로 **Postgres 가 죽으면 프록시가 서지 못한다.**
 
 ClickHouse 감사 스키마는 기동 시 자동 적용된다 (`CREATE TABLE IF NOT EXISTS` 라 멱등).
 

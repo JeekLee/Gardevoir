@@ -84,10 +84,53 @@ lifecycle differs.** "These files are related" is a package, not a context. `gua
 core domain and is roughly half the code; a core domain smaller than its supporting contexts
 would be the thing to worry about.
 
-**9. Verify by starting the server.** Not a stopgap for having no tests — three defects this
-session were invisible to anything short of a real process: publish taking effect one request
-late, streaming latency counting upstream generation as ours, and the dry-run mode misreport
-above.
+**9. Verify by starting the server, and measure before accepting a premise.** Three defects
+were invisible to anything short of a real process: publish taking effect one request late,
+streaming latency counting upstream generation as ours, and a dry-run request recording itself
+as `enforce`. Measurement has also reversed the *direction* of a decision more than once —
+"a per-request DB read is too expensive" turned out to be false (the cache's misses were already
+reading the DB inside a request), and the alternatives were worse (Redis 318×, JWT 11×). State
+the number before choosing the shape.
+
+## Domain modelling principles
+
+These came out of reshaping the `ApiKey` aggregate (#20, #22). Same spirit as above: most were
+one mistake wearing different clothes.
+
+**1. An aggregate holds what the thing *is*, not what it is *allowed to do*.** `ApiKey` carried
+provider secrets, a guardrail allowlist, and scopes. §7.2 says "authorisation comes from the
+credential" — that means authorisation *derives from* the credential, **not** that it has to be
+*fields on the aggregate*. Misreading that put the fields back once after they had been removed;
+a row keyed by `api_key_id` satisfies §7.2 just as well.
+
+**2. Methods follow fields.** All three original methods (`has_scope`, `require_scope`,
+`resolve_guardrail`) hung off the fields that did not belong, and left with them. It works in
+reverse too: if an aggregate has behaviour you cannot derive from what it *is*, suspect the
+fields before the behaviour.
+
+**3. A factory returns its own type.** `issue()` needing to return `(ApiKey, str)` was a symptom
+— the secret had to escape because only its hash was stored. When plaintext storage removed the
+hashing, the awkwardness vanished on its own. If a factory cannot cleanly return its own type,
+something else in the model is wrong; do not paper over it with a tuple or a nullable transient
+field.
+
+**4. Never inject the clock into a security decision.** `require_usable(now)` makes `now` the
+bypass — a caller passing the wrong value lets an expired credential through. Calling
+`datetime.now(UTC)` inside means it cannot be got wrong. The cost is that time cannot be frozen
+in a test; that is the cheaper side.
+
+**5. One outcome, one path.** Allowing `expires_at` in the past would create a second way to
+kill a key that does not record `revoked_at`, so "why is this dead" gets two answers. Related:
+an optional parameter that must mean both "leave unchanged" and "clear" is a missing sentinel —
+require both fields (PUT) and let the service fill the rest from the aggregate it already loaded.
+
+**6. Format is the transport's job; rules are the domain's.** A naive `datetime` compared against
+an aware one is a `TypeError`, i.e. a 500. `AwareDatetime` in the command DTO turns that into a
+422 with a field error, and the domain only asks "is it in the future". Do **not** coerce naive
+to UTC — a caller who meant KST and omitted the offset would silently store a 9-hour error.
+
+**7. Do not name a one-liner.** The *reason* for a rule belongs in one docstring; a two-line
+condition can sit in the two places that need it. Extracting it buys a name and costs a jump.
 
 ## Read the design document first
 
