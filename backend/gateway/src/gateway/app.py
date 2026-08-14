@@ -19,10 +19,10 @@ from gateway.identity.infrastructure import (
     CachedApiKeyRepository,
     SessionScopedApiKeyRepository,
 )
-from gateway.infrastructure.engine import dispose_engine, get_session_factory
 from gateway.proxy.infrastructure import HttpxUpstream
 from gateway.proxy.presentation import chat_router
 from gateway.settings import GatewaySettings, get_settings
+from shared_kernel.database import dispose_engine, get_session_factory
 from shared_kernel.exception import ErrorCode, error_response, register_exception_handlers
 from shared_kernel.log import RequestContextMiddleware, configure_logging
 

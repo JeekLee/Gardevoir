@@ -67,9 +67,7 @@ backend/gateway/src/gateway/
 ├── composition.py      COMPOSITION ROOT — the ONLY place importing infra concretes + Depends
 ├── contract.py         wire contract (§7): headers, Action/Mode, gardevoir extension
 ├── settings.py  cli.py  health.py
-├── infrastructure/     shared by contexts only
-│   ├── engine.py       lazy get_session_factory + dispose_engine
-│   └── orm.py          ORM registration point — imports every model for Base.metadata
+├── orm.py              ORM registration point — imports every model for Base.metadata
 │
 ├── identity/           ApiKey — 크레덴셜과 스코프 (§7.2). 두 플레인의 상류
 │   ├── domain/         api_key.py  api_key_error.py
@@ -98,6 +96,12 @@ backend/gateway/src/gateway/
     ├── application/    audit_event.py · audit_sink.py (port)
     └── infrastructure/ clickhouse_sink.py · schema.py
 ```
+
+There is **no `infrastructure/` at the gateway root.** `infrastructure` means one thing —
+adapters implementing a context's ports — and a root directory of the same name holding
+process resources made the word ambiguous. The engine went to `shared_kernel.database` (it
+has no gateway knowledge); `orm.py` is a registration manifest, so it sits with the other
+process-level wiring at the root.
 
 **Each context has only the layers it needs.** `inspection` is pure logic, so it has no
 infrastructure; `audit` has no domain aggregate beyond its event. Do not create empty
@@ -167,8 +171,10 @@ rather than external.
 ## Reuse shared_kernel (don't reinvent)
 
 - `config`: `BaseAppSettings` + nested `DatabaseSettings`, `ClickHouseSettings`, `LogSettings`.
-- `database`: `Base` (DeclarativeBase + naming_convention), `UUIDPrimaryKeyMixin`,
-  `TimestampMixin`, `create_engine` / `create_session_factory` / `build_session_dependency`.
+- `database`: `Base` (DeclarativeBase + `NAMING_CONVENTION`), `TimestampMixin`, and the
+  engine lifecycle — `get_engine` / `get_session_factory` (both `lru_cache`d) / `dispose_engine`.
+  **The engine lives here, not in gateway.** `DatabaseSettings` and `Base` are already
+  shared_kernel's; splitting off the thing that opens the connection made no sense.
 - `exception`: `AppError` + category subclasses
   `ValidationError(422)/NotFoundError(404)/UnauthorizedError(401)/ForbiddenError(403)/ConflictError(409)`,
   `ErrorCatalog` base enum, `ErrorResponse`, `register_exception_handlers(app)`.
@@ -366,9 +372,9 @@ uv run alembic revision --autogenerate -m "..."
 Then verify the generated file is not `pass`, apply it, and check the upgrade/downgrade
 round trip.
 
-**A new ORM model must also be imported from `infrastructure/orm.py`** — `alembic/env.py`
-imports only that module, so a model missing from it is absent from `Base.metadata` and
-silently absent from the migration. The model itself belongs to its context
+**A new ORM model must also be imported from `gateway/orm.py`** — `alembic/env.py` imports
+only that module, so a model missing from it is absent from `Base.metadata` and silently
+absent from the migration. The model itself belongs to its context
 (`identity/infrastructure/api_key_model.py`,
 `guardrail/definition/infrastructure/guardrail_model.py`); `orm.py` only guarantees they are
 all imported.
@@ -425,7 +431,7 @@ tool_call blocked  HTTP 200 + finish_reason = "content_filter"
 - String-backed `StrEnum` columns.
 - tz-aware UTC. **ClickHouse `DateTime64(3)` takes `datetime` objects only** — passing unix
   seconds as an int is read as milliseconds and silently stores 1970 dates with no error (§11.10).
-- Engine lazy, disposed in lifespan.
+- Engine lazy (`shared_kernel.database`), disposed in the app lifespan.
 - Postgres migrations via Alembic; the ClickHouse audit schema via numbered `.sql` files
   (one append-only table needs no migration tool).
 
@@ -447,8 +453,7 @@ Contexts are packages inside `gateway`, not workspace members — they share the
 1. `src/gateway/<bc>/` with **only the layers it needs**. Do not scaffold empty ones.
 2. `domain/` aggregate + `<aggregate>_error.py` catalog, if the context owns an aggregate.
 3. `application/`: service, write repository + read dao Protocols, ports, command/result DTOs.
-4. `infrastructure/`: ORM model, mapper, adapters. Import any new model from
-   `infrastructure/orm.py`.
+4. `infrastructure/`: ORM model, mapper, adapters. Import any new model from `gateway/orm.py`.
 5. `presentation/<name>_router.py`; wire in `composition.py`, mount in `app.py`.
 6. Verify by importing every module, `ruff`, and a real uvicorn run (see the top of this file).
 
@@ -464,7 +469,7 @@ files are related" is not one — that is a package.
 | DAO returns domain entities | DAO returns application **result DTOs** |
 | three DTO tiers | **single** application-owned `CamelModel` at the boundary |
 | use cases as loose functions; a class per error | **service classes**; one `ErrorCatalog` enum per aggregate |
-| one `models.py` / one `mappers.py` | per-model file in the owning context's `infrastructure/`, all imported from `infrastructure/orm.py` |
+| one `models.py` / one `mappers.py` | per-model file in the owning context's `infrastructure/`, all imported from `gateway/orm.py` |
 | DI in presentation | DI in `composition.py`; presentation never imports infrastructure |
 | per-BC exception handler | reuse `shared_kernel.register_exception_handlers` |
 | `Program` as a `CamelModel` | slotted dataclass — Pydantic must not run on the request path |
