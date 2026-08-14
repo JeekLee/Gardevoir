@@ -1,6 +1,8 @@
 """FastAPI application factory."""
 
+import asyncio
 import logging
+import pathlib
 from contextlib import asynccontextmanager
 
 import clickhouse_connect
@@ -12,13 +14,18 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from gateway import health
 from gateway.audit.infrastructure import ClickHouseAuditSink
+from gateway.audit.infrastructure.schema import apply_clickhouse_schema
 from gateway.guardrail.definition.presentation import admin_router
 from gateway.guardrail.plan.application.registry import PlanRegistry
 from gateway.guardrail.plan.infrastructure import SessionScopedGuardrailSource
+from gateway.identity.application.api_key_service import ApiKeyService
 from gateway.identity.infrastructure import (
     CachedApiKeyRepository,
     SessionScopedApiKeyRepository,
+    SqlAlchemyApiKeyDao,
+    SqlAlchemyApiKeyRepository,
 )
+from gateway.identity.presentation import admin_router as api_key_router
 from gateway.proxy.infrastructure import HttpxUpstream
 from gateway.proxy.presentation import chat_router
 from gateway.settings import GatewaySettings, get_settings
@@ -27,6 +34,9 @@ from shared_kernel.exception import ErrorCode, error_response, register_exceptio
 from shared_kernel.log import RequestContextMiddleware, configure_logging
 
 logger = logging.getLogger(__name__)
+
+#: 감사 스키마 .sql 디렉터리. src/gateway/app.py -> backend/gateway/clickhouse
+_CLICKHOUSE_SQL_DIR = pathlib.Path(__file__).resolve().parents[2] / "clickhouse"
 
 
 def _register_framework_exception_handlers(app: FastAPI) -> None:
@@ -65,6 +75,23 @@ def _register_framework_exception_handlers(app: FastAPI) -> None:
         )
 
 
+async def _bootstrap_admin_key(settings: GatewaySettings, session_factory) -> None:
+    """설정에 부트스트랩 키가 있고 활성 admin 키가 없으면 하나 심는다.
+
+    없으면 아무도 관리 API 를 부를 수 없고, 키를 만드는 것이 그 관리 API 이므로 새
+    배포가 아무것도 못 하는 상태로 뜬다.
+    """
+    if not settings.bootstrap_admin_key:
+        return
+    async with session_factory() as session:
+        service = ApiKeyService(
+            keys=SqlAlchemyApiKeyRepository(session),
+            dao=SqlAlchemyApiKeyDao(session),
+            transaction=session,
+        )
+        await service.ensure_bootstrap_admin(settings.bootstrap_admin_key)
+
+
 def create_app(settings: GatewaySettings | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log)
@@ -80,6 +107,8 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
             SessionScopedApiKeyRepository(factory), ttl_s=settings.key_cache_ttl_s
         )
 
+        await _bootstrap_admin_key(settings, factory)
+
         ch = settings.clickhouse
         clickhouse = clickhouse_connect.get_client(
             host=ch.host,
@@ -89,6 +118,13 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
             database=ch.database,
         )
         app.state.clickhouse = clickhouse
+        # 감사 스키마를 여기서 적용한다. CREATE TABLE IF NOT EXISTS 라 멱등이고,
+        # 별도 명령으로 두면 배포 절차가 하나 늘고 빠뜨리면 첫 요청에서 터진다.
+        # clickhouse-connect 는 동기라 이벤트 루프를 막지 않게 스레드로 뺀다.
+        applied = await asyncio.to_thread(apply_clickhouse_schema, clickhouse, _CLICKHOUSE_SQL_DIR)
+        if applied:
+            logger.info("clickhouse schema applied: %s", ", ".join(applied))
+
         app.state.audit_sink = ClickHouseAuditSink(
             clickhouse,
             batch_size=settings.audit_batch_size,
@@ -146,4 +182,6 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
     # ⚠️ 사람 인증이 아직 없다 — admin 스코프 키만 요구한다. 외부에 노출하지 말 것.
     # admin_router 의 모듈 독스트링과 infra/README.md 참조.
     app.include_router(admin_router.router)
+    # ⚠️ 키 발급·회수. admin 키가 새면 다른 키를 전부 만들 수 있어 더 위험하다.
+    app.include_router(api_key_router.router)
     return app

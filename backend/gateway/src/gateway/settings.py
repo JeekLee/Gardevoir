@@ -17,6 +17,16 @@ class GatewaySettings(BaseAppSettings):
     #: 요청 경로에 DB 접근이 없어야 하므로 키 조회를 인메모리로 덮는다 (§6).
     key_cache_ttl_s: float = Field(default=30.0, gt=0)
 
+    #: 기동 시 admin 키가 하나도 없으면 이 값으로 하나 만든다. 비워두면 아무것도 안 한다.
+    #:
+    #: 순환을 끊는 유일한 장치다 — 관리 API 를 부르려면 admin 키가 필요한데, 키를
+    #: 만드는 것이 그 관리 API 다. 운영자가 이미 아는 값을 심으므로 "원본이 한 번만
+    #: 보인다"는 문제도 없다.
+    #:
+    #: **활성 admin 키가 이미 있으면 무시된다.** 환경변수가 남아 있다는 이유로 키가
+    #: 되살아나면 회수가 성립하지 않는다.
+    bootstrap_admin_key: str = ""
+
     audit_batch_size: int = Field(default=100, gt=0)
     audit_flush_interval_s: float = Field(default=1.0, gt=0)
     audit_queue_maxsize: int = Field(default=10_000, gt=0)

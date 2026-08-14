@@ -7,7 +7,9 @@ from shared_kernel.exception import (
     ConflictError,
     ErrorCatalog,
     ForbiddenError,
+    NotFoundError,
     UnauthorizedError,
+    ValidationError,
 )
 
 
@@ -32,4 +34,10 @@ class ApiKeyError(ErrorCatalog):
         "APIKEY-005",
         "this key does not have the required scope",
         ForbiddenError,
+    )
+    NOT_FOUND = ("APIKEY-006", "no such API key", NotFoundError)
+    UPSTREAM_KEY_REQUIRED = (
+        "APIKEY-007",
+        "a proxy-scoped key needs an upstream API key",
+        ValidationError,
     )
