@@ -5,7 +5,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-import gateway.infrastructure.orm  # noqa: F401  Base.metadata 에 모델을 등록한다
+import gateway.orm  # noqa: F401  Base.metadata 에 모델을 등록한다
 from alembic import context
 from gateway.settings import get_settings
 from shared_kernel.database import Base
