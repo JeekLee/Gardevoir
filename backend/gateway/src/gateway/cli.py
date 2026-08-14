@@ -48,7 +48,7 @@ def migrate() -> None:
 
     import clickhouse_connect
 
-    from gateway.infrastructure.audit.schema import apply_clickhouse_schema
+    from gateway.audit.infrastructure.schema import apply_clickhouse_schema
 
     ch = get_settings().clickhouse
     client = clickhouse_connect.get_client(

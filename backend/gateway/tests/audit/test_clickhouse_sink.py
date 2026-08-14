@@ -2,8 +2,8 @@ import asyncio
 import datetime as dt
 import time
 
-from gateway.application.audit.audit_event import AuditEvent, Checkpoint, new_event_id
-from gateway.infrastructure.audit.clickhouse_sink import (
+from gateway.audit.application.audit_event import AuditEvent, Checkpoint, new_event_id
+from gateway.audit.infrastructure.clickhouse_sink import (
     AUDIT_COLUMNS,
     ClickHouseAuditSink,
 )

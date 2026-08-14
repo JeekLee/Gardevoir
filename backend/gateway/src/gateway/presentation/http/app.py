@@ -11,8 +11,8 @@ from fastapi.responses import Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from gateway.application.plan.registry import PlanRegistry
+from gateway.audit.infrastructure import ClickHouseAuditSink
 from gateway.domain.models.api_key import ApiKey
-from gateway.infrastructure.audit import ClickHouseAuditSink
 from gateway.infrastructure.engine import dispose_engine, get_session_factory
 from gateway.infrastructure.plan import SessionScopedGuardrailSource
 from gateway.infrastructure.repository import (

@@ -5,10 +5,10 @@ from contextlib import asynccontextmanager
 import orjson
 import pytest
 
-from gateway.application.audit.audit_event import AuditEvent
 from gateway.application.port.llm_upstream import UpstreamResult
 from gateway.application.service.authentication_service import AuthenticatedRequest
 from gateway.application.service.proxy_service import ProxyService, wants_stream
+from gateway.audit.application.audit_event import AuditEvent
 from gateway.contract import (
     EXTENSION_KEY,
     HEADER_ACTION,

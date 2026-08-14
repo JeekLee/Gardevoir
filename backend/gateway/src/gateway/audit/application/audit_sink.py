@@ -5,7 +5,7 @@ Append-only. The adapter decides batching and storage (§10).
 
 from typing import Protocol
 
-from gateway.application.audit.audit_event import AuditEvent
+from gateway.audit.application.audit_event import AuditEvent
 
 
 class AuditSink(Protocol):

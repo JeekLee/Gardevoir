@@ -10,7 +10,7 @@ import asyncio
 import contextlib
 import logging
 
-from gateway.application.audit.audit_event import AuditEvent
+from gateway.audit.application.audit_event import AuditEvent
 
 logger = logging.getLogger(__name__)
 

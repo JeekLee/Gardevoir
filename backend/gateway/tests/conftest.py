@@ -7,7 +7,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import gateway.infrastructure.models  # noqa: F401  Base.metadata 에 모델을 등록한다
-from gateway.infrastructure.audit.schema import apply_clickhouse_schema
+from gateway.audit.infrastructure.schema import apply_clickhouse_schema
 from gateway.settings import get_settings
 from shared_kernel.database import Base
 

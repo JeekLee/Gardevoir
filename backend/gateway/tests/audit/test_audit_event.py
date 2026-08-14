@@ -3,7 +3,7 @@ import datetime as dt
 
 import pytest
 
-from gateway.application.audit.audit_event import AuditEvent, Checkpoint, new_event_id
+from gateway.audit.application.audit_event import AuditEvent, Checkpoint, new_event_id
 
 
 def _event(**kw) -> AuditEvent:

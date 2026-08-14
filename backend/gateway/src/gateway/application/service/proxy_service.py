@@ -27,7 +27,6 @@ from dataclasses import dataclass, field, replace
 
 import orjson
 
-from gateway.application.audit.audit_event import AuditEvent, Checkpoint, new_event_id
 from gateway.application.inspection.inspector import (
     CHECKPOINT_INPUT,
     CHECKPOINT_OUTPUT,
@@ -37,10 +36,11 @@ from gateway.application.inspection.inspector import (
 )
 from gateway.application.inspection.outcome import NOT_INSPECTED, TIER_NONE, Inspection
 from gateway.application.plan.execution_plan import ExecutionPlan
-from gateway.application.port.audit_sink import AuditSink
 from gateway.application.port.llm_upstream import LlmUpstream
 from gateway.application.service.authentication_service import AuthenticatedRequest
 from gateway.application.streaming.relay import StreamRelay
+from gateway.audit.application.audit_event import AuditEvent, Checkpoint, new_event_id
+from gateway.audit.application.audit_sink import AuditSink
 from gateway.contract import (
     EXTENSION_KEY,
     UNVERSIONED_GUARDRAIL,
