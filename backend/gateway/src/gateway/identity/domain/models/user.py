@@ -5,11 +5,13 @@
 
 Persistence-ignorant: no SQLAlchemy, no FastAPI, no httpx.
 
-**역할(role) 필드가 없다.** "이 사람이 admin API 를 부를 수 있나"의 현재 답은 "활성
-사용자면 운영자다" 이고, 그것은 ``require_active()`` 하나로 끝난다. 나중에 "감사만 읽는
-사람"이 필요해지면 그것은 사용자의 *정체성*이 아니라 사용자에게 붙은 *권한*이므로 별도
-연관으로 들어온다 (AGENTS.md 도메인 모델링 원칙 1) — 지금 role 필드를 두면 그때 그 필드가
-잘못된 자리에 남는다.
+**기준선은 "활성 사용자면 운영자다"** 이고 그것은 ``require_active()`` 가 답한다. 키 발급과
+가드레일 저작은 모든 활성 사용자가 한다.
+
+``role`` 은 그 위에 얹히는 관문 하나다 — 운영자 중에서도 사용자를 만들고 비활성화하고 역할을
+바꾸는 사람이 있어야 한다. 값이 둘이라 별도 연관이 아니라 필드로 두었다. **자원별 권한**
+("이 사람은 감사만 읽는다")은 사용자의 정체성이 아니므로 그때 별도 연관으로 들어온다 — 그
+경계를 지금 넘지 않는다 (AGENTS.md 도메인 모델링 원칙 1).
 
 **비밀번호는 해시한다 — ``ApiKey`` 와 반대다.** 그 차이가 중요하다:
 
@@ -30,6 +32,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid7
 
+from gateway.identity.domain.enums.role import Role
 from gateway.identity.domain.exceptions.user_error import UserError
 
 #: NIST SP 800-63B: 길이만 요구하고 구성 규칙(대문자·기호…)은 두지 않는다 — 구성 규칙은
@@ -79,10 +82,11 @@ class User:
     #: ``repr`` 에서 뺀다. 해시는 되돌릴 수 없으므로 ``ApiKey.key`` 처럼 즉시 쓸 수 있는
     #: 크레덴셜은 아니지만, 로그로 새면 오프라인 대입에 쓸 재료가 된다. 빼는 비용이 0 이다.
     password_hash: str = field(repr=False)
+    role: Role = Role.USER
     deactivated_at: datetime | None = None
 
     @classmethod
-    def register(cls, *, email: str, name: str, password: str) -> User:
+    def register(cls, *, email: str, name: str, password: str, role: Role = Role.USER) -> User:
         """가입. 평문 비밀번호가 이 메서드 밖으로 나가지 않는다.
 
         호출자가 해시를 만들 수 없으므로 "평문을 저장하지 않는다"를 틀릴 방법이 없다.
@@ -92,6 +96,7 @@ class User:
             email=normalise_email(email),
             name=name,
             password_hash=_hash_password(password),
+            role=role,
         )
 
     def update(self, *, email: str, name: str) -> User:
@@ -105,6 +110,31 @@ class User:
     def set_password(self, password: str) -> User:
         self.require_active()
         return replace(self, password_hash=_hash_password(password))
+
+    def change_role(self, role: Role) -> User:
+        """역할을 바꾼 사본. 같은 역할이면 그대로 돌려준다 — 멱등이다.
+
+        ``update()`` 에 넣지 않았다. 남의 역할을 바꾸는 것은 이름을 고치는 것과 다른 권한의
+        작업이다.
+
+        "마지막 ADMIN 을 강등할 수 없다" 는 여기서 못 본다 — 다른 ADMIN 이 몇 명인지 세야
+        하므로 서비스의 일이다.
+        """
+        self.require_active()
+        if self.role is role:
+            return self
+        return replace(self, role=role)
+
+    def require_admin(self) -> None:
+        """최고 관리자 관문.
+
+        ``require_role(role)`` 로 일반화하지 않았다. 값이 둘이고 ADMIN 이 USER 를 포함하므로
+        기준선(``require_active``)과 관문(이것) 둘로 끝난다. 세 번째 역할이 생기면 그때
+        순서를 도입한다.
+        """
+        self.require_active()
+        if self.role is not Role.ADMIN:
+            UserError.NOT_ADMIN.raise_(details={"id": str(self.id), "role": str(self.role)})
 
     def deactivate(self) -> User:
         """비활성화된 사본. 이미 비활성이면 그대로 돌려준다 — 멱등이다.
