@@ -12,14 +12,82 @@ code changes.
 
 - `backend/` — FastAPI **modular monolith** on a **uv workspace** (async SQLAlchemy 2.0 +
   PostgreSQL for state, ClickHouse for audit events, Pydantic v2). DDD + CQRS-lite.
-  `shared_kernel` is a library; **`gateway` is the only service.** Bounded contexts live
-  *inside* it as packages — `identity`, `guardrail` (core domain: `definition` · `plan` ·
-  `inspection`), `proxy`, `audit` — because they share one process (§12). See the
-  `gardevoir-be` skill for the layout and why the boundaries fall where they do.
+  `shared_kernel` is a library; **`gateway` is the only service.**
+
+  ```
+  gateway/
+    app.py            composition root — lifespan builds the process-lifetime graph,
+                      mounts routers, owns API_PREFIX ("/v1")
+    settings.py  health.py
+    identity/         ApiKey — credentials and scopes (§7.2)
+    guardrail/        CORE DOMAIN — domain/ shared by definition · plan · inspection
+    proxy/            LLM request/response, streaming, the §7 wire contract
+    audit/            AuditEvent — ClickHouse
+  ```
+
+  Contexts live *inside* `gateway` because they share one process (§12). Each has only the
+  layers it needs, plus its own `composition.py` for request-scoped wiring. See the
+  `gardevoir-be` skill for the full layout and why the boundaries fall where they do.
 - `frontend/` — pnpm workspace. `apps/console` (Next.js guardrail authoring console with a
   React Flow node editor).
 - `infra/` — docker-compose (Postgres, ClickHouse) · dockerfiles · per-environment envs.
 - `docs/superpowers/specs/` — design documents. `docs/superpowers/plans/` — implementation plans.
+
+## Structural principles
+
+These came out of carving the bounded contexts (#10–#18) and are worth stating because most
+of the problems found there were the *same* problem. Detail and the layout live in the
+`gardevoir-be` skill; this is the short form.
+
+**1. A name that does not match the thing hides violations from the rules that would catch
+them.** `composition.py` called itself the composition root while `app.py` was the one
+actually building the object graph, so the layering rule exempted both as "wiring roots" —
+and an infrastructure adapter sat inside `app.py` for months, invisible. A root
+`infrastructure/` meant "process resources" while `<bc>/infrastructure/` meant "adapters", so
+the word carried two meanings in one tree. When a rule needs an exception, check the name
+first: the exception is usually the rule pointing at a mislabelled thing.
+
+**2. Wiring is split by lifetime, and only the process-lifetime half is the composition
+root.** `app.py`'s lifespan builds what lives as long as the process and puts it on
+`app.state`; `<bc>/composition.py` assembles per-request services out of that. A composition
+root does not take an HTTP request — if a wiring function's signature starts with
+`request: Request`, it is framework glue.
+
+**3. A default on a wired dependency turns a missing wire into a silent wrong answer.**
+Twice: `plans=getattr(state, "plans", None)` made publish return 200 without recompiling, and
+`mode: Mode = Mode.ENFORCE` made dry-run requests record themselves as `enforce` while
+inspecting correctly — a lie that no behavioural check would catch. Let it fail instead.
+
+**4. A list that has to be remembered is a failure mode.** `orm.py` existed to import every
+ORM model, and its own docstring warned that a model missing from it would vanish from
+migrations. Alembic now walks the package. Prefer removing the way to forget over documenting
+the consequence of forgetting.
+
+**5. Dependencies point toward the core domain, and translation happens at the edge.**
+`Inspection` used to be typed with the wire `Action`, so the guardrail domain imported the
+HTTP contract. There are deliberately two verdict vocabularies — `VerdictAction`
+(block/mask/allow) is what a policy author declares, `Action` (allow/blocked/…) is what the
+caller sees — and `proxy/contract.to_wire_action` is the only place they meet.
+
+**6. Whatever describes a resource, the code that opens it belongs beside.** `DatabaseSettings`
+and `ClickHouseSettings` are shared_kernel's, so `get_session_factory` and
+`get_clickhouse_client` are too — and both are disposed in the same `finally`. Symmetry here
+is what makes a *real* asymmetry visible: Postgres migrates through Alembic, ClickHouse
+applies an idempotent schema in the lifespan, and that difference is intentional (§12).
+
+**7. An adapter owns its transport.** `HttpxUpstream` creates and closes its own
+`AsyncClient`. The composition root imports no driver at all now — no `httpx`, no
+`clickhouse_connect`, no `sqlalchemy`.
+
+**8. A bounded context earns its boundary when the model changes, the storage differs, or the
+lifecycle differs.** "These files are related" is a package, not a context. `guardrail` is the
+core domain and is roughly half the code; a core domain smaller than its supporting contexts
+would be the thing to worry about.
+
+**9. Verify by starting the server.** Not a stopgap for having no tests — three defects this
+session were invisible to anything short of a real process: publish taking effect one request
+late, streaming latency counting upstream generation as ours, and the dry-run mode misreport
+above.
 
 ## Read the design document first
 
