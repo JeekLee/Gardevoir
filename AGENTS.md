@@ -114,7 +114,7 @@ hashing, the awkwardness vanished on its own. If a factory cannot cleanly return
 something else in the model is wrong; do not paper over it with a tuple or a nullable transient
 field.
 
-**4. Never inject the clock into a security decision.** `require_usable(now)` makes `now` the
+**4. Never inject the clock into a security decision.** `ensure_active(now)` would make `now` the
 bypass — a caller passing the wrong value lets an expired credential through. Calling
 `datetime.now(UTC)` inside means it cannot be got wrong. The cost is that time cannot be frozen
 in a test; that is the cheaper side.
@@ -173,6 +173,38 @@ Add a skill once under `skills/<name>/SKILL.md`; both tools pick it up.
 - Commit before any experiment that ends in `git checkout --`. The restore reverts your
   uncommitted work too — and for a file staged by `git mv`, it restores the *index* version,
   silently reinstating pre-move content.
+
+## Comments
+
+**First principle: the code should not need one.** A method name, a type, or a small
+well-shaped function carries the intent better than a paragraph above it, and it cannot drift
+out of date.
+
+Write a comment only when the code genuinely cannot say the thing:
+
+- A decision a reader would otherwise "fix" — `ApiKey.key` holds the raw key, not a hash, and
+  reverting that invalidates every issued key.
+- A non-obvious consequence — swallowing a malformed password hash into
+  `INVALID_CREDENTIALS` is deliberate, because a 500 there is itself a signal about the account.
+
+Do **not** put in code: why an alternative was rejected, what was measured, how the design
+evolved. That belongs in the design document, this file, or the `gardevoir-be` skill — a commit
+message is the right place for "why not the other way". Code that explains its own history is
+code nobody dares to change.
+
+The same rule applies to docstrings. One line saying what the thing is beats ten justifying it.
+
+## Naming
+
+Guards raise; they are not requests. `require_password(pw)` read as "demand a password" when it
+meant "check this one" — it is now `authenticate(pw)`, which is simply the operation's name.
+
+- Name the operation if it has one: `authenticate`, `issue`, `revoke`, `deactivate`.
+- Otherwise `ensure_<state>()` for a raising guard, and `is_<state>` only when a boolean is
+  actually read somewhere.
+- Prefer one shared word across aggregates when the meaning is the same: both `ApiKey` and
+  `User` answer `ensure_active()`, and the reason each might not be active (`revoked_at`,
+  `expires_at`, `deactivated_at`) is what the error codes distinguish.
 
 ## Conventions
 
