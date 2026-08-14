@@ -91,22 +91,22 @@ uv run gardevoir-createkey --name ops-console --scope admin ...
 
 설계 문서 §14 에 미해결 항목으로 기록돼 있다.
 
-## ⚠️ 테스트 스위트와 개발 서버는 DB 를 공유한다
+## ⚠️ 로컬 DB 는 하나다
 
-`backend/gateway/tests/conftest.py` 의 기본 DSN 이 로컬 개발용과 같다. 그래서:
+지금은 테스트 스위트가 없어서(→ AGENTS.md) 개발 서버만 이 DB 를 쓴다. 하지만 DB 를
+지우는 도구를 돌릴 때는 여전히 주의해야 한다:
 
-- **`uv run pytest` 가 개발용 데이터를 지운다.** 세션 픽스처가 `drop_all` +
-  `create_all` 을 돌리므로 API 키와 가드레일이 사라진다. 수동 확인 중이었다면 키를
-  다시 만들어야 한다.
-- **개발 서버를 띄운 채로 테스트를 돌리면 스위트가 멈춘다.** 서버가 잡고 있는
-  커넥션 때문에 `drop_all` 이 잠금 대기에 걸린다. 증상은 "특정 파일에서 멈춤"이라
-  코드 문제처럼 보인다.
+- **`Base.metadata.drop_all` 을 도는 것은 무엇이든 개발용 데이터를 지운다.** API 키와
+  가드레일이 사라지므로 수동 확인 중이었다면 다시 만들어야 한다.
+- **개발 서버를 띄운 채로 DDL 을 돌리면 잠금 대기에 걸린다.** 서버가 잡고 있는 커넥션
+  때문에 `drop_all`·`TRUNCATE` 가 멈춘다. 증상이 "특정 지점에서 멈춤"이라 코드 문제처럼
+  보인다.
 
-수동 확인을 하려면 서버를 내리고 테스트를 돌리거나, 별도 DB 를 쓴다:
+별도 DB 를 쓰려면:
 
 ```bash
 GARDEVOIR_DATABASE__DSN=postgresql+psycopg://gardevoir:gardevoir@localhost:21010/gardevoir_dev \
-  uv run uvicorn --factory gateway.presentation.http.app:create_app --port 21000
+  uv run uvicorn --factory gateway.app:create_app --port 21000
 ```
 
 멈췄을 때 진단·해제:

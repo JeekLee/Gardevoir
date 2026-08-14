@@ -12,8 +12,10 @@ code changes.
 
 - `backend/` — FastAPI **modular monolith** on a **uv workspace** (async SQLAlchemy 2.0 +
   PostgreSQL for state, ClickHouse for audit events, Pydantic v2). DDD + CQRS-lite.
-  Each bounded context is a workspace member; `shared_kernel` holds cross-cutting building
-  blocks.
+  `shared_kernel` is a library; **`gateway` is the only service.** Bounded contexts live
+  *inside* it as packages — `identity`, `guardrail` (core domain: `definition` · `plan` ·
+  `inspection`), `proxy`, `audit` — because they share one process (§12). See the
+  `gardevoir-be` skill for the layout and why the boundaries fall where they do.
 - `frontend/` — pnpm workspace. `apps/console` (Next.js guardrail authoring console with a
   React Flow node editor).
 - `infra/` — docker-compose (Postgres, ClickHouse) · dockerfiles · per-environment envs.
@@ -39,8 +41,11 @@ Add a skill once under `skills/<name>/SKILL.md`; both tools pick it up.
 
 ## Working in the backend
 
-- Run a context's tests from its package dir: `cd backend/<bc> && uv run pytest`
-  (do NOT run bare `pytest` from `backend/` — it cross-collects sibling packages).
+- **There are no tests right now.** `backend/gateway/tests/` was deleted while the bounded
+  contexts were carved out (kept in git at `ae52c5b`). Verify by importing every module,
+  running `ruff`, and **actually starting the server** — see the `gardevoir-be` skill for the
+  commands and the end-to-end smoke path. Do not restore the old suite wholesale and do not
+  add tests opportunistically; the bar for the next suite is in that skill.
 - Sync deps from `backend/` (the workspace root): `uv sync --all-packages`.
   **`--all-packages` is required.** The root is a virtual workspace with nothing to
   install, so a bare `uv sync` *uninstalls* every member and its dependencies. The
@@ -50,24 +55,27 @@ Add a skill once under `skills/<name>/SKILL.md`; both tools pick it up.
 - Bring up dependencies first — see `infra/README.md` for the command. It needs
   `--env-file infra/envs/example/compose.env`; without it compose fails on an empty
   `cpus` value.
-- TDD: failing test → implement → green → commit.
-- Commit before mutation-testing or any other experiment that ends in
-  `git checkout --`. Otherwise the restore reverts your uncommitted work too.
+- Commit before any experiment that ends in `git checkout --`. The restore reverts your
+  uncommitted work too — and for a file staged by `git mv`, it restores the *index* version,
+  silently reinstating pre-move content.
 
 ## Conventions
 
-- Keep changes green: per-package test suites must pass before commit.
 - `ruff check` and `ruff format --check` must pass before commit.
 - Comments and commit messages in Korean; identifiers and docstrings in English.
-  Test *function* docstrings are the exception: they state why the test exists rather
-  than describing an API, so they follow the comment rule and are written in Korean.
-  Module and class docstrings stay English everywhere, tests included.
+  Module and class docstrings stay English everywhere. (When tests return: test *function*
+  docstrings are the exception — they state why the test exists rather than describing an
+  API, so they follow the comment rule and are written in Korean.)
 - Reference the design document as a bare `§N` (e.g. `(§11.4)`), matching the
   `gardevoir-be` skill.
 - **`import re2`, never `import re`.** **`orjson`, never `json`.** Both are load-bearing —
   see the `gardevoir-be` skill.
 
-## Testing principles
+## Testing principles — for when tests come back
+
+None of this is in force today (there is no suite). It is the bar the next one must meet;
+the previous suite reached 906 tests and a large share of them failed these rules.
+
 
 - Test observable behavior through a public boundary: inputs and outputs, state transitions,
   rendered results, persisted data, or integration calls.
