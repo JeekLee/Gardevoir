@@ -26,7 +26,7 @@ code changes.
   ```
 
   Contexts live *inside* `gateway` because they share one process (§12). Each has only the
-  layers it needs, plus its own `composition.py` for request-scoped wiring. See the
+  layers it needs, plus its own `composition.py` exporting `provide_*` wiring functions. See the
   `gardevoir-be` skill for the full layout and why the boundaries fall where they do.
 - `frontend/` — pnpm workspace. `apps/console` (Next.js guardrail authoring console with a
   React Flow node editor).
@@ -165,8 +165,9 @@ Add a skill once under `skills/<name>/SKILL.md`; both tools pick it up.
   failure is confusing: `import shared_kernel` still succeeds, because the member
   directory is picked up as an implicit namespace package, and only surfaces as
   `AttributeError` on a missing attribute.
-- The first admin key comes from `GARDEVOIR_BOOTSTRAP_ADMIN_KEY` at startup; every key after
-  that is made through `/v1/admin/api-keys`. There is no CLI.
+- The first account comes from `GARDEVOIR_ROOT_EMAIL` / `GARDEVOIR_ROOT_PASSWORD` at startup,
+  only when no user exists; every account after that is created by an admin through
+  `POST /v1/users`. `GARDEVOIR_JWT_SECRET` has no default on purpose. There is no CLI.
 - Bring up dependencies first — see `infra/README.md` for the command. It needs
   `--env-file infra/envs/example/compose.env`; without it compose fails on an empty
   `cpus` value.
