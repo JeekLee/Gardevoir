@@ -175,6 +175,29 @@ Add a skill once under `skills/<name>/SKILL.md`; both tools pick it up.
   uncommitted work too — and for a file staged by `git mv`, it restores the *index* version,
   silently reinstating pre-move content.
 
+## Authorisation is not a URL
+
+There is no `/admin/**` prefix. A route names a resource; who may call it is a property of the
+caller, so it belongs in a dependency — `Depends(require_role(Role.ADMIN))` on the routes that
+need it. `GET /v1/users` and `GET /v1/users/me` are the same resource tree with different
+permissions, and that reads correctly.
+
+The guard must be a **dependency**, never a check inside the handler body: FastAPI resolves
+sub-dependencies before validating the endpoint's own params, so a dependency that raises gives
+401/403 while a body check would let an unauthorised caller read the schema off a 422. Verified
+over HTTP — `POST /v1/users` with no token and an empty body returns 401, not 422.
+
+The prefix used to double as an operational handle ("block `/v1/admin/*` at the ingress"), but
+that mitigation existed *because* the admin surface had no human authentication. It has one now.
+
+## Dependency injection
+
+`<bc>/composition.py` exports `provide_*` functions and nothing else. Write
+`Annotated[Service, Depends(provide_service)]` **in the handler signature that needs it** — not
+aliased in composition, and not aliased at the top of the router either. Then the type a handler
+receives and the function that builds it both read off that handler, with nothing to look up. It
+repeats across handlers; that is the cost of the signature being complete.
+
 ## Comments
 
 **First principle: the code should not need one.** A method name, a type, or a small
