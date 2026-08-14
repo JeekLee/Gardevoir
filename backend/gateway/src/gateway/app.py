@@ -43,6 +43,13 @@ from shared_kernel.log import RequestContextMiddleware, configure_logging
 
 logger = logging.getLogger(__name__)
 
+#: 계약 버전은 URL 접두어가 담당한다 (§7.2). 헤더를 따로 두면 호출처가 관리해야 하는데
+#: 그건 쓸모없는 부담이다.
+#:
+#: 라우터는 이 값을 모른다 — 자기 하위 경로만 선언하고, 붙이는 것은 마운트하는 쪽 일이다.
+#: 버전을 올릴 때 고칠 곳이 여기 하나다.
+API_PREFIX = "/v1"
+
 #: 감사 스키마 .sql 디렉터리. src/gateway/app.py -> backend/gateway/clickhouse
 _CLICKHOUSE_SQL_DIR = pathlib.Path(__file__).resolve().parents[2] / "clickhouse"
 
@@ -185,11 +192,12 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
     register_exception_handlers(app)
     _register_framework_exception_handlers(app)
 
+    # health 는 접두어 없이 붙는다 — 계약이 아니라 운영용이다.
     app.include_router(health.router)
-    app.include_router(chat_router.router)
+    app.include_router(chat_router.router, prefix=API_PREFIX)
     # ⚠️ 사람 인증이 아직 없다 — admin 스코프 키만 요구한다. 외부에 노출하지 말 것.
     # admin_router 의 모듈 독스트링과 infra/README.md 참조.
-    app.include_router(admin_router.router)
+    app.include_router(admin_router.router, prefix=API_PREFIX)
     # ⚠️ 키 발급·회수. admin 키가 새면 다른 키를 전부 만들 수 있어 더 위험하다.
-    app.include_router(api_key_router.router)
+    app.include_router(api_key_router.router, prefix=API_PREFIX)
     return app

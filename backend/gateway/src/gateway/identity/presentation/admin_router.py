@@ -11,16 +11,13 @@ FastAPI 가 본문을 먼저 검증해서 크레덴셜 없는 호출자가 422 �
 
 from fastapi import APIRouter, status
 
-from gateway.contract import API_PREFIX
 from gateway.identity.application.api_key_command import CreateApiKey
 from gateway.identity.application.api_key_result import ApiKeyCreated, ApiKeySummary
 from gateway.identity.composition import AdminScopeDep, ApiKeyServiceDep
 from shared_kernel.api import JsonResponse, Page
 
-ADMIN_PREFIX = f"{API_PREFIX}/admin/api-keys"
-
 router = APIRouter(
-    prefix=ADMIN_PREFIX,
+    prefix="/admin/api-keys",
     tags=["admin"],
     # 인가는 크레덴셜에서만 온다 (§7.2). 헤더로 관리자가 될 수는 없다.
     dependencies=[AdminScopeDep],
