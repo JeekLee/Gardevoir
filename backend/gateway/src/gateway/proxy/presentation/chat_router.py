@@ -7,10 +7,11 @@ response. No infrastructure imports (skills/gardevoir-be).
 from fastapi import APIRouter, Request
 from fastapi.responses import Response, StreamingResponse
 
-from gateway.composition import AuthenticationServiceDep, ProxyServiceDep
 from gateway.contract import API_PREFIX, HEADER_GUARDRAIL, HEADER_MODE, HEADER_REQUEST_ID
+from gateway.identity.composition import AuthenticationServiceDep
 from gateway.identity.domain.api_key import Scope
 from gateway.proxy.application.proxy_service import wants_stream
+from gateway.proxy.composition import ProxyServiceDep
 
 router = APIRouter(prefix=API_PREFIX)
 
