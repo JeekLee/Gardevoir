@@ -34,7 +34,7 @@ def test_gateway_defaults(monkeypatch):
     assert s.audit_batch_size == 100
     assert s.audit_flush_interval_s == 1.0
     assert s.audit_queue_maxsize == 10_000
-    assert s.stream_holdback_tokens == 32
+    assert s.stream_holdback_chars == 128
 
 
 def test_inherits_shared_kernel_nested_settings(monkeypatch):
@@ -52,15 +52,15 @@ def test_gateway_field_reads_prefixed_env(monkeypatch):
 
 def test_negative_holdback_is_rejected(monkeypatch):
     """홀드백이 음수면 스트리밍 방출 계산이 조용히 망가진다."""
-    _env(monkeypatch, GARDEVOIR_STREAM_HOLDBACK_TOKENS="-1")
+    _env(monkeypatch, GARDEVOIR_STREAM_HOLDBACK_CHARS="-1")
     with pytest.raises(ValidationError):
         _settings()
 
 
 def test_zero_holdback_is_allowed(monkeypatch):
     """0은 즉시 방출(사후 검출) 모드로 유효한 설정이다 (§9)."""
-    _env(monkeypatch, GARDEVOIR_STREAM_HOLDBACK_TOKENS="0")
-    assert _settings().stream_holdback_tokens == 0
+    _env(monkeypatch, GARDEVOIR_STREAM_HOLDBACK_CHARS="0")
+    assert _settings().stream_holdback_chars == 0
 
 
 def test_non_positive_timeout_is_rejected(monkeypatch):

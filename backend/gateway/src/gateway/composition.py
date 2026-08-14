@@ -33,6 +33,8 @@ def provide_proxy_service(request: Request) -> ProxyService:
         # 계획 레지스트리는 프로세스 수명이므로 app.state 가 소유한다. 검사기는
         # 상태가 없어 요청마다 만들어도 된다.
         inspector=Inspector(plans=request.app.state.plans),
+        holdback_chars=request.app.state.settings.stream_holdback_chars,
+        window_chars=request.app.state.settings.stream_window_chars,
     )
 
 

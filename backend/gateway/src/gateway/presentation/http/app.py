@@ -92,6 +92,7 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
         factory = get_session_factory(settings.database.dsn, echo=settings.database.echo)
         # 저작 API 는 요청마다 세션을 연다. 프록시 경로는 키 캐시 덕분에 DB 를
         # 건드리지 않는다 (§6).
+        app.state.settings = settings
         app.state.session_factory = factory
         app.state.key_cache = CachedApiKeyRepository(
             SessionScopedApiKeyRepository(factory), ttl_s=settings.key_cache_ttl_s

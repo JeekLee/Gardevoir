@@ -40,6 +40,7 @@ from gateway.application.plan.execution_plan import ExecutionPlan
 from gateway.application.port.audit_sink import AuditSink
 from gateway.application.port.llm_upstream import LlmUpstream
 from gateway.application.service.authentication_service import AuthenticatedRequest
+from gateway.application.streaming.relay import StreamRelay
 from gateway.contract import (
     EXTENSION_KEY,
     UNVERSIONED_GUARDRAIL,
@@ -211,11 +212,19 @@ class _Verdicts:
 
 class ProxyService:
     def __init__(
-        self, *, upstream: LlmUpstream, audit: AuditSink, inspector: Inspector | None = None
+        self,
+        *,
+        upstream: LlmUpstream,
+        audit: AuditSink,
+        inspector: Inspector | None = None,
+        holdback_chars: int = 128,
+        window_chars: int = 512,
     ) -> None:
         self._upstream = upstream
         self._audit = audit
         self._inspector = inspector
+        self._holdback_chars = holdback_chars
+        self._window_chars = window_chars
 
     async def complete(
         self, *, auth: AuthenticatedRequest, payload: bytes, request_id: str
@@ -310,11 +319,11 @@ class ProxyService:
     async def stream(
         self, *, auth: AuthenticatedRequest, payload: bytes, request_id: str
     ) -> AsyncIterator[ProxyStream]:
-        """Relay SSE, appending the extension object as a final chunk.
+        """Relay SSE, inspecting ③④ on the way through (§9).
 
-        ③ 출력 검사는 홀드백이 있어야 의미가 있고 홀드백은 Phase 4 다 (§9). 따라서
-        스트리밍은 출력을 검사하지 않고, 그 사실이 ``inspected`` 에 드러난다 —
-        말하지 않으면 호출자는 검사된 줄 알고 그것이 조용한 fail-open 이다.
+        ③ 은 홀드백 뒤로 흘리면서 겹치는 윈도우로 검사하고, ④ 는 조각을 전부 모아
+        완성 시 검사한다 — 앱은 조각난 tool_call 로 아무것도 할 수 없으므로 붙들어도
+        UX 손실이 0 이다.
 
         헤더는 본문보다 먼저 나가므로 X-Gardevoir-Action 은 입력 단계까지의 판정만
         뜻한다. 최종 판정은 마지막 청크의 gardevoir 객체에 있다 (§7.2).
@@ -324,21 +333,6 @@ class ProxyService:
 
         plan = self._plan_for(auth)
         verdicts = self._inspect_before_upstream(plan, _decode(payload), auth.mode)
-        skipped = [
-            checkpoint
-            for checkpoint in (CHECKPOINT_OUTPUT, CHECKPOINT_TOOL_CALL)
-            if plan is not None and plan.program_for(checkpoint) is not None
-        ]
-        if skipped:
-            # ③ 는 홀드백이 필요하고 ④ 는 SSE 조각 누적이 필요하다. 둘 다 Phase 4 다.
-            # §9 는 tool_call 버퍼링이 UX 손실 0 이라고 하므로 ④ 는 원리적으로 가능하다.
-            logger.warning(
-                "guardrail %r has %s program(s) but streaming cannot inspect them yet "
-                "(Phase 4); reported as inspected=%s",
-                auth.guardrail,
-                skipped,
-                list(verdicts.inspected),
-            )
 
         if verdicts.blocked_before_upstream:
             yield await self._blocked_input_stream(
@@ -350,31 +344,63 @@ class ProxyService:
             )
             return
 
-        extension = self._extension(auth, audit_id, verdicts)
+        relay = StreamRelay(
+            inspector=self._inspector,
+            plan=plan,
+            mode=auth.mode,
+            tainted=verdicts.tainted,
+            payload=_decode(payload),
+            holdback_chars=self._holdback_chars,
+            window_chars=self._window_chars,
+        )
         cm = self._upstream.open_stream(
             base_url=auth.key.upstream_base_url,
             api_key=auth.key.upstream_api_key,
             path=UPSTREAM_PATH,
             payload=payload,
         )
+        # 스트리밍 지연은 "전체 - 업스트림 대기"로 계산할 수 없다. 청크 사이의 대기가
+        # 전부 업스트림 몫이고 그 시간은 우리가 잰 적이 없다. 그래서 우리가 실제로 쓴
+        # 구간만 더한다 (§7.2: 게이트웨이가 더한 지연만). 스트림을 **여는** 시간도
+        # 업스트림 몫이므로 async with 앞에서 끊는다.
+        stream_latency_ms = self._added_latency_ms(started, 0.0)
         async with cm as upstream_stream:
-            upstream_elapsed = time.perf_counter() - started
+            # 업스트림이 오류를 내면 본문이 SSE 가 아니다. 파싱·합성하면 오류 본문을
+            # 망가뜨리므로 그대로 중계한다 — 우리가 응답을 잃는 것이 더 나쁘다.
+            relayed = upstream_stream.status_code < 400
 
             async def chunks() -> AsyncIterator[bytes]:
-                async for chunk in upstream_stream.aiter():
+                """중계기가 ③④ 를 돌리고, 확장 객체는 판정이 끝난 뒤에 붙는다."""
+                nonlocal verdicts
+                if not relayed:
+                    async for chunk in upstream_stream.aiter():
+                        yield chunk
+                    yield (
+                        _SSE_PREFIX
+                        + orjson.dumps({EXTENSION_KEY: self._extension(auth, audit_id, verdicts)})
+                        + _SSE_SUFFIX
+                    )
+                    return
+                async for chunk in relay.relay(upstream_stream.aiter()):
                     yield chunk
+                verdicts = replace(
+                    verdicts,
+                    output=relay.outcome.output,
+                    tool_call=relay.outcome.tool_call,
+                )
+                nonlocal stream_latency_ms
+                stream_latency_ms += relay.outcome.processing_ms
+                extension = self._extension(auth, audit_id, verdicts)
+                if relay.outcome.unmaskable:
+                    # 가리지 못한 구간이 있다 — 말하지 않으면 호출자는 가려진 줄 안다.
+                    extension["unmasked"] = relay.outcome.unmaskable
                 yield _SSE_PREFIX + orjson.dumps({EXTENSION_KEY: extension}) + _SSE_SUFFIX
 
             try:
                 yield ProxyStream(
                     status_code=upstream_stream.status_code,
                     media_type=upstream_stream.headers.get("content-type", SSE_MEDIA_TYPE),
-                    headers=self._headers(
-                        auth,
-                        audit_id,
-                        self._added_latency_ms(started, upstream_elapsed),
-                        verdicts,
-                    ),
+                    headers=self._headers(auth, audit_id, stream_latency_ms, verdicts),
                     audit_id=audit_id,
                     _chunks=chunks(),
                 )
@@ -382,15 +408,16 @@ class ProxyService:
                 # 소비자가 터져도 감사는 남아야 한다 — 그러지 않으면 기록에 구멍이
                 # 생긴다. async 제너레이터의 finally 는 가비지 컬렉션 시점에 돌 수
                 # 있어 신뢰할 수 없으므로 여기에 둔다.
+                usage = relay.outcome.usage
                 await self._submit_audit(
                     auth=auth,
                     audit_id=audit_id,
                     request_id=request_id,
                     verdicts=verdicts,
-                    latency_ms=self._added_latency_ms(started, upstream_elapsed),
-                    model="",
-                    prompt_tokens=0,
-                    completion_tokens=0,
+                    latency_ms=stream_latency_ms,
+                    model=relay.outcome.model,
+                    prompt_tokens=int(usage.get("prompt_tokens") or 0),
+                    completion_tokens=int(usage.get("completion_tokens") or 0),
                 )
 
     # -- 체크포인트 ----------------------------------------------------------
