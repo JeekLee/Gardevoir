@@ -274,11 +274,18 @@ class ApiKey:
 
 `User` is the other half of this context and answers the mirror question — "may this person sign
 in" — with the same vocabulary: `register` / `update` / `set_password` / `change_role` /
-`deactivate` / `ensure_active` / `ensure_admin` / `authenticate`. Passwords are hashed with
-`hashlib.scrypt` even though `ApiKey.key` is plaintext, and that asymmetry is the point: an API
-key is high-entropy and its reader is the operator, while a human password is low-entropy and
+`deactivate` / `ensure_active` / `ensure_admin` / `authenticate`.
+
+Passwords are hashed even though `ApiKey.key` is plaintext, and that asymmetry is the point: an
+API key is high-entropy and its reader is the operator, while a human password is low-entropy and
 **reused on other sites**, so a leak there compromises accounts that are not ours. Login is not
-the request path, so a 74 ms KDF is free.
+the request path, so a 74 ms KDF is free (`hashlib.scrypt`, stdlib, memory-hard).
+
+The KDF lives in a `PasswordHash` value object rather than in `User`, because it is the one part
+that does not change when the user does — bumping the cost or moving to argon2 leaves every `User`
+method untouched. `User` asks `password_hash.matches(password)` and knows nothing about salts. If
+per-environment cost ever matters (a test suite paying 74 ms per fixture), an injectable hasher
+can wrap the value object without `User` noticing.
 
 What left, and why it was not a loss:
 
