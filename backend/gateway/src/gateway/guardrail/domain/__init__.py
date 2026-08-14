@@ -8,6 +8,7 @@ from gateway.guardrail.domain.guardrail import (
     VerdictAction,
 )
 from gateway.guardrail.domain.guardrail_error import GuardrailError
+from gateway.guardrail.domain.mode import Mode
 
 __all__ = [
     "DRAFT_VERSION",
@@ -15,6 +16,7 @@ __all__ = [
     "Edge",
     "Guardrail",
     "GuardrailError",
+    "Mode",
     "Node",
     "NodeType",
     "VerdictAction",
