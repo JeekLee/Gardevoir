@@ -65,8 +65,8 @@ service**, and the bounded contexts live *inside* it as packages — they share 
 backend/gateway/src/gateway/
 ├── app.py              COMPOSITION ROOT — lifespan builds the process-lifetime object graph
 │                       (engine, key cache, audit sink, upstream, plan registry) into app.state;
-│                       also middleware, exception handlers, router mounting
-├── contract.py         API_PREFIX only — the contract version is the URL prefix (§7.2)
+│                       also middleware, exception handlers, and router mounting, which is
+│                       where API_PREFIX ("/v1") lives — routers declare only their sub-path
 ├── settings.py  health.py
 ├── orm.py              ORM registration point — imports every model for Base.metadata
 │
@@ -426,7 +426,11 @@ The following are load-bearing:
 extension object, the blocked-response bodies, and the wire `Action`. **Keep it minimal — §7
 treats the protocol as the part that is hard to change and configuration as the part that is
 easy.** Adding a field here can break deployed applications; adding a guardrail check cannot.
-(`gateway/contract.py` keeps only `API_PREFIX`: §7.2 makes the URL prefix the contract version.)
+§7.2 makes the URL prefix the contract version, so it is not in any contract module: `app.py`
+applies it at `include_router(..., prefix=API_PREFIX)` and routers declare only their sub-path
+(`/admin/guardrails`, `/chat/completions`). Mounting is a composition-root decision — `/healthz`
+deliberately gets no prefix because it is operational, not part of the contract — and keeping
+the version there means one place to change when it moves to `/v2`.
 
 **Two verdict vocabularies, and they do not match. That is deliberate.**
 
