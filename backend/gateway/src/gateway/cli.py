@@ -8,8 +8,8 @@ from ulid import ULID
 
 from gateway.identity.domain.api_key import ApiKey, Scope, generate_key, hash_key
 from gateway.identity.infrastructure import SqlAlchemyApiKeyRepository
-from gateway.infrastructure.engine import dispose_engine, get_session_factory
 from gateway.settings import get_settings
+from shared_kernel.database import dispose_engine, get_session_factory
 
 
 async def create_key(
