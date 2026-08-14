@@ -9,9 +9,9 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from gateway.identity.application.access_token import AccessTokenClaims, AccessTokenCodec
-from gateway.identity.application.auth_service import AuthService
 from gateway.identity.application.bearer import parse_bearer
-from gateway.identity.application.user_service import UserService
+from gateway.identity.application.service.auth_service import AuthService
+from gateway.identity.application.service.user_service import UserService
 from gateway.identity.domain.enums.role import Role
 from gateway.identity.domain.exceptions.user_error import UserError
 from gateway.identity.infrastructure.redis_refresh_session_repository import (

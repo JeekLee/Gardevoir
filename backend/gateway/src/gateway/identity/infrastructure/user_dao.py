@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gateway.identity.application.user_result import UserSummary
+from gateway.identity.application.result.user_result import UserSummary
 from gateway.identity.domain.enums.role import Role
 from gateway.identity.infrastructure.user_model import UserModel
 

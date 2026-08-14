@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import Request
 
-from gateway.guardrail.definition.application.guardrail_service import GuardrailService
+from gateway.guardrail.definition.application.service.guardrail_service import GuardrailService
 from gateway.guardrail.definition.infrastructure.guardrail_dao import SqlAlchemyGuardrailDao
 from gateway.guardrail.definition.infrastructure.guardrail_repository import (
     SqlAlchemyGuardrailRepository,

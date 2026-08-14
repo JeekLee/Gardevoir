@@ -4,11 +4,13 @@ import logging
 from datetime import timedelta
 
 from gateway.identity.application.access_token import AccessTokenCodec
-from gateway.identity.application.refresh_session_repository import RefreshSessionRepository
-from gateway.identity.application.user_command import Login, Refresh
-from gateway.identity.application.user_dao import UserDao
-from gateway.identity.application.user_repository import UserRepository
-from gateway.identity.application.user_result import LoginResult, TokenPair
+from gateway.identity.application.command.user_command import Login, Refresh
+from gateway.identity.application.dao.user_dao import UserDao
+from gateway.identity.application.repository.refresh_session_repository import (
+    RefreshSessionRepository,
+)
+from gateway.identity.application.repository.user_repository import UserRepository
+from gateway.identity.application.result.user_result import LoginResult, TokenPair
 from gateway.identity.domain.exceptions.session_error import SessionError
 from gateway.identity.domain.exceptions.user_error import UserError
 from gateway.identity.domain.models.refresh_session import RefreshSession

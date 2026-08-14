@@ -7,8 +7,8 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
-from gateway.guardrail.inspection.application.inspector import Inspector
-from gateway.proxy.application.proxy_service import ProxyService
+from gateway.guardrail.inspection.application.service.inspector import Inspector
+from gateway.proxy.application.service.proxy_service import ProxyService
 
 
 def provide_proxy_service(request: Request) -> ProxyService:

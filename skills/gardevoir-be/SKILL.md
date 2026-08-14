@@ -73,7 +73,12 @@ backend/gateway/src/gateway/
 │   ├── domain/
 │   │   ├── models/         api_key.py
 │   │   └── exceptions/     api_key_error.py
-│   ├── application/    authentication_service.py · api_key_service.py · repo/dao ports · DTOs
+│   ├── application/
+│   │   ├── service/       auth_service.py · user_service.py
+│   │   ├── repository/    user_repository.py · refresh_session_repository.py (write)
+│   │   ├── dao/           user_dao.py (read)
+│   │   ├── command/       user_command.py    ├── result/  user_result.py
+│   │   └── access_token.py · bearer.py — 역할 디렉터리에 안 맞아 층 루트
 │   ├── composition.py  provide_* + require_role(Role) — providers only, no aliases
 │   ├── presentation/   auth_router.py → /v1/auth/*, user_router.py → /v1/users/*
 │   └── infrastructure/ sqlalchemy · cached · session-scoped repos, dao, ORM model, mapper
@@ -83,35 +88,50 @@ backend/gateway/src/gateway/
 │   │   ├── models/         guardrail.py (Guardrail·Node·Edge·VerdictAction·Decision) · mode.py
 │   │   └── exceptions/     guardrail_error.py
 │   ├── definition/     정의·초안·발행·버전 — 컨트롤 플레인 (§5)
-│   │   ├── application/     guardrail_service · command · result · dao/repo ports · transaction
+│   │   ├── application/     service/ · repository/ · dao/ · command/ · result/ · port/transaction.py
 │   │   ├── infrastructure/  guardrail_model · guardrail_mapper · repository · dao
 │   │   └── presentation/    guardrail_router.py  → /v1/guardrails
 │   ├── plan/           컴파일 → 명령·슬롯 → 실행 (§6, §11.4)
 │   │   ├── domain/          models/execution_plan.py (Program·instructions·slots)
 │   │   │                    executor.py — 도메인 서비스라 층 루트에 둔다
-│   │   ├── application/     compiler.py · registry.py · guardrail_source.py (port)
+│   │   ├── application/     service/registry.py · port/guardrail_source.py
+│   │   │                    compiler.py — 순수 함수라 층 루트
 │   │   └── infrastructure/  guardrail_source.py (발행본 읽기)
 │   ├── inspection/     체크포인트 ①②③④ → 판정 (§3, §4)
-│   │   └── application/     inspector · outcome · provenance · text
-│   └── composition.py  request-scoped wiring (GuardrailServiceDep)
+│   │   └── application/     service/inspector.py
+│   │                        outcome · provenance · text — 값 타입·순수 함수라 층 루트
+│   └── composition.py  request-scoped provide_* (별칭 없음)
 │
 ├── proxy/              LLM 쿼리 입출력 — 데이터 플레인 (§7, §9)
-│   ├── application/    proxy_service.py · llm_upstream.py (port) · streaming/
+│   ├── application/    service/proxy_service.py · port/llm_upstream.py · streaming/
 │   ├── contract.py     §7 wire contract: headers · extension · Action · to_wire_action
 │   ├── infrastructure/ httpx_upstream.py
-│   ├── composition.py  request-scoped wiring (ProxyServiceDep)
+│   ├── composition.py  request-scoped provide_* (별칭 없음)
 │   └── presentation/   chat_router.py  → /v1/chat/completions
 │
 └── audit/              AuditEvent (§10). 저장소가 다르다 — ClickHouse
-    ├── application/    audit_event.py · audit_sink.py (port)
+    ├── application/    port/audit_sink.py · audit_event.py (값 타입이라 층 루트)
     └── infrastructure/ clickhouse_sink.py · schema.py
 ```
 
 There is **no `infrastructure/` at the gateway root.** `infrastructure` means one thing —
 adapters implementing a context's ports — and a root directory of the same name holding
 process resources made the word ambiguous. The engine went to `shared_kernel.database` (it
-has no gateway knowledge); `orm.py` is a registration manifest, so it sits with the other
-process-level wiring at the root.
+has no gateway knowledge), and `orm.py` is gone — `alembic/env.py` walks `**/infrastructure/`
+instead of trusting a hand-maintained list (see below).
+
+### `application/` is split by role, and only by role
+
+`service/` · `repository/` (write Protocols) · `dao/` (read Protocols) · `command/` · `result/`
+(the boundary `CamelModel`s) · `port/` (every other external-capability Protocol). The test for
+`service/` is a class that takes collaborators through `__init__` and exposes operations —
+`PlanRegistry` and `Inspector` pass it, so they live there despite not being named `*Service`.
+
+**Anything that is none of those six sits at the layer root** — `compiler.py` (a pure function),
+`outcome.py`/`audit_event.py` (internal value types, not wire DTOs), `access_token.py`,
+`bearer.py`. Do not stretch a role directory to cover a file that does not fit; `plan/domain/`
+already does the same with `executor.py`. A misfiled file is worse than one at the root, because
+the directory name then lies about what is in it.
 
 **Each context has only the layers it needs.** `inspection` is pure logic, so it has no
 infrastructure; `audit` has no domain aggregate beyond its event. Do not create empty
@@ -345,9 +365,9 @@ guardrail/domain/guardrail.py                     authored form; pure domain
 guardrail/plan/domain/execution_plan.py           ExecutionPlan · Program · instructions · slots
 guardrail/plan/domain/executor.py                 execute(program, Subject) -> ExecutionResult
 guardrail/plan/application/compiler.py            Guardrail -> ExecutionPlan (once, at publish)
-guardrail/plan/application/registry.py            PlanRegistry — in-memory, atomic swap, polling
-guardrail/plan/application/guardrail_source.py    Protocol: 발행본 읽기
-guardrail/inspection/application/inspector.py     체크포인트별 대상 추출 -> execute -> Inspection
+guardrail/plan/application/service/registry.py    PlanRegistry — in-memory, atomic swap, polling
+guardrail/plan/application/port/guardrail_source.py   Protocol: 발행본 읽기
+guardrail/inspection/application/service/inspector.py 체크포인트별 대상 추출 -> execute -> Inspection
 ```
 
 Rules that must hold:
@@ -618,11 +638,13 @@ Contexts are packages inside `gateway`, not workspace members — they share the
 1. `src/gateway/<bc>/` with **only the layers it needs**. Do not scaffold empty ones.
 2. `domain/models/` aggregate + `domain/exceptions/<aggregate>_error.py` catalog, if the
    context owns an aggregate.
-3. `application/`: service, write repository + read dao Protocols, ports, command/result DTOs.
-4. `infrastructure/`: ORM model, mapper, adapters. Import any new model from `gateway/orm.py`.
-5. `<bc>/composition.py` for request-scoped wiring; `presentation/<name>_router.py` importing
-   only the `...Dep` aliases; mount the router in `app.py`. Process-lifetime resources go in
-   `app.py`'s lifespan, not here.
+3. `application/{service,repository,dao,command,result,port}/` — by role, per the rule above.
+   Whatever fits none of them goes at the `application/` root, not into the nearest directory.
+4. `infrastructure/`: ORM model, mapper, adapters. No manifest to register the model in —
+   `alembic/env.py` finds it by walking `**/infrastructure/`.
+5. `<bc>/composition.py` exporting `provide_*` and nothing else; `presentation/<name>_router.py`
+   writing `Annotated[Service, Depends(provide_service)]` in each handler signature; mount the
+   router in `app.py`. Process-lifetime resources go in `app.py`'s lifespan, not here.
 6. Verify by importing every module, `ruff`, and a real uvicorn run (see the top of this file).
 
 **Before adding one, check it is actually a context.** The signals that justified the current
@@ -637,7 +659,8 @@ files are related" is not one — that is a package.
 | DAO returns domain entities | DAO returns application **result DTOs** |
 | three DTO tiers | **single** application-owned `CamelModel` at the boundary |
 | use cases as loose functions; a class per error | **service classes**; one `ErrorCatalog` enum per aggregate |
-| one `models.py` / one `mappers.py` | per-model file in the owning context's `infrastructure/`, all imported from `gateway/orm.py` |
+| one `models.py` / one `mappers.py` | per-model file in the owning context's `infrastructure/`; `alembic/env.py` finds them by walking |
+| a flat `application/` package | split by role: `service/` `repository/` `dao/` `command/` `result/` `port/`; misfits stay at the layer root |
 | DI in presentation | DI in the context's `composition.py`; presentation never imports infrastructure |
 | one root `composition.py` for every context | one per context — a shared file is a chokepoint every new context edits |
 | defaulting a wired dependency (`getattr(state, "x", None)`) | let it fail. A missing wire becomes a silent no-op otherwise — `plans=None` made publish return 200 without recompiling |

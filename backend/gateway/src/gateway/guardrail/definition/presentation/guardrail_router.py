@@ -10,12 +10,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 
 from gateway.guardrail.composition import provide_guardrail_service
-from gateway.guardrail.definition.application.guardrail_command import CreateGuardrail, UpdateDraft
-from gateway.guardrail.definition.application.guardrail_result import (
+from gateway.guardrail.definition.application.command.guardrail_command import (
+    CreateGuardrail,
+    UpdateDraft,
+)
+from gateway.guardrail.definition.application.result.guardrail_result import (
     GuardrailDetail,
     GuardrailSummary,
 )
-from gateway.guardrail.definition.application.guardrail_service import GuardrailService
+from gateway.guardrail.definition.application.service.guardrail_service import GuardrailService
 from gateway.identity.application.access_token import AccessTokenClaims
 from gateway.identity.composition import require_role
 from gateway.identity.domain.enums.role import Role

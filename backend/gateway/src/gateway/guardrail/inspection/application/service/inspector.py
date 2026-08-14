@@ -26,7 +26,7 @@ from gateway.guardrail.inspection.application.text import (
     extract_trusted_text,
     is_tainted,
 )
-from gateway.guardrail.plan.application.registry import PlanRegistry
+from gateway.guardrail.plan.application.service.registry import PlanRegistry
 from gateway.guardrail.plan.domain.executor import Subject, execute
 from gateway.guardrail.plan.domain.models.execution_plan import ExecutionPlan, Program, Provenance
 

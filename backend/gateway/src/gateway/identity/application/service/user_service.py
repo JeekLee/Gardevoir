@@ -3,16 +3,18 @@
 import logging
 from uuid import UUID
 
-from gateway.identity.application.refresh_session_repository import RefreshSessionRepository
-from gateway.identity.application.user_command import (
+from gateway.identity.application.command.user_command import (
     ChangePassword,
     ChangeRole,
     CreateUser,
     UpdateUser,
 )
-from gateway.identity.application.user_dao import UserDao
-from gateway.identity.application.user_repository import UserRepository
-from gateway.identity.application.user_result import UserSummary
+from gateway.identity.application.dao.user_dao import UserDao
+from gateway.identity.application.repository.refresh_session_repository import (
+    RefreshSessionRepository,
+)
+from gateway.identity.application.repository.user_repository import UserRepository
+from gateway.identity.application.result.user_result import UserSummary
 from gateway.identity.domain.enums.role import Role
 from gateway.identity.domain.exceptions.user_error import UserError
 from gateway.identity.domain.models.user import User, normalise_email
