@@ -74,7 +74,7 @@ backend/gateway/src/gateway/
 │   │   ├── models/         api_key.py
 │   │   └── exceptions/     api_key_error.py
 │   ├── application/    authentication_service.py · api_key_service.py · repo/dao ports · DTOs
-│   ├── composition.py  request-scoped wiring + require_admin_scope (AdminScopeDep)
+│   ├── composition.py  request-scoped wiring (deleted in #20, being rebuilt)
 │   ├── presentation/   admin_router.py  → /v1/admin/api-keys
 │   └── infrastructure/ sqlalchemy · cached · session-scoped repos, dao, ORM model, mapper
 │
@@ -266,11 +266,19 @@ class ApiKey:
     revoked_at: datetime | None = None    # not a `disabled` bool — *when* matters for audit
 
     @classmethod
-    def issue(cls, *, name, user_id, expires_at=None) -> "ApiKey"
-    def update(self, *, name, expires_at) -> "ApiKey"
-    def revoke(self) -> "ApiKey"
-    def require_usable(self) -> None
+    def issue(cls, *, name, user_id, expires_at=None) -> ApiKey
+    def update(self, *, name, expires_at) -> ApiKey
+    def revoke(self) -> ApiKey
+    def ensure_active(self) -> None
 ```
+
+`User` is the other half of this context and answers the mirror question — "may this person sign
+in" — with the same vocabulary: `register` / `update` / `set_password` / `change_role` /
+`deactivate` / `ensure_active` / `ensure_admin` / `authenticate`. Passwords are hashed with
+`hashlib.scrypt` even though `ApiKey.key` is plaintext, and that asymmetry is the point: an API
+key is high-entropy and its reader is the operator, while a human password is low-entropy and
+**reused on other sites**, so a leak there compromises accounts that are not ours. Login is not
+the request path, so a 74 ms KDF is free.
 
 What left, and why it was not a loss:
 
