@@ -16,6 +16,38 @@ below (§N) refer to it. **Read the design document before changing anything on 
 path** — several structural choices there are backed by measurements and will be silently
 undone by a well-intentioned refactor.
 
+## There are no tests right now — verify by running it
+
+**`backend/gateway/tests/` was deleted** (kept in git at `ae52c5b`) while the bounded
+contexts were being carved out. Tests will come back, but only after the structure settles
+and only against a stated bar (see "When tests come back" at the end). **Do not restore the
+old suite wholesale and do not add tests opportunistically** — that is what produced 906
+tests, a large share of which asserted on code shape and broke on every move.
+
+Until then, verification is:
+
+```bash
+# 1. 모든 모듈이 임포트되는가 — 경로가 깨졌으면 여기서 잡힌다
+uv run python -c "
+import importlib, pathlib
+root = pathlib.Path('src/gateway')
+for p in sorted(root.rglob('*.py')):
+    m = ('gateway.' + str(p.relative_to(root))[:-3].replace('/', '.')).removesuffix('.__init__')
+    importlib.import_module(m)
+print('imports ok')"
+
+# 2. ruff
+uv run ruff format . && uv run ruff check .
+
+# 3. 실제 기동 — 이것이 지금의 주된 검증이다
+uv run uvicorn --factory gateway.app:create_app --port 21011
+```
+
+Then exercise the real path: create a key (`gardevoir-createkey`), author a guardrail via
+`/v1/admin/guardrails`, publish it, send a request that should be blocked, and read the
+ClickHouse audit row. Running it end to end catches a class of defect the old suite never
+did — see "The response/cleanup boundary" below.
+
 ## When to use
 
 - Adding or modifying a backend BC.
@@ -23,41 +55,67 @@ undone by a well-intentioned refactor.
 - Touching guardrail compilation or the request evaluation path.
 - NOT for frontend.
 
-## Package layout (uv workspace member, src layout)
+## Package layout
+
+`backend/` is a uv workspace. `shared_kernel` is a library; **`gateway` is the only
+service**, and the bounded contexts live *inside* it as packages — they share one process
+(see "Single deployment" below), so they are not workspace members.
 
 ```
-backend/<bc>/
-├── pyproject.toml            # [project] name="<bc>"; packages=["src/<bc>"]; deps include "shared-kernel"
-├── alembic.ini  alembic/     # async, per-BC
-├── src/<bc>/
-│   ├── settings.py           # <Bc>Settings(BaseAppSettings)
-│   ├── composition.py        # COMPOSITION ROOT: the ONLY place importing infra concretes + fastapi.Depends
-│   ├── domain/
-│   │   ├── models/           # PER-AGGREGATE: <aggregate>.py, enums.py
-│   │   └── exception/        # PER-AGGREGATE catalog: <aggregate>_error.py → <Aggregate>Error(ErrorCatalog)
-│   ├── application/
-│   │   ├── service/          # <Aggregate>Service classes (deps via __init__; methods = use cases)
-│   │   ├── repository/       # WRITE interfaces (Protocol), operate on DOMAIN models
-│   │   ├── dao/              # READ interfaces (Protocol), return RESULT DTOs — never domain
-│   │   ├── port/             # non-DB external capability interfaces (Protocol)
-│   │   ├── plan/             # executable projections (see "Guardrail plan" below)
-│   │   ├── command/          # input DTOs (CamelModel)
-│   │   └── result/           # output DTOs (CamelModel)
-│   ├── infrastructure/
-│   │   ├── models/           # PER-MODEL ORM. __init__ re-exports ALL (metadata registration)
-│   │   ├── mappers/          # PER-AGGREGATE domain<->ORM
-│   │   ├── repository/       # SqlAlchemy<X>Repository
-│   │   ├── dao/              # SqlAlchemy<X>Dao (→ result DTOs)
-│   │   ├── plan/             # compiler + cached plan provider
-│   │   ├── audit/            # ClickHouse sink
-│   │   ├── upstream/         # httpx LLM relay
-│   │   └── engine.py         # lazy @lru_cache get_engine/get_session_factory + dispose_engine()
-│   └── presentation/
-│       └── http/
-│           ├── app.py        # create_app(), middleware/lifespan, router mounting
-│           └── <resource>.py # THIN routers; import ONLY services from composition
-└── tests/                    # mirror layout; TDD
+backend/gateway/src/gateway/
+├── app.py              create_app(): lifespan, middleware, exception handlers, routers
+├── composition.py      COMPOSITION ROOT — the ONLY place importing infra concretes + Depends
+├── contract.py         wire contract (§7): headers, Action/Mode, gardevoir extension
+├── settings.py  cli.py  health.py
+├── infrastructure/     shared by contexts only
+│   ├── engine.py       lazy get_session_factory + dispose_engine
+│   └── orm.py          ORM registration point — imports every model for Base.metadata
+│
+├── identity/           ApiKey — 크레덴셜과 스코프 (§7.2). 두 플레인의 상류
+│   ├── domain/         api_key.py  api_key_error.py
+│   ├── application/    authentication_service.py  api_key_repository.py (port)
+│   └── infrastructure/ sqlalchemy · cached · session-scoped repos, ORM model, mapper
+│
+├── guardrail/          CORE DOMAIN. 세 관심사가 domain/ 의 집합체를 공유한다
+│   ├── domain/         guardrail.py (Guardrail·Node·Edge·VerdictAction·Decision)
+│   ├── definition/     정의·초안·발행·버전 — 컨트롤 플레인 (§5)
+│   │   ├── application/     guardrail_service · command · result · dao/repo ports · transaction
+│   │   ├── infrastructure/  guardrail_model · guardrail_mapper · repository · dao
+│   │   └── presentation/    admin_router.py  → /v1/admin/guardrails
+│   ├── plan/           컴파일 → 명령·슬롯 → 실행 (§6, §11.4)
+│   │   ├── domain/          execution_plan.py (Program·instructions·slots) · executor.py
+│   │   ├── application/     compiler.py · registry.py · guardrail_source.py (port)
+│   │   └── infrastructure/  guardrail_source.py (발행본 읽기)
+│   └── inspection/     체크포인트 ①②③④ → 판정 (§3, §4)
+│       └── application/     inspector · outcome · provenance · text
+│
+├── proxy/              LLM 쿼리 입출력 — 데이터 플레인 (§7, §9)
+│   ├── application/    proxy_service.py · llm_upstream.py (port) · streaming/
+│   ├── infrastructure/ httpx_upstream.py
+│   └── presentation/   chat_router.py  → /v1/chat/completions
+│
+└── audit/              AuditEvent (§10). 저장소가 다르다 — ClickHouse
+    ├── application/    audit_event.py · audit_sink.py (port)
+    └── infrastructure/ clickhouse_sink.py · schema.py
 ```
+
+**Each context has only the layers it needs.** `inspection` is pure logic, so it has no
+infrastructure; `audit` has no domain aggregate beyond its event. Do not create empty
+directories to make the contexts look symmetric.
+
+### Why the boundaries fall here
+
+- **guardrail is the core domain, so it is the big one** (2,713 of 5,588 lines). The other
+  three are supporting. A core domain that is smaller than its supporting contexts is the
+  signal something is misplaced.
+- **`plan` is separate because the model and the storage both change.** `Guardrail`
+  (nodes·edges, Postgres `jsonb`) → `Program` (instructions·slots, **process memory only**).
+  §11.5: compiled artefacts cannot be serialised, so the plan's "storage" is the process.
+- **`audit` is separate because of storage.** §12: the audit path never touches SQLAlchemy.
+- **`identity` is upstream of both planes** (§7.2) — authorisation comes from the credential.
+- **`contract.py` stays at the root.** It is the process-wide wire contract, not any one
+  context's property; putting it in a context would make the other contexts depend on that
+  context just to name a verdict.
 
 ## Single deployment — do not split the backend
 
@@ -160,20 +218,21 @@ In CQRS-lite terms the compiled program is a **read projection** of the guardrai
 exactly like a Dao's Result DTO is a projection of a domain model. It is modelled as one:
 
 ```
-domain/models/guardrail.py                    authored form; pure domain
-application/plan/guardrail_plan.py            GuardrailPlan — instruction array + slot map
-application/port/guardrail_plan_provider.py   Protocol: plan_for(name) -> GuardrailPlan
-infrastructure/plan/compiler.py               domain model -> GuardrailPlan (once, at publish)
-infrastructure/plan/cached_provider.py        in-memory cache + atomic swap
-application/service/evaluation_service.py     plan_provider.plan_for(name), then execute
+guardrail/domain/guardrail.py                     authored form; pure domain
+guardrail/plan/domain/execution_plan.py           ExecutionPlan · Program · instructions · slots
+guardrail/plan/domain/executor.py                 execute(program, Subject) -> ExecutionResult
+guardrail/plan/application/compiler.py            Guardrail -> ExecutionPlan (once, at publish)
+guardrail/plan/application/registry.py            PlanRegistry — in-memory, atomic swap, polling
+guardrail/plan/application/guardrail_source.py    Protocol: 발행본 읽기
+guardrail/inspection/application/inspector.py     체크포인트별 대상 추출 -> execute -> Inspection
 ```
 
 Rules that must hold:
 
-- **`GuardrailPlan` is a slotted dataclass, NOT a `CamelModel`.** Pydantic validation must
+- **`Program` and its instructions are slotted dataclasses, NOT `CamelModel`.** Pydantic validation must
   never run on the request path. The `CamelModel` convention applies to DTOs that cross the
   HTTP boundary; a plan never does.
-- **Nothing recompiles per request.** `plan_for` is a dict lookup. A repository or provider
+- **Nothing recompiles per request.** `PlanRegistry.get` is a dict lookup. A repository or provider
   implementation is free to be an in-memory cache — layering constrains dependency
   direction, not caching.
 - **A request holds one plan for its whole lifetime.** Publishing swaps a reference
@@ -185,83 +244,72 @@ Rules that must hold:
 - **Instruction execution stays a flat loop over an array with a slot array for outputs.**
   No per-node object graph walk, no dict-keyed variable environment.
 
-## Mutation testing against a shared database
+## When tests come back
 
-The suite runs against a real Postgres, so mutation runs need two guards. Both
-were learned the hard way.
+The suite is gone (`ae52c5b`). What follows is what it cost to learn — worth keeping so the
+next suite starts from here rather than rediscovering it.
 
-**1. Restore on any exit.** A killed mutation script leaves the source mutated,
-and the next run measures the wrong code.
+**The bar for writing one.** A test must be able to fail when externally observable
+behaviour breaks. The old suite failed this in three recurring ways, and those are the
+things not to rebuild:
+
+- **Tests that read source and assert on its shape** (`test_layering`, `test_models_registry`
+  parsed the package to check imports and `__tablename__`). They fail on every harmless move
+  and pass while behaviour is broken. AGENTS.md forbids exactly this.
+- **Meta-tests that assert another test can fail** (`test_the_registry_check_can_actually_fail`).
+  If a test needs a test, the first one is testing the wrong thing.
+- **The same property re-asserted from a slightly different angle.** 906 tests for 5,588
+  source lines was mostly this.
+
+Worth rebuilding, in rough priority: the defects that **only a real uvicorn run** exposed
+(publish taking effect one request late; `PUT draft` then `publish` reading a stale draft;
+streaming latency counting upstream generation as ours), and the two **external-contract
+pins** — the OpenAI SDK tolerating our extension field (§11.9) and ClickHouse's handling of
+`DateTime64(3)` (§11.10). Those two exist to make an upstream change visible instead of
+silent, which no amount of our own testing replaces.
+
+**Mutation testing was the gate that earned its keep.** It caught a cross-worker determinism
+bug no in-process test could see. If it returns, three things are required or the numbers
+lie:
+
+- Restore on any exit (`trap restore EXIT INT TERM`), and delete `__pycache__` with the
+  source — a same-length edit restored within the same second is byte-identical in size and
+  mtime, so the stale `.pyc` keeps running.
+- Never let a pytest run be SIGKILLed against the shared Postgres: it leaves a backend `idle
+  in transaction` holding locks, and every later run then blocks in `TRUNCATE`/`drop_all`.
+  The symptom is different failures on each run, which reads like flaky tests rather than a
+  wedged database. Check `pg_stat_activity`, and check for other mutation shells still
+  looping.
+- **Count a hang as CAUGHT**, and read the exit code without a pipe — `$?` after
+  `$(... | tail -3)` is `tail`'s status, always 0, and `PIPESTATUS[0]` does not propagate
+  out of a command substitution:
 
 ```bash
-restore() { git checkout -- src/; find src -name __pycache__ -type d -print0 | xargs -0 rm -rf; }
-trap restore EXIT INT TERM
-```
-
-`__pycache__` must go with it: a same-length edit restored within the same second
-is byte-identical in size and mtime, so both of CPython's invalidation checks pass
-and the stale `.pyc` keeps running.
-
-**2. Never let a pytest run be killed mid-test.** A SIGKILLed pytest leaves its
-Postgres backend `idle in transaction` holding locks on the test tables. Every
-later run then blocks in the session fixture's `TRUNCATE`/`drop_all` — the symptom
-is a *different* set of failures on each run, or a suite that hangs before the
-first test, which reads like flaky tests rather than a wedged database.
-
-Diagnose it:
-
-```sql
-SELECT pid, state, wait_event_type, xact_start, left(query, 60)
-FROM pg_stat_activity WHERE datname = 'gardevoir' AND pid <> pg_backend_pid();
--- 'idle in transaction' holding a lock while others wait on TRUNCATE = wedged
-SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity
-WHERE datname = 'gardevoir' AND pid <> pg_backend_pid();
-```
-
-Also check for *other* mutation scripts still looping — several killed shells can
-survive and run pytest concurrently against the same database, which produces the
-same symptom and is easy to misread as a code defect.
-
-**3. Count a hang as CAUGHT.** A mutation that makes the suite hang looks like
-`SURVIVED` to the obvious classifier, because the killed output contains no
-`failed`/`error` line. Check the exit code:
-
-```bash
-# 파이프를 쓰지 않는다. $? 는 파이프라인의 *마지막* 명령(tail)의 상태다.
 out=$(timeout 300 uv run pytest -q 2>&1); rc=$?
 if [ "$rc" -eq 124 ]; then echo "HANG (=CAUGHT)"
 elif printf '%s' "$out" | grep -qE "[0-9]+ (failed|error)"; then echo CAUGHT
 else echo SURVIVED; fi
 ```
 
-`... | tail -3); rc=$?` 는 늘 0 이다 — `tail` 의 상태를 읽는다. `PIPESTATUS[0]` 도
-명령 치환 안의 파이프라인에는 전파되지 않으니 쓰지 말 것. 출력을 통째로 받아서
-나중에 자르는 것이 유일하게 맞는 형태다.
-
-This misclassified a real result twice: removing `task.cancel()` from a background
-task's `stop()` made every test wait forever on the poller, and both the naive
-classifier *and* the pipeline-based "fix" reported the mutation as surviving.
-
-**4. Commit before mutating, every time.** The `git checkout -- src/` that restores
-a mutation also discards uncommitted source fixes. This has bitten three times in
-this repo — including once *while fixing a survivor*, which silently reverted the
-fix and made the next two mutations report `SKIP` because their target string was
-gone.
+**Commit before mutating.** The `git checkout -- src/` that restores a mutation also discards
+uncommitted source fixes. This has bitten four times in this repo — including once *while
+fixing a survivor*, and once on a file staged by `git mv`, where `checkout --` restored the
+**index** version and silently reinstated the pre-move content.
 
 ## Determinism a single process cannot observe
 
-Instruction order, slot numbers, and anything else derived from iterating a `set`
-of strings varies **between processes** — string hashing is randomised per process.
-Compiling twice in one test always agrees, so a test written that way cannot fail.
+Instruction order, slot numbers, and anything else derived from iterating a `set` of strings
+varies **between processes** — string hashing is randomised per process. Compiling twice in
+one process always agrees, so nothing run in a single process can observe this.
 
-§6 compiles per worker, so an order that varies per worker changes where early exit
-lands, which changes the `checks_fired` recorded for the same request. Pin it by
-compiling in subprocesses with different `PYTHONHASHSEED` and comparing the shape —
-and assert the probe actually produced a shape, or the comparison passes on two
-empty strings.
+§6 compiles per worker, so an order that varies per worker changes where early exit lands,
+which changes the `checks_fired` recorded for the same request — the audit log stops being
+usable for tuning policy.
 
-Prefer removing the dependency over stabilising it: iterate a declared order (a
-tuple, or a dict built from one) rather than sorting a set into place.
+Prefer removing the dependency over detecting it: **iterate a declared order** (a tuple, or a
+dict built from one) rather than sorting a set into place. `compiler._topological` walks
+`self.nodes` in declaration order for this reason; do not "simplify" it to iterate the live
+set.
 
 ## Editing code by string replacement
 
@@ -282,37 +330,31 @@ s = s.replace(old, new, 1)
 Then grep for the new text to confirm it landed. `Edit` (which fails loudly on a
 non-match) is preferable to a scripted `replace` for exactly this reason.
 
-## Behaviour tests cannot see: the response/cleanup boundary
+## The response/cleanup boundary
 
-`httpx.ASGITransport` awaits the **entire** ASGI call, so a FastAPI `yield`
-dependency's cleanup has always finished by the time a test inspects state. Under
-real uvicorn it runs *after the response is sent*. Anything you put in cleanup is
-therefore invisible to tests but observably late in production.
+A FastAPI `yield` dependency's cleanup runs **after the response is sent**. Anything put
+there is therefore late in production — and invisible to any test using
+`httpx.ASGITransport`, which awaits the entire ASGI call before returning.
 
-This produced three defects in one sitting: a publish that took effect one request
-late, a `PUT draft` whose next `publish` read the previous draft, and a compile
-failure that only reached the log. All three were green in the suite.
+This produced three defects in one sitting, all of them green in the suite at the time: a
+publish that took effect one request late, a `PUT draft` whose next `publish` read the
+previous draft, and a compile failure that only reached the log.
 
-**Put "must be true when the caller sees 200" work inside the service**, not in
-dependency cleanup — the application service is the unit-of-work boundary. Commit
-before recompiling (a new session cannot see uncommitted rows), and read your own
-write *before* committing so the request stays one transaction: a read issued after
-the commit opens a second transaction that only closes during cleanup, and that
-open transaction blocks DDL — it wedged the test suite's `TRUNCATE`.
+**Put "must be true when the caller sees 200" work inside the service** — the application
+service is the unit-of-work boundary, not the composition root. Commit before recompiling (a
+new session cannot see uncommitted rows), and read your own write *before* committing so the
+request stays one transaction: a read issued after the commit opens a second transaction that
+only closes during cleanup, and that open transaction blocks DDL.
 
-Verify this class of thing by running real uvicorn and reading the ordering in the
-log. Disable anything that could mask it first (e.g. set a huge
-`GARDEVOIR_PLAN_POLL_INTERVAL_S` so the poller cannot cover for a broken
-immediate refresh).
+Verify by running real uvicorn and reading the ordering in the log. Disable anything that
+could mask it first — set a huge `GARDEVOIR_PLAN_POLL_INTERVAL_S` so the poller cannot cover
+for a broken immediate refresh.
 
-## Alembic autogenerate and the test fixtures
+## Alembic autogenerate
 
-**`alembic revision --autogenerate` will produce an empty migration if the test
-suite has run against the same database.** The session fixture calls
-`Base.metadata.create_all`, so the tables already match the models and autogenerate
-sees no diff. This has bitten twice.
-
-Reset the database to the *migrated* state first:
+**`alembic revision --autogenerate` produces an empty migration if the database already
+matches the models** — e.g. after anything ran `Base.metadata.create_all` against it. This
+has bitten twice. Reset to the *migrated* state first:
 
 ```bash
 docker exec gardevoir-postgres-1 psql -U gardevoir -q \
@@ -321,12 +363,15 @@ uv run alembic upgrade head          # applies the existing chain only
 uv run alembic revision --autogenerate -m "..."
 ```
 
-Then verify the generated file is not `pass`, apply it, and check the
-upgrade/downgrade round trip.
+Then verify the generated file is not `pass`, apply it, and check the upgrade/downgrade
+round trip.
 
-**A new ORM model must also be re-exported from `infrastructure/models/__init__.py`**
-— `alembic/env.py` imports only the package, so a model missing from that file is
-absent from `Base.metadata` and silently absent from the migration.
+**A new ORM model must also be imported from `infrastructure/orm.py`** — `alembic/env.py`
+imports only that module, so a model missing from it is absent from `Base.metadata` and
+silently absent from the migration. The model itself belongs to its context
+(`identity/infrastructure/api_key_model.py`,
+`guardrail/definition/infrastructure/guardrail_model.py`); `orm.py` only guarantees they are
+all imported.
 
 ## Request-path constraints (measured, not aspirational)
 
@@ -348,7 +393,7 @@ The following are load-bearing:
 
 ## Wire contract
 
-`contract.py` in the gateway BC holds header names, `Action`/`Mode`, and the `gardevoir`
+`contract.py` at the gateway root holds header names, `Action`/`Mode`, and the `gardevoir`
 extension object. **Keep it minimal — §7 treats the protocol as the part that is hard to
 change and configuration as the part that is easy.** Adding a field here can break deployed
 applications; adding a guardrail check cannot.
@@ -395,15 +440,21 @@ tool_call blocked  HTTP 200 + finish_reason = "content_filter"
 | Object storage | ClickHouse `TTL` + partition drop covers retention (§10) |
 | Prometheus | The audit log already records per-request latency and verdicts; a second metrics path would split the source of truth (§12) |
 
-## Scaffolding a new BC (order)
+## Adding a bounded context
 
-1. Workspace member `backend/<bc>/`; add to `backend/pyproject.toml` members; `uv sync`.
-2. `domain/models/` aggregates + enums; `domain/exception/<aggregate>_error.py` catalog.
-3. `application/{command,result,repository,dao,port,service}`.
-4. `infrastructure/{models,mappers,repository,dao,engine}` + alembic.
-5. `presentation/http` routers + `app.py`; `composition.py` wiring.
-6. TDD per layer; run `uv run pytest` from `backend/<bc>` (not from `backend/` — it
-   cross-collects sibling packages).
+Contexts are packages inside `gateway`, not workspace members — they share the process.
+
+1. `src/gateway/<bc>/` with **only the layers it needs**. Do not scaffold empty ones.
+2. `domain/` aggregate + `<aggregate>_error.py` catalog, if the context owns an aggregate.
+3. `application/`: service, write repository + read dao Protocols, ports, command/result DTOs.
+4. `infrastructure/`: ORM model, mapper, adapters. Import any new model from
+   `infrastructure/orm.py`.
+5. `presentation/<name>_router.py`; wire in `composition.py`, mount in `app.py`.
+6. Verify by importing every module, `ruff`, and a real uvicorn run (see the top of this file).
+
+**Before adding one, check it is actually a context.** The signals that justified the current
+four: the model changes at the boundary, the storage differs, or the lifecycle differs. "These
+files are related" is not one — that is a package.
 
 ## Common mistakes (vs naive defaults)
 
@@ -413,10 +464,10 @@ tool_call blocked  HTTP 200 + finish_reason = "content_filter"
 | DAO returns domain entities | DAO returns application **result DTOs** |
 | three DTO tiers | **single** application-owned `CamelModel` at the boundary |
 | use cases as loose functions; a class per error | **service classes**; one `ErrorCatalog` enum per aggregate |
-| one `models.py` / one `mappers.py` | per-model files under `infrastructure/models/`, per-aggregate under `infrastructure/mappers/` |
+| one `models.py` / one `mappers.py` | per-model file in the owning context's `infrastructure/`, all imported from `infrastructure/orm.py` |
 | DI in presentation | DI in `composition.py`; presentation never imports infrastructure |
 | per-BC exception handler | reuse `shared_kernel.register_exception_handlers` |
-| `GuardrailPlan` as a `CamelModel` | slotted dataclass — Pydantic must not run on the request path |
+| `Program` as a `CamelModel` | slotted dataclass — Pydantic must not run on the request path |
 | walking the guardrail DAG per request | compile at publish, execute a flat instruction array (§11.4) |
 | `import re` | `import re2` — always |
 | `json.loads` | `orjson.loads` |
