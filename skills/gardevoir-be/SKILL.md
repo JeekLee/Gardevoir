@@ -589,7 +589,7 @@ tool_call blocked  HTTP 200 + finish_reason = "content_filter"
 | Absent | Why |
 |---|---|
 | Kafka / outbox / CDC / domain events | Nothing publishes events (§12) |
-| Redis for taint / approvals | Taint tracking is stateless — the `messages` array carries the full history (§7.4). Approvals are low-volume and live in Postgres. **Redis is used, but only for refresh sessions**: TTL expiry means the store cannot grow unboundedly, and the refresh path is not latency-sensitive. Do not extend it to the proxy request path — a localhost GET is 91 µs against a 0.287 µs dict lookup |
+| Redis for taint / approvals | Taint tracking is stateless — the `messages` array carries the full history (§7.4). Approvals are low-volume and live in Postgres. **Redis is used, but only for refresh sessions**: TTL expiry means the store cannot grow unboundedly, and the refresh path is not latency-sensitive. Persistence is off, which is also why the session token is stored as-is rather than hashed — nothing is ever written to disk, so the leaked-dump threat that would justify hashing does not exist. **Turning persistence on would change that.** Do not extend it to the proxy request path — a localhost GET is 91 µs against a 0.287 µs dict lookup |
 | JWT / `Principal` / header-trust auth | Callers authenticate with a gardevoir-issued API key; app identity comes from the credential, never a header (§7.2) |
 | Celery | No background fan-out; asyncio tasks suffice |
 | Object storage | ClickHouse `TTL` + partition drop covers retention (§10) |
