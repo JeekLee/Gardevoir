@@ -5,18 +5,26 @@
 
 - 컴파일된 계획이 그래프를 매번 걷는 것보다 훨씬 빠르다 (§11.4: 10배)
 - 합친 regex 가 개별 실행보다 훨씬 빠르다 (§11.2)
+- 겹치는 윈도우가 청크당 비용을 평탄하게 만든다 (§9)
 
 실제 측정값은 설계 문서 §11 에 기록한다.
 """
 
+import asyncio
+import statistics
 import time
 
+import orjson
 import pytest
 import re2
 
+from gateway.application.inspection.inspector import Inspector
 from gateway.application.plan.compiler import compile_guardrail
 from gateway.application.plan.execution_plan import RegexOne, RegexSet
 from gateway.application.plan.executor import Subject, execute
+from gateway.application.streaming.holdback import Holdback
+from gateway.application.streaming.relay import StreamRelay
+from gateway.contract import Mode
 from gateway.domain.models.guardrail import (
     Decision,
     Edge,
@@ -373,3 +381,242 @@ def test_a_request_sized_plan_compiles_as_a_background_cost():
     elapsed = _median_ms(lambda: compile_guardrail(guardrail), repeats=11)
     print(f"  컴파일 1개 (명령 ~250개): {elapsed:.3f} ms")
     assert elapsed < 100
+
+
+# --- 스트리밍 (§9) ------------------------------------------------------------
+
+#: 영어 62자. 청크 하나를 흉내내는 단위 — 실제 델타는 토큰 하나(~4자)지만, 그러면
+#: 청크 수가 커져 측정 시간이 길어진다. 청크당 비용이 관심사이므로 단위는 무관하다.
+STREAM_CHUNK = "The quarterly report shows steady growth across every region. "
+STREAM_CHUNKS = 400
+RRN = "900101-1234567"
+
+
+class _StubRegistry:
+    def __init__(self, plan):
+        self._plan = plan
+
+    def get(self, name):
+        return self._plan
+
+
+def _stream_setup(pattern_count: int = 90):
+    """③ 계획(패턴 다수, BLOCK)과 그것을 물린 검사기 — 비용 측정용."""
+    source = _synthetic(pattern_count, name="stream")
+    guardrail = Guardrail(
+        name="stream",
+        version="1",
+        version_number=1,
+        nodes=tuple(
+            Node(id="e", type=NodeType.EXTRACT, config={"checkpoint": "output"})
+            if node.id == "e"
+            else node
+            for node in source.nodes
+        ),
+        edges=source.edges,
+    )
+    plan = compile_guardrail(guardrail)
+    program = plan.program_for("output")
+    assert program is not None
+    return plan, program, Inspector(plans=_StubRegistry(plan))
+
+
+def _mask_setup():
+    """③ MASK 계획 — 구간을 돌려받아야 탐지 여부를 볼 수 있다.
+
+    MASK 는 extract 를 직접 읽는 regex 에만 걸 수 있으므로 (컴파일러의 제약) 여기서는
+    transform 을 끼우지 않는다.
+    """
+    guardrail = Guardrail(
+        name="mask",
+        version="1",
+        version_number=1,
+        nodes=(
+            Node(id="e", type=NodeType.EXTRACT, config={"checkpoint": "output"}),
+            Node(id="r", type=NodeType.REGEX, config={"pattern": r"\d{6}-\d{7}"}),
+            Node(
+                id="v",
+                type=NodeType.VERDICT,
+                config={"decision": "conclusive", "action": "mask"},
+            ),
+        ),
+        edges=(Edge("e", "r"), Edge("r", "v")),
+    )
+    guardrail.validate()
+    plan = compile_guardrail(guardrail)
+    program = plan.program_for("output")
+    assert program is not None
+    return program, Inspector(plans=_StubRegistry(plan))
+
+
+def _windowed_costs(program, inspector, *, window: int) -> list[float]:
+    """§9 의 방식 — 직전 ``window`` 자 + 새 청크만 검사한다."""
+    hold = Holdback(chars=128, window=window)
+    costs = []
+    for _ in range(STREAM_CHUNKS):
+        hold.append(STREAM_CHUNK)
+        start = time.perf_counter()
+        text, _offset = hold.inspection_window()
+        inspector.stream_text(program, text, mode=Mode.ENFORCE)
+        costs.append((time.perf_counter() - start) * 1000)
+        hold.release()
+    return costs
+
+
+def _whole_buffer_costs(program, inspector) -> list[float]:
+    """윈도우가 막는 것 — 누적 전체를 매 청크마다 다시 스캔한다."""
+    costs = []
+    buffer = ""
+    for _ in range(STREAM_CHUNKS):
+        buffer += STREAM_CHUNK
+        start = time.perf_counter()
+        inspector.stream_text(program, buffer, mode=Mode.ENFORCE)
+        costs.append((time.perf_counter() - start) * 1000)
+    return costs
+
+
+def _mean(costs: list[float]) -> float:
+    return statistics.mean(costs)
+
+
+def test_the_sliding_window_keeps_the_per_chunk_cost_flat():
+    """§9 가 겹치는 윈도우를 쓰는 이유 — 누적 재스캔은 O(n²) 다.
+
+    실측(§11.11): 윈도우는 청크당 0.005 ms 로 평탄하고, 누적 재스캔은 처음 50개
+    0.006 ms 에서 마지막 50개 0.035 ms 로 5.4배 커진다. 스트림이 길어질수록 벌어지므로
+    긴 응답에서 먼저 아프다.
+    """
+    _plan_obj, program, inspector = _stream_setup()
+    windowed = _windowed_costs(program, inspector, window=512)
+    whole = _whole_buffer_costs(program, inspector)
+
+    windowed_growth = _mean(windowed[-50:]) / _mean(windowed[:50])
+    whole_growth = _mean(whole[-50:]) / _mean(whole[:50])
+    print(
+        f"\n  청크당 (청크 {STREAM_CHUNKS}개, 누적 {STREAM_CHUNKS * len(STREAM_CHUNK)}자): "
+        f"윈도우 {statistics.median(windowed):.4f} ms (증가 {windowed_growth:.2f}배) / "
+        f"누적 재스캔 {statistics.median(whole):.4f} ms (증가 {whole_growth:.2f}배)"
+    )
+    print(f"  스트림 전체: 윈도우 {sum(windowed):.2f} ms / 누적 재스캔 {sum(whole):.2f} ms")
+
+    assert windowed_growth < 2, "윈도우가 누적 길이에 끌려가고 있다 — 경계가 풀렸다"
+    assert whole_growth > 2, "비교 대상이 자라지 않는다 — 이 측정은 근거가 못 된다"
+    assert sum(windowed) < sum(whole), "윈도우의 이득이 사라졌다 — §9 를 다시 재야 한다"
+
+
+def test_the_relay_cost_per_chunk_is_negligible_against_generation():
+    """§9 결정 5: 청크마다 검사해도 생성 속도(50 tok/s = 20 ms/토큰) 대비 무해하다.
+
+    실측(§11.11): SSE 파싱·합성까지 포함해 청크당 9.8 µs. 토큰 하나 만드는 시간의
+    0.05% 다. 여기에는 홀드백 지연이 포함되지 않는다 — 그것은 별도 성질이다.
+    """
+    plan, _program, inspector = _stream_setup()
+
+    def frame(**delta) -> bytes:
+        return (
+            b"data: "
+            + orjson.dumps(
+                {
+                    "id": "c",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
+                }
+            )
+            + b"\n\n"
+        )
+
+    raws = [
+        frame(role="assistant"),
+        *[frame(content=STREAM_CHUNK) for _ in range(STREAM_CHUNKS)],
+        b'data: {"id":"c","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+        b"data: [DONE]\n\n",
+    ]
+
+    async def upstream():
+        for raw in raws:
+            yield raw
+
+    async def relay_once() -> float:
+        relay = StreamRelay(
+            inspector=inspector,
+            plan=plan,
+            mode=Mode.ENFORCE,
+            tainted=False,
+            payload={"messages": []},
+            holdback_chars=128,
+            window_chars=512,
+        )
+        async for _chunk in relay.relay(upstream()):
+            pass
+        return relay.outcome.processing_ms
+
+    totals, inspections = [], []
+    for _ in range(11):
+        start = time.perf_counter()
+        inspections.append(asyncio.run(relay_once()))
+        totals.append((time.perf_counter() - start) * 1000)
+    totals.sort()
+    inspections.sort()
+    total = totals[len(totals) // 2]
+    inspection = inspections[len(inspections) // 2]
+    print(
+        f"  중계기 (청크 {STREAM_CHUNKS}개): 전체 {total:.2f} ms "
+        f"({total / STREAM_CHUNKS * 1000:.1f} µs/청크), "
+        f"검사만 {inspection:.2f} ms ({inspection / STREAM_CHUNKS * 1000:.1f} µs/청크)"
+    )
+
+    per_chunk_ms = total / STREAM_CHUNKS
+    assert per_chunk_ms < 2, "청크당 비용이 토큰 생성 시간(20 ms)에 근접했다"
+
+
+@pytest.mark.parametrize("chars", [0, 32, 128, 512])
+def test_the_holdback_delay_is_exactly_its_size_in_characters(chars):
+    """홀드백이 만드는 지연은 정확히 ``chars`` 자만큼의 생성 시간이다.
+
+    §9 는 "홀드백 32토큰 / 50 tok/s = 640 ms" 라고 쓴다. 우리 단위는 문자이므로
+    영어 ~4자/토큰을 대입해야 그 수가 나온다: 128자 = 32토큰 = 640 ms. 한국어는
+    자당 토큰이 더 많아 같은 문자 수가 더 짧은 시간이 된다.
+    """
+    hold = Holdback(chars=chars, window=512)
+    arrived = 0
+    for _ in range(20):
+        hold.append(STREAM_CHUNK)
+        arrived += len(STREAM_CHUNK)
+        hold.release()
+
+    lag = arrived - hold.emitted
+    print(
+        f"  홀드백 {chars:>3}자: 지연 {lag:>3}자 (영어 4자/토큰·50 tok/s => {lag / 4 * 20:.0f} ms)"
+    )
+    assert lag == chars, "홀드백이 약속한 만큼 붙들고 있지 않다"
+
+
+@pytest.mark.parametrize(
+    ("window", "expected_prefix"),
+    [(8, 8), (512, len(RRN) - 1)],
+)
+def test_the_window_bounds_what_a_split_pattern_can_hide(window, expected_prefix):
+    """윈도우 크기가 곧 "경계 앞에 얼마나 놓을 수 있는가" 다.
+
+    청크 A 가 패턴의 앞 p자로 끝나면, p <= window 일 때만 잡힌다. 실측(§11.11):
+    윈도우 8자는 8자까지, 512자는 13자(=패턴 14자에서 가능한 최대 분할)까지 잡는다.
+    기본 512자면 어떤 현실적인 패턴도 경계에 숨길 수 없다.
+    """
+    program, inspector = _mask_setup()
+
+    def caught(prefix_len: int) -> bool:
+        hold = Holdback(chars=128, window=window)
+        found = False
+        for piece in ("x" * 100 + RRN[:prefix_len], RRN[prefix_len:] + " 입니다"):
+            hold.append(piece)
+            text, _offset = hold.inspection_window()
+            _verdict, spans = inspector.stream_text(program, text, mode=Mode.ENFORCE)
+            found = found or bool(spans)
+            hold.release()
+        return found
+
+    boundary = max((p for p in range(1, len(RRN)) if caught(p)), default=0)
+    print(f"  윈도우 {window:>3}자: 경계 앞 조각 {boundary}자까지 잡는다 (패턴 {len(RRN)}자)")
+    assert boundary == expected_prefix
