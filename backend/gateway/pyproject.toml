@@ -2,7 +2,7 @@
 name = "gateway"
 version = "0.1.0"
 description = "gardevoir gateway BC: OpenAI-compatible guardrail proxy"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "shared-kernel",
     "fastapi>=0.141.1",
