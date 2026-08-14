@@ -13,7 +13,6 @@ import logging
 import pathlib
 from contextlib import asynccontextmanager
 
-import clickhouse_connect
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -37,6 +36,7 @@ from gateway.identity.presentation import admin_router as api_key_router
 from gateway.proxy.infrastructure import HttpxUpstream
 from gateway.proxy.presentation import chat_router
 from gateway.settings import GatewaySettings, get_settings
+from shared_kernel.clickhouse import dispose_clickhouse, get_clickhouse_client
 from shared_kernel.database import dispose_engine, get_session_factory
 from shared_kernel.exception import ErrorCode, error_response, register_exception_handlers
 from shared_kernel.log import RequestContextMiddleware, configure_logging
@@ -124,14 +124,7 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
 
         await _bootstrap_admin_key(settings, factory)
 
-        ch = settings.clickhouse
-        clickhouse = clickhouse_connect.get_client(
-            host=ch.host,
-            port=ch.port,
-            username=ch.user,
-            password=ch.password,
-            database=ch.database,
-        )
+        clickhouse = get_clickhouse_client(settings.clickhouse)
         app.state.clickhouse = clickhouse
         # 감사 스키마를 여기서 적용한다. CREATE TABLE IF NOT EXISTS 라 멱등이고,
         # 별도 명령으로 두면 배포 절차가 하나 늘고 빠뜨리면 첫 요청에서 터진다.
@@ -169,6 +162,8 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
             await app.state.audit_sink.stop()
             await http_client.aclose()
             await dispose_engine()
+            # clickhouse-connect 는 동기다. 닫지 않으면 HTTP 커넥션 풀이 남는다.
+            dispose_clickhouse()
 
     # 스펙은 debug 에서만 열린다. 기본값으로 두면 /openapi.json 이 익명으로 컨트롤
     # 플레인 경로 전체를 알려주므로, infra/README.md 가 권하는 완화책
