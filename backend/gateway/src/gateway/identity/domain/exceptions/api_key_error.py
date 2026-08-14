@@ -37,3 +37,8 @@ class ApiKeyError(ErrorCatalog):
     #: 위험이 없고, 운영자가 왜 거절인지 알 수 있다.
     REVOKED = ("APIKEY-008", "this API key has been revoked", UnauthorizedError)
     EXPIRED = ("APIKEY-009", "this API key has expired", UnauthorizedError)
+    EXPIRY_IN_PAST = (
+        "APIKEY-010",
+        "an expiry must be in the future; use revoke to disable a key now",
+        ValidationError,
+    )
