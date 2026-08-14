@@ -431,6 +431,10 @@ The following are load-bearing:
   and is covered by a TTL in-memory cache. The cache key is the sha256 of the raw key, never
   the raw key itself.
 - **`orjson` only** for JSON. `json` is 2.3× slower and the streaming path parses per chunk (§11.7).
+- **Python 3.14** (`backend/.python-version`). `uuid.uuid7()` for mutable-state PKs comes from
+  the stdlib — do not add a UUIDv7 library. The upgrade from 3.12 changed nothing measurable on
+  the request path: pure-Python loops got 1.6× faster but §11.4's per-request figure moved
+  0.269 → 0.260 ms, because that path is dominated by re2 (C++), not by the interpreter.
 - **`re2` only** for regex — never `re`. `(a+)+$` against 26 characters takes 8.9 s in
   Python `re` and 0.034 ms in `google-re2` (§11.1). A policy author's typo would otherwise
   become a denial-of-service switch. Use `re2.Set` to match many patterns in one pass —

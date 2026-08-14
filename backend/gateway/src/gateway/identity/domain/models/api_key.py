@@ -14,10 +14,9 @@ Persistence-ignorant: no SQLAlchemy, no FastAPI, no httpx.
 import secrets
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid7
 
 from gateway.identity.domain.exceptions.api_key_error import ApiKeyError
-from shared_kernel.database import uuid7
 
 _KEY_PREFIX = "gdv_live_"
 _TOKEN_BYTES = 32
@@ -36,7 +35,7 @@ class ApiKey:
     revoked_at: datetime | None = None
 
     @classmethod
-    def issue(cls, *, name: str, user_id: UUID, expires_at: datetime | None = None) -> "ApiKey":
+    def issue(cls, *, name: str, user_id: UUID, expires_at: datetime | None = None) -> ApiKey:
         """Mint a new credential."""
         return cls(
             id=uuid7(),
@@ -57,7 +56,7 @@ class ApiKey:
         if self.expires_at is not None and self.expires_at <= datetime.now(UTC):
             ApiKeyError.EXPIRED.raise_(details={"id": str(self.id)})
 
-    def revoke(self) -> "ApiKey":
+    def revoke(self) -> ApiKey:
         """회수된 사본. 이미 회수됐으면 그대로 돌려준다 — 회수는 멱등이다.
 
         행을 지우지 않는 이유: 감사 로그가 ``api_key_id`` 를 참조하므로, 지우면 과거

@@ -12,7 +12,7 @@ class Mode(StrEnum):
     DRY_RUN = "dry-run"
 
     @classmethod
-    def parse(cls, raw: str | None) -> "Mode":
+    def parse(cls, raw: str | None) -> Mode:
         """Unknown or missing values fall back to enforce — never fail open."""
         if not raw:
             return cls.ENFORCE
