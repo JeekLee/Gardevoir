@@ -12,7 +12,6 @@ from gateway.identity.application.user_result import LoginResult, TokenPair
 from gateway.identity.domain.exceptions.session_error import SessionError
 from gateway.identity.domain.exceptions.user_error import UserError
 from gateway.identity.domain.models.refresh_session import RefreshSession
-from gateway.identity.domain.models.refresh_token import RefreshToken
 from gateway.identity.domain.models.user import User, normalise_email
 
 logger = logging.getLogger(__name__)
@@ -58,7 +57,7 @@ class AuthService:
 
         회전하지 않으면 탈취된 리프레시 토큰을 만료까지 계속 쓸 수 있다.
         """
-        session = await self._sessions.find_by_token_hash(RefreshToken(cmd.refresh_token).hash)
+        session = await self._sessions.find_by_token(cmd.refresh_token)
         if session is None:
             SessionError.INVALID.raise_()
         session.ensure_active()
@@ -74,19 +73,17 @@ class AuthService:
         return pair
 
     async def logout(self, refresh_token: str) -> None:
-        session = await self._sessions.find_by_token_hash(RefreshToken(refresh_token).hash)
+        session = await self._sessions.find_by_token(refresh_token)
         if session is not None:
             await self._sessions.remove(session)
         await self._commit()
 
     async def _issue(self, user: User) -> TokenPair:
-        token = RefreshToken.generate()
-        await self._sessions.add(
-            RefreshSession.issue(user_id=user.id, token=token, ttl=self._refresh_ttl)
-        )
+        session = RefreshSession.issue(user_id=user.id, ttl=self._refresh_ttl)
+        await self._sessions.add(session)
         return TokenPair(
             access_token=self._tokens.encode(user_id=user.id, email=user.email, role=user.role),
-            refresh_token=token.value,
+            refresh_token=session.token,
             expires_in=self._tokens.ttl_seconds,
         )
 

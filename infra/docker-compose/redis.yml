@@ -2,6 +2,7 @@ services:
   redis:
     image: redis:8-alpine
     # 세션은 TTL 이 지우고, 잃어도 재로그인이면 된다 — 영속화를 켜지 않는다.
+    # 세션 토큰을 해시하지 않고 그대로 담는 근거가 이것이다. 켜면 그 근거가 사라진다.
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports: ["${REDIS_PORT}:6379"]
     mem_limit: ${REDIS_MEM_LIMIT}
