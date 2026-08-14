@@ -68,7 +68,6 @@ backend/gateway/src/gateway/
 │                       also middleware, exception handlers, and router mounting, which is
 │                       where API_PREFIX ("/v1") lives — routers declare only their sub-path
 ├── settings.py  health.py
-├── orm.py              ORM registration point — imports every model for Base.metadata
 │
 ├── identity/           ApiKey — 크레덴셜과 스코프 (§7.2). 두 플레인의 상류
 │   ├── domain/         api_key.py  api_key_error.py
@@ -395,12 +394,17 @@ uv run alembic revision --autogenerate -m "..."
 Then verify the generated file is not `pass`, apply it, and check the upgrade/downgrade
 round trip.
 
-**A new ORM model must also be imported from `gateway/orm.py`** — `alembic/env.py` imports
-only that module, so a model missing from it is absent from `Base.metadata` and silently
-absent from the migration. The model itself belongs to its context
+**A new ORM model needs no registration step.** `alembic/env.py` walks the whole `gateway`
+package with `pkgutil.walk_packages` and imports every module, so every `Base` subclass reaches
+`Base.metadata` wherever it lives. The model belongs to its context
 (`identity/infrastructure/api_key_model.py`,
-`guardrail/definition/infrastructure/guardrail_model.py`); `orm.py` only guarantees they are
-all imported.
+`guardrail/definition/infrastructure/guardrail_model.py`) and that is the only place it needs
+to exist.
+
+There used to be a hand-written manifest (`gateway/orm.py`) whose own docstring warned that a
+model missing from it would be silently absent from migrations. A list that has to be
+remembered, guarding against forgetting — the walk removes the failure mode instead of
+documenting it. It costs 269 ms, on a path that is not the request path.
 
 ## Request-path constraints (measured, not aspirational)
 
