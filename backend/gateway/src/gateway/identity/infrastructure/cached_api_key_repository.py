@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable
 
 from gateway.identity.application.api_key_repository import ApiKeyRepository
-from gateway.identity.domain.api_key import ApiKey
+from gateway.identity.domain.models.api_key import ApiKey
 
 
 class CachedApiKeyRepository:

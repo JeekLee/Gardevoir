@@ -6,7 +6,7 @@ only moves the surrounding columns.
 """
 
 from gateway.guardrail.definition.infrastructure.guardrail_model import GuardrailModel
-from gateway.guardrail.domain.guardrail import Guardrail
+from gateway.guardrail.domain.models.guardrail import Guardrail
 
 
 def to_domain(row: GuardrailModel) -> Guardrail:

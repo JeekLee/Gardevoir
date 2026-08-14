@@ -6,7 +6,7 @@ Repository operates on the domain aggregate. 읽기는 Dao 가 result DTO 로 �
 
 from typing import Protocol
 
-from gateway.identity.domain.api_key import ApiKey
+from gateway.identity.domain.models.api_key import ApiKey
 
 
 class ApiKeyRepository(Protocol):

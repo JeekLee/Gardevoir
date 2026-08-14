@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from gateway.guardrail.domain.guardrail import VerdictAction
+from gateway.guardrail.domain.models.guardrail import VerdictAction
 
 #: 가려진 자리에 넣는 문자열. 무엇이 지워졌는지 사용자가 알 수 있어야 한다 (§9).
 MASK_PLACEHOLDER = "[개인정보 삭제됨]"

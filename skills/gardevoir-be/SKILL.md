@@ -70,20 +70,25 @@ backend/gateway/src/gateway/
 ├── settings.py  health.py
 │
 ├── identity/           ApiKey — 크레덴셜과 스코프 (§7.2). 두 플레인의 상류
-│   ├── domain/         api_key.py  api_key_error.py
+│   ├── domain/
+│   │   ├── models/         api_key.py
+│   │   └── exceptions/     api_key_error.py
 │   ├── application/    authentication_service.py · api_key_service.py · repo/dao ports · DTOs
 │   ├── composition.py  request-scoped wiring + require_admin_scope (AdminScopeDep)
 │   ├── presentation/   admin_router.py  → /v1/admin/api-keys
 │   └── infrastructure/ sqlalchemy · cached · session-scoped repos, dao, ORM model, mapper
 │
 ├── guardrail/          CORE DOMAIN. 세 관심사가 domain/ 의 집합체를 공유한다
-│   ├── domain/         guardrail.py (Guardrail·Node·Edge·VerdictAction·Decision) · mode.py
+│   ├── domain/
+│   │   ├── models/         guardrail.py (Guardrail·Node·Edge·VerdictAction·Decision) · mode.py
+│   │   └── exceptions/     guardrail_error.py
 │   ├── definition/     정의·초안·발행·버전 — 컨트롤 플레인 (§5)
 │   │   ├── application/     guardrail_service · command · result · dao/repo ports · transaction
 │   │   ├── infrastructure/  guardrail_model · guardrail_mapper · repository · dao
 │   │   └── presentation/    admin_router.py  → /v1/admin/guardrails
 │   ├── plan/           컴파일 → 명령·슬롯 → 실행 (§6, §11.4)
-│   │   ├── domain/          execution_plan.py (Program·instructions·slots) · executor.py
+│   │   ├── domain/          models/execution_plan.py (Program·instructions·slots)
+│   │   │                    executor.py — 도메인 서비스라 층 루트에 둔다
 │   │   ├── application/     compiler.py · registry.py · guardrail_source.py (port)
 │   │   └── infrastructure/  guardrail_source.py (발행본 읽기)
 │   ├── inspection/     체크포인트 ①②③④ → 판정 (§3, §4)
@@ -166,6 +171,9 @@ rather than external.
 
 - **domain** — pure / persistence-ignorant. May import only `shared_kernel.exception`
   category bases (for the ErrorCatalog). NO SQLAlchemy / FastAPI / httpx.
+  Split into `models/` (aggregates, value objects, enums) and `exceptions/` (one
+  `ErrorCatalog` per aggregate). Anything that is neither — a domain service such as
+  `plan/domain/executor.py` — sits at the layer root rather than being forced into one.
 - **application** — depends on domain. Owns repository(write) + dao(read) + port Protocols,
   plan types, command/result DTOs, service classes.
 - **infrastructure** — implements application ports. SQLAlchemy, httpx, clickhouse-connect,
@@ -513,7 +521,8 @@ tool_call blocked  HTTP 200 + finish_reason = "content_filter"
 Contexts are packages inside `gateway`, not workspace members — they share the process.
 
 1. `src/gateway/<bc>/` with **only the layers it needs**. Do not scaffold empty ones.
-2. `domain/` aggregate + `<aggregate>_error.py` catalog, if the context owns an aggregate.
+2. `domain/models/` aggregate + `domain/exceptions/<aggregate>_error.py` catalog, if the
+   context owns an aggregate.
 3. `application/`: service, write repository + read dao Protocols, ports, command/result DTOs.
 4. `infrastructure/`: ORM model, mapper, adapters. Import any new model from `gateway/orm.py`.
 5. `<bc>/composition.py` for request-scoped wiring; `presentation/<name>_router.py` importing

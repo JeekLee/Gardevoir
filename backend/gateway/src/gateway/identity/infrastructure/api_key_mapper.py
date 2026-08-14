@@ -1,6 +1,6 @@
 """ApiKey domain <-> ORM mapping."""
 
-from gateway.identity.domain.api_key import ApiKey, Scope
+from gateway.identity.domain.models.api_key import ApiKey, Scope
 from gateway.identity.infrastructure.api_key_model import ApiKeyModel
 
 

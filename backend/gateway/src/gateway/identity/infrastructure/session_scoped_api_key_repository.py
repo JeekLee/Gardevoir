@@ -12,7 +12,7 @@
 
 from collections.abc import Callable
 
-from gateway.identity.domain.api_key import ApiKey
+from gateway.identity.domain.models.api_key import ApiKey
 from gateway.identity.infrastructure.api_key_repository import SqlAlchemyApiKeyRepository
 
 

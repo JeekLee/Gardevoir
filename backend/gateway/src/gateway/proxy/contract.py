@@ -12,8 +12,8 @@
 
 from enum import StrEnum
 
-from gateway.guardrail.domain.guardrail import VerdictAction
-from gateway.guardrail.domain.mode import Mode
+from gateway.guardrail.domain.models.guardrail import VerdictAction
+from gateway.guardrail.domain.models.mode import Mode
 
 HEADER_GUARDRAIL = "X-Gardevoir-Guardrail"
 HEADER_MODE = "X-Gardevoir-Mode"

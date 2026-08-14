@@ -15,8 +15,8 @@ from gateway.identity.application.api_key_command import CreateApiKey
 from gateway.identity.application.api_key_dao import ApiKeyDao
 from gateway.identity.application.api_key_repository import ApiKeyRepository
 from gateway.identity.application.api_key_result import ApiKeyCreated, ApiKeySummary
-from gateway.identity.domain.api_key import ApiKey, Scope, generate_key, hash_key
-from gateway.identity.domain.api_key_error import ApiKeyError
+from gateway.identity.domain.exceptions.api_key_error import ApiKeyError
+from gateway.identity.domain.models.api_key import ApiKey, Scope, generate_key, hash_key
 from shared_kernel.api import Page
 
 logger = logging.getLogger(__name__)

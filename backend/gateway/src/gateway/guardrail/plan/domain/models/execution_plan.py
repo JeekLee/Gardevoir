@@ -10,7 +10,7 @@
 
 from dataclasses import dataclass, field
 
-from gateway.guardrail.domain.guardrail import Decision, VerdictAction
+from gateway.guardrail.domain.models.guardrail import Decision, VerdictAction
 
 
 @dataclass(frozen=True, slots=True)

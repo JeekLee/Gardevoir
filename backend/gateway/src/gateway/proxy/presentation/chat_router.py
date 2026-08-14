@@ -7,9 +7,9 @@ response. No infrastructure imports (skills/gardevoir-be).
 from fastapi import APIRouter, Request
 from fastapi.responses import Response, StreamingResponse
 
-from gateway.guardrail.domain.mode import Mode
+from gateway.guardrail.domain.models.mode import Mode
 from gateway.identity.composition import AuthenticationServiceDep
-from gateway.identity.domain.api_key import Scope
+from gateway.identity.domain.models.api_key import Scope
 from gateway.proxy.application.proxy_service import wants_stream
 from gateway.proxy.composition import ProxyServiceDep
 from gateway.proxy.contract import HEADER_GUARDRAIL, HEADER_MODE, HEADER_REQUEST_ID

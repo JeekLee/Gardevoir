@@ -15,7 +15,7 @@ from typing import Any
 
 import re2
 
-from gateway.guardrail.domain.guardrail_error import GuardrailError
+from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
 
 DRAFT_VERSION = "draft"
 
