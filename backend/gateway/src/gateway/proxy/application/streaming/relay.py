@@ -19,8 +19,8 @@ import time
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 
-from gateway.guardrail.domain.guardrail import VerdictAction
-from gateway.guardrail.domain.mode import Mode
+from gateway.guardrail.domain.models.guardrail import VerdictAction
+from gateway.guardrail.domain.models.mode import Mode
 from gateway.guardrail.inspection.application.inspector import (
     CHECKPOINT_OUTPUT,
     CHECKPOINT_TOOL_CALL,
@@ -31,7 +31,7 @@ from gateway.guardrail.inspection.application.outcome import (
     NOT_INSPECTED,
     Inspection,
 )
-from gateway.guardrail.plan.domain.execution_plan import ExecutionPlan, Program
+from gateway.guardrail.plan.domain.models.execution_plan import ExecutionPlan, Program
 from gateway.proxy.application.streaming.accumulator import Accumulator
 from gateway.proxy.application.streaming.holdback import Holdback
 from gateway.proxy.application.streaming.sse import parse_frames, render, render_done

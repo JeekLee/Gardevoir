@@ -7,7 +7,7 @@
 
 from datetime import datetime
 
-from gateway.identity.domain.api_key import Scope
+from gateway.identity.domain.models.api_key import Scope
 from shared_kernel.api import CamelModel
 
 

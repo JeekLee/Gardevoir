@@ -8,8 +8,8 @@
 
 from dataclasses import dataclass
 
-from gateway.guardrail.domain.guardrail import Decision, VerdictAction
-from gateway.guardrail.plan.domain.execution_plan import (
+from gateway.guardrail.domain.models.guardrail import Decision, VerdictAction
+from gateway.guardrail.plan.domain.models.execution_plan import (
     All,
     Extract,
     Length,

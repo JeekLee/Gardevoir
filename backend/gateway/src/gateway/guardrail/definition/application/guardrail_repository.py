@@ -7,7 +7,7 @@ read side is ``application/dao/guardrail_dao.py`` and returns Result DTOs (§5).
 
 from typing import Protocol
 
-from gateway.guardrail.domain.guardrail import Guardrail
+from gateway.guardrail.domain.models.guardrail import Guardrail
 
 
 class GuardrailRepository(Protocol):

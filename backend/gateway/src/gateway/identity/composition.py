@@ -16,7 +16,7 @@ from fastapi import Depends, Request
 
 from gateway.identity.application.api_key_service import ApiKeyService
 from gateway.identity.application.authentication_service import AuthenticationService
-from gateway.identity.domain.api_key import Scope
+from gateway.identity.domain.models.api_key import Scope
 from gateway.identity.infrastructure.api_key_dao import SqlAlchemyApiKeyDao
 from gateway.identity.infrastructure.api_key_repository import SqlAlchemyApiKeyRepository
 

@@ -18,7 +18,7 @@ import logging
 
 from gateway.guardrail.plan.application.compiler import compile_guardrail
 from gateway.guardrail.plan.application.guardrail_source import GuardrailSource
-from gateway.guardrail.plan.domain.execution_plan import ExecutionPlan
+from gateway.guardrail.plan.domain.models.execution_plan import ExecutionPlan
 
 logger = logging.getLogger(__name__)
 

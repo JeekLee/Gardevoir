@@ -19,8 +19,8 @@ from gateway.guardrail.definition.application.guardrail_result import (
     GuardrailSummary,
 )
 from gateway.guardrail.definition.application.transaction import Transaction
-from gateway.guardrail.domain.guardrail import DRAFT_VERSION, Guardrail, require_valid_name
-from gateway.guardrail.domain.guardrail_error import GuardrailError
+from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
+from gateway.guardrail.domain.models.guardrail import DRAFT_VERSION, Guardrail, require_valid_name
 from gateway.guardrail.plan.application.compiler import compile_guardrail
 from shared_kernel.api import Page
 

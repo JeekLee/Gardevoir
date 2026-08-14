@@ -29,8 +29,8 @@ import orjson
 
 from gateway.audit.application.audit_event import AuditEvent, Checkpoint, new_event_id
 from gateway.audit.application.audit_sink import AuditSink
-from gateway.guardrail.domain.guardrail import VerdictAction
-from gateway.guardrail.domain.mode import Mode
+from gateway.guardrail.domain.models.guardrail import VerdictAction
+from gateway.guardrail.domain.models.mode import Mode
 from gateway.guardrail.inspection.application.inspector import (
     CHECKPOINT_INPUT,
     CHECKPOINT_OUTPUT,
@@ -39,7 +39,7 @@ from gateway.guardrail.inspection.application.inspector import (
     Inspector,
 )
 from gateway.guardrail.inspection.application.outcome import NOT_INSPECTED, TIER_NONE, Inspection
-from gateway.guardrail.plan.domain.execution_plan import ExecutionPlan
+from gateway.guardrail.plan.domain.models.execution_plan import ExecutionPlan
 from gateway.identity.application.authentication_service import AuthenticatedRequest
 from gateway.proxy.application.llm_upstream import LlmUpstream
 from gateway.proxy.application.streaming.relay import StreamRelay
