@@ -74,7 +74,7 @@ backend/gateway/src/gateway/
 │   │   ├── models/         api_key.py
 │   │   └── exceptions/     api_key_error.py
 │   ├── application/    authentication_service.py · api_key_service.py · repo/dao ports · DTOs
-│   ├── composition.py  provide_* + require_role(Role) — no Depends aliases
+│   ├── composition.py  provide_* + require_role(Role) — providers only, no aliases
 │   ├── presentation/   auth_router.py → /v1/auth/*, user_router.py → /v1/users/*
 │   └── infrastructure/ sqlalchemy · cached · session-scoped repos, dao, ORM model, mapper
 │
@@ -158,9 +158,20 @@ instance polls Postgres and compiles into its own memory.
 Ollama (Phase 4) and the Next.js console (Phase 5) are separate processes but not
 our microservices — one is an external dependency, the other a frontend.
 
-**Authorisation, not topology.** Admin routes are gated by the `admin` scope on the
-API key; proxy routes by `proxy`. Identity, allowed guardrails, and scope all come
-from the credential (§7.2) — never from a header.
+**Authorisation, not topology — and not the URL either.** There is no `/admin/**` prefix. A
+route names a resource; who may call it is a property of the caller, so it goes in a dependency:
+`Depends(require_role(Role.ADMIN))` on the routes that need it. `GET /v1/users` (admin) and
+`GET /v1/users/me` (self) are the same resource tree with different permissions, and that reads
+correctly. Everything still comes from the credential (§7.2) — never from a header.
+
+The guard must be a **dependency**, never a check inside the handler body: FastAPI resolves
+sub-dependencies before validating the endpoint's own params, so a dependency that raises gives
+401/403 while a body check would let an unauthorised caller read the schema off a 422. Verified
+over HTTP — `POST /v1/users` with no token and an empty body returns 401.
+
+The prefix used to double as an operational handle ("block `/v1/admin/*` at the ingress"), but
+that mitigation existed *because* the admin surface had no human authentication. It has one now:
+`/v1/auth/login` issues an access token carrying the role.
 
 Splitting becomes worth considering only when one of these is true, and none is
 today: the audit dashboard outgrows serving from the gateway; the approval flow
@@ -180,8 +191,12 @@ rather than external.
   and `re2` compilation live ONLY here.
 - **presentation** — depends on application + its context's composition. **MUST NOT import
   infrastructure.**
-- **`<bc>/composition.py`** — that context's request-scoped wiring: infra concretes → services,
-  exposed as `Annotated[..., Depends(...)]` aliases. `fastapi.Depends` does not leave this file.
+- **`<bc>/composition.py`** — that context's request-scoped wiring: `provide_*` functions that
+  build services out of `app.state`, plus `require_role(Role)`. It exports the providers only.
+  `Annotated[Service, Depends(provide_service)]` is written **in the handler signature that needs
+  it** — not aliased in composition, not aliased at the top of the router. The type a handler
+  receives and the function that builds it then read off that handler with nothing to look up.
+  It repeats; that is the cost of the signature being complete.
 
 ### Wiring is split by lifetime, and the names must say so
 
@@ -234,7 +249,8 @@ depend on any private repository. Keep it to what is actually used.
    domain leakage.
 
 3. **Services are classes.** `<Aggregate>Service.__init__(*, repos/daos/ports)`; methods are
-   use cases. Router depends on the service (single `Depends`).
+   use cases. The handler asks for one inline:
+   `service: Annotated[UserService, Depends(provide_user_service)]`.
 
 4. **Errors = ErrorCatalog enum per aggregate.** Members `NAME = (code, default_message, category)`.
    Code format `<AGGREGATE>-NNN`. Raise via `<Aggregate>Error.X.exception(...)` or `.raise_()`.
