@@ -248,6 +248,53 @@ depend on any private repository. Keep it to what is actually used.
    has configuration, collaborators, or multiple related methods. Inject dependencies through
    `__init__`; expose a narrow method. Value objects and DTOs stay dataclasses/Pydantic.
 
+## Aggregate design — the `ApiKey` worked example
+
+`ApiKey` was reshaped from a nine-field record with three methods down to six fields with four,
+and every step of that came from one question: **is this what the credential *is*, or what it is
+*allowed to do*?** (AGENTS.md, "Domain modelling principles"). The result is worth reading as the
+reference shape:
+
+```python
+@dataclass(frozen=True, slots=True)
+class ApiKey:
+    id: UUID                              # uuid7() — stdlib on 3.14
+    name: str
+    key: str = field(repr=False)          # plaintext; repr=False so logging the aggregate is safe
+    user_id: UUID
+    expires_at: datetime | None = None
+    revoked_at: datetime | None = None    # not a `disabled` bool — *when* matters for audit
+
+    @classmethod
+    def issue(cls, *, name, user_id, expires_at=None) -> "ApiKey"
+    def update(self, *, name, expires_at) -> "ApiKey"
+    def revoke(self) -> "ApiKey"
+    def require_usable(self) -> None
+```
+
+What left, and why it was not a loss:
+
+| Removed | Where it belongs |
+|---|---|
+| `upstream_base_url` · `upstream_api_key` | provider configuration — a secret that several keys can share is not part of one key's identity |
+| `allowed_guardrails` · `default_guardrail` | authorisation attached to the credential, not the credential |
+| `scopes` | same, and the admin surface's authorisation is a separate credential (§14) |
+| `has_scope` · `require_scope` · `resolve_guardrail` | they hung off those fields and left with them |
+| `hash_key` · `generate_key` · `KEY_PREFIX` | folded into `issue()`, which is the only caller |
+
+Three rules the transitions enforce, each because the alternative splits a single answer in two:
+
+- **A revoked key cannot be updated** — extending a dead credential's expiry reads as reviving it.
+- **An expiry cannot be in the past** — otherwise expiry becomes a second revocation path that
+  leaves `revoked_at` empty, and "why is this dead" has two answers. Immediate kill is `revoke()`.
+- **`revoke()` is idempotent** and never deletes the row: the audit log references `api_key_id`,
+  so deleting it makes past records unattributable (§10).
+
+**State transitions belong on the aggregate, not in a targeted `UPDATE`.** The old code did
+`set_disabled(key_id, disabled)` straight to SQL, so "can you revoke twice?" and "can you extend
+an expired key?" had no answer anywhere. `get` → `key.revoke()` → `save` puts those answers in
+one place, and the extra read is off the request path (admin only).
+
 ## Guardrail plan — the executable projection
 
 This is the one pattern that has no counterpart in an ordinary CRUD service, and the one
@@ -427,9 +474,21 @@ documenting it. It costs 269 ms, on a path that is not the request path.
 Total gateway overhead is 0.63 ms/request against a 300–2000 ms upstream call (§11.8).
 The following are load-bearing:
 
-- **No DB and no network on the request path** (§6). Key lookup is the only DB-backed read
-  and is covered by a TTL in-memory cache. The cache key is the sha256 of the raw key, never
-  the raw key itself.
+- **No network hop on the request path** (§6). Measured: a local dict lookup is 0.287 µs, a
+  localhost Redis GET is 91.1 µs (**318×**), and JWT HS256 verification is 3.110 µs (**11×**,
+  and unlike a lookup it cannot be cached). Anything that would put a network round trip or a
+  per-request crypto step in front of every proxied call has to clear that bar first.
+- **Key lookup does hit Postgres, once per request, and that is deliberate.** 1.2 ms at
+  concurrency 8 — 0.4% of a 300–2000 ms upstream call. It replaced a TTL cache whose *misses*
+  were already hitting the DB **inside a request** (0.347 ms, making that request 2.3× slower,
+  on 0.2–1% of traffic), so §6's "no DB on the request path" was only statistically true. What
+  the trade buys: revocation takes effect immediately, and cache invalidation/propagation stops
+  being a concept. What it costs: Postgres down means the proxy cannot serve.
+- **The raw API key is stored in plaintext.** Deliberate and hard to reverse — moving back to
+  hashes invalidates every issued key. The reasoning: in a self-hosted deployment whoever can
+  read the DB is the operator, and `upstream_api_key` (a provider secret that can spend money)
+  was already stored in plaintext beside it. Do not "fix" this back to hashing without saying
+  so out loud.
 - **`orjson` only** for JSON. `json` is 2.3× slower and the streaming path parses per chunk (§11.7).
 - **Python 3.14** (`backend/.python-version`). `uuid.uuid7()` for mutable-state PKs comes from
   the stdlib — do not add a UUIDv7 library. The upgrade from 3.12 changed nothing measurable on
