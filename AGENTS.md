@@ -114,6 +114,8 @@ Add a skill once under `skills/<name>/SKILL.md`; both tools pick it up.
   running `ruff`, and **actually starting the server** — see the `gardevoir-be` skill for the
   commands and the end-to-end smoke path. Do not restore the old suite wholesale and do not
   add tests opportunistically; the bar for the next suite is in that skill.
+- **Python 3.14** — pinned in `backend/.python-version`. `uuid.uuid7()` is stdlib here; do not
+  add a UUIDv7 dependency.
 - Sync deps from `backend/` (the workspace root): `uv sync --all-packages`.
   **`--all-packages` is required.** The root is a virtual workspace with nothing to
   install, so a bare `uv sync` *uninstalls* every member and its dependencies. The

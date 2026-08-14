@@ -144,13 +144,13 @@ class Guardrail:
         require_valid_name(self.name)
 
     @classmethod
-    def draft(cls, name: str, graph: dict) -> "Guardrail":
+    def draft(cls, name: str, graph: dict) -> Guardrail:
         return cls.from_graph(name=name, version=DRAFT_VERSION, version_number=None, graph=graph)
 
     @classmethod
     def from_graph(
         cls, *, name: str, version: str, version_number: int | None, graph: dict
-    ) -> "Guardrail":
+    ) -> Guardrail:
         """Build from the serialised graph.
 
         The domain owns this shape rather than the ORM mapper or a router, because
@@ -187,7 +187,7 @@ class Guardrail:
         self._validate_acyclic()
         self._validate_arity()
 
-    def published_as(self, version_number: int) -> "Guardrail":
+    def published_as(self, version_number: int) -> Guardrail:
         """Return a published copy. The draft itself is left editable (§6)."""
         if not self.is_draft:
             GuardrailError.PUBLISHED_IS_IMMUTABLE.raise_(
