@@ -27,6 +27,16 @@ class GatewaySettings(BaseAppSettings):
     #: 되살아나면 회수가 성립하지 않는다.
     bootstrap_admin_key: str = ""
 
+    #: 액세스 토큰 서명 키. 기본값을 두지 않는다 — 두면 그 값이 곧 취약점이다.
+    #: RFC 7518 §3.2 가 HS256 에 최소 32바이트를 요구한다.
+    jwt_secret: str = Field(min_length=32)
+    access_token_ttl_s: int = Field(default=900, gt=0)
+    refresh_token_ttl_s: int = Field(default=1_209_600, gt=0)
+
+    #: 사용자가 하나도 없을 때만 이 값으로 루트 계정을 만든다. 둘 다 있어야 동작한다.
+    root_email: str = ""
+    root_password: str = ""
+
     audit_batch_size: int = Field(default=100, gt=0)
     audit_flush_interval_s: float = Field(default=1.0, gt=0)
     audit_queue_maxsize: int = Field(default=10_000, gt=0)

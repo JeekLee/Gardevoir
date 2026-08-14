@@ -16,6 +16,9 @@ dependencies = [
     "pydantic-settings>=2.3",
     "python-ulid>=3.0",
     "google-re2>=1.1",
+    "pyjwt>=2.10",
+    "pydantic[email]>=2.13",
+    "redis>=6.0",
 ]
 
 [dependency-groups]

@@ -1,0 +1,14 @@
+services:
+  redis:
+    image: redis:8-alpine
+    # 세션은 TTL 이 지우고, 잃어도 재로그인이면 된다 — 영속화를 켜지 않는다.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["${REDIS_PORT}:6379"]
+    mem_limit: ${REDIS_MEM_LIMIT}
+    memswap_limit: ${REDIS_MEMSWAP_LIMIT}
+    cpus: ${REDIS_CPUS}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
