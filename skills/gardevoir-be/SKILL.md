@@ -78,10 +78,10 @@ backend/gateway/src/gateway/
 │   │   ├── repository/    user_repository.py · refresh_session_repository.py (write)
 │   │   ├── dao/           user_dao.py (read)
 │   │   ├── command/       user_command.py    ├── result/  user_result.py
-│   │   └── access_token.py · bearer.py — 역할 디렉터리에 안 맞아 층 루트
+│   │   └── port/          access_token_codec.py (Protocol + AccessTokenClaims)
 │   ├── composition.py  provide_* + require_role(Role) — providers only, no aliases
 │   ├── presentation/   auth_router.py → /v1/auth/*, user_router.py → /v1/users/*
-│   └── infrastructure/ sqlalchemy · cached · session-scoped repos, dao, ORM model, mapper
+│   └── infrastructure/ sqlalchemy repos · dao · ORM model · jwt_access_token_codec.py
 │
 ├── guardrail/          CORE DOMAIN. 세 관심사가 domain/ 의 집합체를 공유한다
 │   ├── domain/
@@ -128,8 +128,19 @@ instead of trusting a hand-maintained list (see below).
 `PlanRegistry` and `Inspector` pass it, so they live there despite not being named `*Service`.
 
 **Anything that is none of those six sits at the layer root** — `compiler.py` (a pure function),
-`outcome.py`/`audit_event.py` (internal value types, not wire DTOs), `access_token.py`,
-`bearer.py`. Do not stretch a role directory to cover a file that does not fit; `plan/domain/`
+`outcome.py`/`audit_event.py` (internal value types, not wire DTOs). Two files that briefly sat
+there did not belong at all, and the layer root is where that became visible:
+
+- `access_token.py` held a class doing HS256 with PyJWT — `import jwt` was the **only external
+  driver anywhere in an application layer**, and it was the one holding a secret. Split into
+  `application/port/access_token_codec.py` (Protocol + `AccessTokenClaims`) and
+  `infrastructure/jwt_access_token_codec.py`, matching `LlmUpstream`/`HttpxUpstream`. The port
+  is not there to swap the algorithm — §12 nails HS256 down — it is there so the driver stays out.
+- `bearer.py` parsed the `Authorization` header, which is transport format, not an application
+  concern. Its one caller was `current_claims` in `composition.py`, i.e. framework glue at the
+  edge, so the four lines went inline there and the file is gone.
+
+Do not stretch a role directory to cover a file that does not fit; `plan/domain/`
 already does the same with `executor.py`. A misfiled file is worse than one at the root, because
 the directory name then lies about what is in it.
 

@@ -19,7 +19,7 @@ from gateway.guardrail.definition.application.result.guardrail_result import (
     GuardrailSummary,
 )
 from gateway.guardrail.definition.application.service.guardrail_service import GuardrailService
-from gateway.identity.application.access_token import AccessTokenClaims
+from gateway.identity.application.port.access_token_codec import AccessTokenClaims
 from gateway.identity.composition import require_role
 from gateway.identity.domain.enums.role import Role
 from shared_kernel.api import JsonResponse, Page

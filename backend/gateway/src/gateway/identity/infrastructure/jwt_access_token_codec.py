@@ -1,15 +1,15 @@
-"""HS256 액세스 토큰.
+"""``AccessTokenCodec`` over HS256 JWT.
 
 단일 프로세스가 서명하고 검증하므로 대칭 키다. 비대칭(RS256)은 서명하는 서비스와 검증하는
 서비스가 다를 때 값이 있고, §12 는 컨테이너 하나를 못박아 뒀다.
 """
 
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import jwt
 
+from gateway.identity.application.port.access_token_codec import AccessTokenClaims
 from gateway.identity.domain.enums.role import Role
 from gateway.identity.domain.exceptions.user_error import UserError
 
@@ -17,14 +17,7 @@ _ALGORITHM = "HS256"
 _ISSUER = "gardevoir"
 
 
-@dataclass(frozen=True, slots=True)
-class AccessTokenClaims:
-    user_id: UUID
-    email: str
-    role: Role
-
-
-class AccessTokenCodec:
+class JwtAccessTokenCodec:
     def __init__(self, *, secret: str, ttl: timedelta) -> None:
         self._secret = secret
         self._ttl = ttl
@@ -66,4 +59,4 @@ class AccessTokenCodec:
             raise UserError.INVALID_TOKEN.exception() from exc
 
 
-__all__ = ["AccessTokenClaims", "AccessTokenCodec"]
+__all__ = ["JwtAccessTokenCodec"]

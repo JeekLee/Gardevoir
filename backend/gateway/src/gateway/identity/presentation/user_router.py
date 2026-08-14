@@ -5,13 +5,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
 
-from gateway.identity.application.access_token import AccessTokenClaims
 from gateway.identity.application.command.user_command import (
     ChangePassword,
     ChangeRole,
     CreateUser,
     UpdateUser,
 )
+from gateway.identity.application.port.access_token_codec import AccessTokenClaims
 from gateway.identity.application.result.user_result import UserSummary
 from gateway.identity.application.service.user_service import UserService
 from gateway.identity.composition import current_claims, provide_user_service, require_role

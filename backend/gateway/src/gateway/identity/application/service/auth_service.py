@@ -3,9 +3,9 @@
 import logging
 from datetime import timedelta
 
-from gateway.identity.application.access_token import AccessTokenCodec
 from gateway.identity.application.command.user_command import Login, Refresh
 from gateway.identity.application.dao.user_dao import UserDao
+from gateway.identity.application.port.access_token_codec import AccessTokenCodec
 from gateway.identity.application.repository.refresh_session_repository import (
     RefreshSessionRepository,
 )
