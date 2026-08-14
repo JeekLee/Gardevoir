@@ -1101,6 +1101,7 @@ name = "shared-kernel"
 version = "0.1.0"
 source = { editable = "shared_kernel" }
 dependencies = [
+    { name = "clickhouse-connect" },
     { name = "fastapi" },
     { name = "orjson" },
     { name = "pydantic" },
@@ -1118,6 +1119,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "clickhouse-connect", specifier = ">=1.7.0" },
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "orjson", specifier = ">=3.11.9" },
     { name = "pydantic", specifier = ">=2.13" },

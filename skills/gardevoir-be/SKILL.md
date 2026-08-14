@@ -195,8 +195,16 @@ with `request: Request`, it is framework glue, not the root.
 - `config`: `BaseAppSettings` + nested `DatabaseSettings`, `ClickHouseSettings`, `LogSettings`.
 - `database`: `Base` (DeclarativeBase + `NAMING_CONVENTION`), `TimestampMixin`, and the
   engine lifecycle — `get_engine` / `get_session_factory` (both `lru_cache`d) / `dispose_engine`.
-  **The engine lives here, not in gateway.** `DatabaseSettings` and `Base` are already
-  shared_kernel's; splitting off the thing that opens the connection made no sense.
+- `clickhouse`: `get_clickhouse_client` / `dispose_clickhouse`, deliberately the same shape.
+
+**Both stores open and close in shared_kernel, not in the composition root.** The settings
+that *describe* a store (`DatabaseSettings`, `ClickHouseSettings`) were already there, so the
+code that *opens the connection* belongs beside them; neither has any gateway knowledge.
+ClickHouse was the odd one out for a while — `app.py` imported the driver directly, spelled
+the five settings fields out by hand, and never closed the client, so the two stores looked
+different at the same place in the lifespan. Symmetry here is what makes the asymmetry
+visible when it is real (the schema step genuinely differs: Alembic for Postgres, an
+idempotent `CREATE TABLE IF NOT EXISTS` applied in the lifespan for ClickHouse, §12).
 - `exception`: `AppError` + category subclasses
   `ValidationError(422)/NotFoundError(404)/UnauthorizedError(401)/ForbiddenError(403)/ConflictError(409)`,
   `ErrorCatalog` base enum, `ErrorResponse`, `register_exception_handlers(app)`.
