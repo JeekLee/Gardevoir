@@ -16,7 +16,6 @@ from gateway.guardrail.definition.application.command.guardrail_command import (
     UpdateDraft,
 )
 from gateway.guardrail.definition.application.dao.guardrail_dao import GuardrailDao
-from gateway.guardrail.definition.application.port.transaction import Transaction
 from gateway.guardrail.definition.application.repository.guardrail_repository import (
     GuardrailRepository,
 )
@@ -28,6 +27,7 @@ from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
 from gateway.guardrail.domain.models.guardrail import DRAFT_VERSION, Guardrail, require_valid_name
 from gateway.guardrail.plan.application.compiler import compile_guardrail
 from shared_kernel.api import Page
+from shared_kernel.database import Commit
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +47,12 @@ class GuardrailService:
         *,
         guardrails: GuardrailRepository,
         dao: GuardrailDao,
-        transaction: Transaction | None = None,
+        commit: Commit,
         plans: PlanRefresher | None = None,
     ) -> None:
         self._guardrails = guardrails
         self._dao = dao
-        self._transaction = transaction
+        self._commit = commit
         self._plans = plans
 
     async def create(self, cmd: CreateGuardrail) -> GuardrailDetail:
@@ -124,18 +124,6 @@ class GuardrailService:
         return Page[GuardrailSummary](items=items, total=total)
 
     # -- helpers ------------------------------------------------------------
-
-    async def _commit(self) -> None:
-        """Make the write durable **before the response goes out**.
-
-        조립 루트의 yield 정리 코드에 맡기면 FastAPI 가 응답을 보낸 뒤에 커밋한다.
-        그러면 draft 를 고치고 곧바로 발행하는 요청이 **이전 draft** 를 읽고, 발행
-        직후의 프록시 요청이 **이전 계획** 을 본다. 둘 다 실측으로 확인했다 —
-        테스트는 ASGITransport 가 전체 ASGI 호출을 기다려주기 때문에 이 차이를
-        보지 못한다.
-        """
-        if self._transaction is not None:
-            await self._transaction.commit()
 
     async def _recompile(self, name: str) -> None:
         """Refresh the in-process plan after the publish is committed.

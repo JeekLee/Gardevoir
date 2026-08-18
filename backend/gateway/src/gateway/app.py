@@ -101,7 +101,7 @@ async def _bootstrap_admin_key(settings: GatewaySettings, session_factory) -> No
         service = ApiKeyService(
             keys=SqlAlchemyApiKeyRepository(session),
             dao=SqlAlchemyApiKeyDao(session),
-            transaction=session,
+            commit=session.commit,
         )
         await service.ensure_bootstrap_admin(settings.bootstrap_admin_key)
 

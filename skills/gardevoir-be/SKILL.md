@@ -88,7 +88,7 @@ backend/gateway/src/gateway/
 │   │   ├── models/         guardrail.py (Guardrail·Node·Edge·VerdictAction·Decision) · mode.py
 │   │   └── exceptions/     guardrail_error.py
 │   ├── definition/     정의·초안·발행·버전 — 컨트롤 플레인 (§5)
-│   │   ├── application/     service/ · repository/ · dao/ · command/ · result/ · port/transaction.py
+│   │   ├── application/     service/ · repository/ · dao/ · command/ · result/
 │   │   ├── infrastructure/  guardrail_model · guardrail_mapper · repository · dao
 │   │   └── presentation/    guardrail_router.py  → /v1/guardrails
 │   ├── plan/           컴파일 → 명령·슬롯 → 실행 (§6, §11.4)
@@ -247,8 +247,9 @@ with `request: Request`, it is framework glue, not the root.
 ## Reuse shared_kernel (don't reinvent)
 
 - `config`: `BaseAppSettings` + nested `DatabaseSettings`, `ClickHouseSettings`, `LogSettings`.
-- `database`: `Base` (DeclarativeBase + `NAMING_CONVENTION`), `TimestampMixin`, and the
-  engine lifecycle — `get_engine` / `get_session_factory` (both `lru_cache`d) / `dispose_engine`.
+- `database`: `Base` (DeclarativeBase + `NAMING_CONVENTION`), `TimestampMixin`, the engine
+  lifecycle — `get_engine` / `get_session_factory` (both `lru_cache`d) / `dispose_engine` — and
+  `Commit`, the `session.commit` callable every service takes.
 - `clickhouse`: `get_clickhouse_client` / `dispose_clickhouse`, deliberately the same shape.
 - `redis`: `get_redis_client` / `dispose_redis`, same again.
 
@@ -499,6 +500,40 @@ service is the unit-of-work boundary, not the composition root. Commit before re
 new session cannot see uncommitted rows), and read your own write *before* committing so the
 request stays one transaction: a read issued after the commit opens a second transaction that
 only closes during cleanup, and that open transaction blocks DDL.
+
+**Therefore the service is the *only* commit.** `provide_*` must not commit after its `yield`.
+It did for a while, and that safety net cancelled the rule: a service that forgot to commit
+still persisted — just late, i.e. exactly the defect above, reintroduced invisibly. Now the
+`async with` rolls back whatever the service did not commit, so forgetting shows up as data
+that is missing rather than data that is late.
+
+### Only Postgres is transactional
+
+`Commit` covers **one store**. Redis cannot join a commit protocol at all — measured against
+the real server: inside `MULTI`/`EXEC` a failing command neither stops the rest nor undoes what
+ran before it (`[True, ResponseError, True]`, and both `SET`s stayed), `DISCARD` only works
+*before* `EXEC`, and of 447 commands there is no `PREPARE` and no `XA`. ClickHouse is batched and
+asynchronous by design (§10), so the audit sink is outside the request's transaction on purpose.
+
+So cross-store work is **ordered to fail safe, not rolled back**: a write that *revokes access*
+goes **before** the commit. `change_password` and `deactivate` both save the user, drop the
+user's Redis sessions, then commit — if the commit fails the sessions are gone and the password
+is unchanged, which is more restrictive. Commit-then-revoke would leave the new password live
+alongside the old sessions, which is a security hole, and "commit first, then side effects" is
+exactly the reordering a reader would reach for.
+
+**The service takes the commit function, not a transaction object** —
+`Commit = Callable[[], Awaitable[None]]` in `shared_kernel.database`, wired as
+`commit=session.commit`, called as `await self._commit()`. Required keyword, no default: a
+default on a wired dependency is how a missing wire becomes a silent wrong answer, the same
+shape as `plans=` and `mode=` before it.
+
+It was a `Transaction` `Protocol` with one `commit()` method for a while, and the name was the
+problem. It manages no transaction — opening is autobegin's and rolling back is `close()`'s — so
+the docstring grew three paragraphs explaining what the type is *not*, which is this repo's
+oldest smell. `await self._commit()` needs none of that. (Worse, two of the three contexts had
+declared their own copy as a plain `class`, not a `Protocol`, so `AsyncSession` did not satisfy
+the annotation at all — invisible because nothing type-checks this repo.)
 
 Verify by running real uvicorn and reading the ordering in the log. Disable anything that
 could mask it first — set a huge `GARDEVOIR_PLAN_POLL_INTERVAL_S` so the poller cannot cover
