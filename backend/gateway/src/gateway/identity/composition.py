@@ -37,7 +37,6 @@ async def provide_auth_service(request: Request) -> AsyncIterator[AuthService]:
             refresh_ttl=request.app.state.refresh_ttl,
             transaction=session,
         )
-        await session.commit()
 
 
 async def provide_user_service(request: Request) -> AsyncIterator[UserService]:
@@ -48,7 +47,6 @@ async def provide_user_service(request: Request) -> AsyncIterator[UserService]:
             sessions=RedisRefreshSessionRepository(request.app.state.redis),
             transaction=session,
         )
-        await session.commit()
 
 
 def current_claims(
