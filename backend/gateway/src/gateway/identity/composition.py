@@ -35,7 +35,7 @@ async def provide_auth_service(request: Request) -> AsyncIterator[AuthService]:
             sessions=RedisRefreshSessionRepository(request.app.state.redis),
             tokens=request.app.state.access_tokens,
             refresh_ttl=request.app.state.refresh_ttl,
-            transaction=session,
+            commit=session.commit,
         )
 
 
@@ -45,7 +45,7 @@ async def provide_user_service(request: Request) -> AsyncIterator[UserService]:
             users=SqlAlchemyUserRepository(session),
             dao=SqlAlchemyUserDao(session),
             sessions=RedisRefreshSessionRepository(request.app.state.redis),
-            transaction=session,
+            commit=session.commit,
         )
 
 

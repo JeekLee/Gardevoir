@@ -20,7 +20,7 @@ async def provide_guardrail_service(request: Request) -> AsyncIterator[Guardrail
         yield GuardrailService(
             guardrails=SqlAlchemyGuardrailRepository(session),
             dao=SqlAlchemyGuardrailDao(session),
-            transaction=session,
+            commit=session.commit,
             # 기본값을 두지 않는다. 레지스트리는 lifespan 이 항상 만들고, 없는데도
             # None 으로 넘어가면 발행이 재컴파일 없이 200 을 돌려준다 — 배선 실수가
             # 예외 대신 조용한 무동작이 된다.

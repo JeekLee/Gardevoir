@@ -27,7 +27,7 @@ from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
 from gateway.guardrail.domain.models.guardrail import DRAFT_VERSION, Guardrail, require_valid_name
 from gateway.guardrail.plan.application.compiler import compile_guardrail
 from shared_kernel.api import Page
-from shared_kernel.database import Transaction
+from shared_kernel.database import Commit
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +47,12 @@ class GuardrailService:
         *,
         guardrails: GuardrailRepository,
         dao: GuardrailDao,
-        transaction: Transaction,
+        commit: Commit,
         plans: PlanRefresher | None = None,
     ) -> None:
         self._guardrails = guardrails
         self._dao = dao
-        self._transaction = transaction
+        self._commit = commit
         self._plans = plans
 
     async def create(self, cmd: CreateGuardrail) -> GuardrailDetail:
@@ -67,7 +67,7 @@ class GuardrailService:
         # 유지된다. 커밋 뒤에 읽으면 읽기 트랜잭션이 새로 열려서 응답이 나간 뒤에야
         # 닫힌다 (조립 루트의 정리 코드에서). 그 열린 트랜잭션이 DDL 을 막는다.
         detail = await self._detail(cmd.name, DRAFT_VERSION)
-        await self._transaction.commit()
+        await self._commit()
         return detail
 
     async def update_draft(self, name: str, cmd: UpdateDraft) -> GuardrailDetail:
@@ -76,7 +76,7 @@ class GuardrailService:
         # draft 가 없으면 repository 가 GUARDRAIL-008 을 올린다.
         await self._guardrails.replace_draft(draft)
         detail = await self._detail(name, DRAFT_VERSION)
-        await self._transaction.commit()
+        await self._commit()
         return detail
 
     async def publish(self, name: str) -> GuardrailDetail:
@@ -94,7 +94,7 @@ class GuardrailService:
         await self._guardrails.add(draft.published_as(version_number), id=_new_id())
         # draft 행은 그대로 남는다 — 발행 후에도 계속 편집할 수 있어야 한다 (§6).
         detail = await self._detail(name, str(version_number))
-        await self._transaction.commit()
+        await self._commit()
         # 커밋 뒤에 재컴파일한다 — 레지스트리는 새 세션을 열기 때문에 커밋 전에
         # 부르면 아직 보이지 않는 행 대신 이전 버전을 컴파일한다.
         await self._recompile(name)

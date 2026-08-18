@@ -249,7 +249,7 @@ with `request: Request`, it is framework glue, not the root.
 - `config`: `BaseAppSettings` + nested `DatabaseSettings`, `ClickHouseSettings`, `LogSettings`.
 - `database`: `Base` (DeclarativeBase + `NAMING_CONVENTION`), `TimestampMixin`, the engine
   lifecycle — `get_engine` / `get_session_factory` (both `lru_cache`d) / `dispose_engine` — and
-  `Transaction`, the unit-of-work port every service takes.
+  `Commit`, the `session.commit` callable every service takes.
 - `clickhouse`: `get_clickhouse_client` / `dispose_clickhouse`, deliberately the same shape.
 - `redis`: `get_redis_client` / `dispose_redis`, same again.
 
@@ -509,7 +509,7 @@ that is missing rather than data that is late.
 
 ### Only Postgres is transactional
 
-`Transaction` covers **one store**. Redis cannot join a commit protocol at all — measured against
+`Commit` covers **one store**. Redis cannot join a commit protocol at all — measured against
 the real server: inside `MULTI`/`EXEC` a failing command neither stops the rest nor undoes what
 ran before it (`[True, ResponseError, True]`, and both `SET`s stayed), `DISCARD` only works
 *before* `EXEC`, and of 447 commands there is no `PREPARE` and no `XA`. ClickHouse is batched and
@@ -522,12 +522,18 @@ is unchanged, which is more restrictive. Commit-then-revoke would leave the new 
 alongside the old sessions, which is a security hole, and "commit first, then side effects" is
 exactly the reordering a reader would reach for.
 
-`Transaction` is a single `Protocol` in `shared_kernel.database`, taken as a **required**
-keyword by every service. Two of the three contexts used to declare their own, and both
-declared a plain `class`, not a `Protocol` — so `AsyncSession` did not satisfy the annotation
-at all, which no check caught because nothing type-checks this repo. And all three had
-`transaction: Transaction | None = None`; a default on a wired dependency is how a missing wire
-becomes a silent wrong answer, the same shape as `plans=` and `mode=` before it.
+**The service takes the commit function, not a transaction object** —
+`Commit = Callable[[], Awaitable[None]]` in `shared_kernel.database`, wired as
+`commit=session.commit`, called as `await self._commit()`. Required keyword, no default: a
+default on a wired dependency is how a missing wire becomes a silent wrong answer, the same
+shape as `plans=` and `mode=` before it.
+
+It was a `Transaction` `Protocol` with one `commit()` method for a while, and the name was the
+problem. It manages no transaction — opening is autobegin's and rolling back is `close()`'s — so
+the docstring grew three paragraphs explaining what the type is *not*, which is this repo's
+oldest smell. `await self._commit()` needs none of that. (Worse, two of the three contexts had
+declared their own copy as a plain `class`, not a `Protocol`, so `AsyncSession` did not satisfy
+the annotation at all — invisible because nothing type-checks this repo.)
 
 Verify by running real uvicorn and reading the ordering in the log. Disable anything that
 could mask it first — set a huge `GARDEVOIR_PLAN_POLL_INTERVAL_S` so the poller cannot cover

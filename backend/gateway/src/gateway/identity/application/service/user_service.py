@@ -19,7 +19,7 @@ from gateway.identity.domain.enums.role import Role
 from gateway.identity.domain.exceptions.user_error import UserError
 from gateway.identity.domain.models.user import User, normalise_email
 from shared_kernel.api import Page
-from shared_kernel.database import Transaction
+from shared_kernel.database import Commit
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +31,12 @@ class UserService:
         users: UserRepository,
         dao: UserDao,
         sessions: RefreshSessionRepository,
-        transaction: Transaction,
+        commit: Commit,
     ) -> None:
         self._users = users
         self._dao = dao
         self._sessions = sessions
-        self._transaction = transaction
+        self._commit = commit
 
     async def create(self, cmd: CreateUser) -> UserSummary:
         email = normalise_email(cmd.email)
@@ -50,7 +50,7 @@ class UserService:
         )
         await self._users.add(user)
         summary = await self._dao.get_summary(user.id)
-        await self._transaction.commit()
+        await self._commit()
         assert summary is not None
         logger.info("user %s created with role %s", user.email, user.role)
         return summary
@@ -81,7 +81,7 @@ class UserService:
         await self._users.save(user.set_password(cmd.new_password.get_secret_value()))
         # 회수를 커밋 앞에 둔다. 뒤집으면 비밀번호는 바뀌고 옛 세션이 살아있는 창이 생긴다.
         await self._sessions.remove_all_for_user(user_id)
-        await self._transaction.commit()
+        await self._commit()
 
     async def change_role(self, user_id: UUID, cmd: ChangeRole) -> UserSummary:
         user = await self._load(user_id)
@@ -107,7 +107,7 @@ class UserService:
             email=normalise_email(email), name="root", password=password, role=Role.ADMIN
         )
         await self._users.add(user)
-        await self._transaction.commit()
+        await self._commit()
         logger.warning("root account %s created from settings", user.email)
         return True
 
@@ -123,7 +123,7 @@ class UserService:
 
     async def _summary_after(self, user_id: UUID) -> UserSummary:
         summary = await self._dao.get_summary(user_id)
-        await self._transaction.commit()
+        await self._commit()
         assert summary is not None
         return summary
 
