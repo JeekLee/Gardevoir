@@ -1,7 +1,7 @@
 from typing import Protocol
 from uuid import UUID
 
-from gateway.identity.application.user_result import UserSummary
+from gateway.identity.application.result.user_result import UserSummary
 
 
 class UserDao(Protocol):

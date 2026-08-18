@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from gateway.proxy.application.llm_upstream import HOP_BY_HOP, UpstreamResult
+from gateway.proxy.application.port.llm_upstream import HOP_BY_HOP, UpstreamResult
 
 
 def filter_response_headers(headers) -> dict[str, str]:

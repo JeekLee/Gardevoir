@@ -8,10 +8,12 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
-from gateway.identity.application.access_token import AccessTokenClaims, AccessTokenCodec
-from gateway.identity.application.auth_service import AuthService
-from gateway.identity.application.bearer import parse_bearer
-from gateway.identity.application.user_service import UserService
+from gateway.identity.application.port.access_token_codec import (
+    AccessTokenClaims,
+    AccessTokenCodec,
+)
+from gateway.identity.application.service.auth_service import AuthService
+from gateway.identity.application.service.user_service import UserService
 from gateway.identity.domain.enums.role import Role
 from gateway.identity.domain.exceptions.user_error import UserError
 from gateway.identity.infrastructure.redis_refresh_session_repository import (
@@ -54,8 +56,9 @@ def current_claims(
     codec: Annotated[AccessTokenCodec, Depends(provide_access_token_codec)],
 ) -> AccessTokenClaims:
     """액세스 토큰을 검증해 클레임을 돌려준다. DB 를 읽지 않는다."""
-    token = parse_bearer(request.headers.get("authorization"))
-    if token is None:
+    scheme, _, token = (request.headers.get("authorization") or "").partition(" ")
+    token = token.strip()
+    if scheme.lower() != "bearer" or not token:
         UserError.INVALID_TOKEN.raise_()
     return codec.decode(token)
 

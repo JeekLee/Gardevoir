@@ -9,7 +9,7 @@ away.
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gateway.guardrail.definition.application.guardrail_result import (
+from gateway.guardrail.definition.application.result.guardrail_result import (
     GuardrailDetail,
     GuardrailSummary,
 )
