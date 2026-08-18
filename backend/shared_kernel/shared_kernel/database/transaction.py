@@ -8,6 +8,10 @@
 
 세션 타입은 몰라야 하므로 포트로 둔다. 세션을 여는 ``get_session_factory`` 가 여기 있으니
 그 경계도 여기 있다.
+
+메서드가 ``commit`` 하나인 것은 의도다. 여는 것은 ``async with session_factory()`` 가, 되돌리는
+것은 그 블록을 나가는 것이 한다. ``rollback`` 을 여기 더하면 서비스가 되돌린 뒤 정상 반환해서
+**아무것도 저장되지 않은 200** 을 만들 수 있다. 이 포트가 고르는 것은 시점 하나다.
 """
 
 from typing import Protocol
