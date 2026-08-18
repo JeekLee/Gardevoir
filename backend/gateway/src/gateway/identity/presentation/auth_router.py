@@ -4,9 +4,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from gateway.identity.application.auth_service import AuthService
-from gateway.identity.application.user_command import Login, Refresh
-from gateway.identity.application.user_result import LoginResult, TokenPair
+from gateway.identity.application.command.user_command import Login, Refresh
+from gateway.identity.application.result.user_result import LoginResult, TokenPair
+from gateway.identity.application.service.auth_service import AuthService
 from gateway.identity.composition import provide_auth_service
 from shared_kernel.api import JsonResponse
 

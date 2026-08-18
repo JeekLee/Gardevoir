@@ -21,15 +21,15 @@ from dataclasses import dataclass, field
 
 from gateway.guardrail.domain.models.guardrail import VerdictAction
 from gateway.guardrail.domain.models.mode import Mode
-from gateway.guardrail.inspection.application.inspector import (
-    CHECKPOINT_OUTPUT,
-    CHECKPOINT_TOOL_CALL,
-    Inspector,
-)
 from gateway.guardrail.inspection.application.outcome import (
     MASK_PLACEHOLDER,
     NOT_INSPECTED,
     Inspection,
+)
+from gateway.guardrail.inspection.application.service.inspector import (
+    CHECKPOINT_OUTPUT,
+    CHECKPOINT_TOOL_CALL,
+    Inspector,
 )
 from gateway.guardrail.plan.domain.models.execution_plan import ExecutionPlan, Program
 from gateway.proxy.application.streaming.accumulator import Accumulator

@@ -22,7 +22,7 @@ from gateway import health
 from gateway.audit.infrastructure import ClickHouseAuditSink
 from gateway.audit.infrastructure.schema import apply_clickhouse_schema
 from gateway.guardrail.definition.presentation import admin_router
-from gateway.guardrail.plan.application.registry import PlanRegistry
+from gateway.guardrail.plan.application.service.registry import PlanRegistry
 from gateway.guardrail.plan.infrastructure import SessionScopedGuardrailSource
 from gateway.identity.application.api_key_service import ApiKeyService
 from gateway.identity.infrastructure import (
