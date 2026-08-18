@@ -15,12 +15,9 @@ from gateway.identity.domain.exceptions.session_error import SessionError
 from gateway.identity.domain.exceptions.user_error import UserError
 from gateway.identity.domain.models.refresh_session import RefreshSession
 from gateway.identity.domain.models.user import User, normalise_email
+from shared_kernel.database import Commit
 
 logger = logging.getLogger(__name__)
-
-
-class Transaction:
-    async def commit(self) -> None: ...  # pragma: no cover - typing only
 
 
 class AuthService:
@@ -32,14 +29,14 @@ class AuthService:
         sessions: RefreshSessionRepository,
         tokens: AccessTokenCodec,
         refresh_ttl: timedelta,
-        transaction: Transaction | None = None,
+        commit: Commit,
     ) -> None:
         self._users = users
         self._dao = dao
         self._sessions = sessions
         self._tokens = tokens
         self._refresh_ttl = refresh_ttl
-        self._transaction = transaction
+        self._commit = commit
 
     async def login(self, cmd: Login) -> LoginResult:
         user = await self._users.find_by_email(normalise_email(cmd.email))
@@ -88,10 +85,6 @@ class AuthService:
             refresh_token=session.token,
             expires_in=self._tokens.ttl_seconds,
         )
-
-    async def _commit(self) -> None:
-        if self._transaction is not None:
-            await self._transaction.commit()
 
 
 __all__ = ["AuthService"]

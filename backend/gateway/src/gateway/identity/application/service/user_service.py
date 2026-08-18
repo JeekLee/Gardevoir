@@ -19,12 +19,9 @@ from gateway.identity.domain.enums.role import Role
 from gateway.identity.domain.exceptions.user_error import UserError
 from gateway.identity.domain.models.user import User, normalise_email
 from shared_kernel.api import Page
+from shared_kernel.database import Commit
 
 logger = logging.getLogger(__name__)
-
-
-class Transaction:
-    async def commit(self) -> None: ...  # pragma: no cover - typing only
 
 
 class UserService:
@@ -34,12 +31,12 @@ class UserService:
         users: UserRepository,
         dao: UserDao,
         sessions: RefreshSessionRepository,
-        transaction: Transaction | None = None,
+        commit: Commit,
     ) -> None:
         self._users = users
         self._dao = dao
         self._sessions = sessions
-        self._transaction = transaction
+        self._commit = commit
 
     async def create(self, cmd: CreateUser) -> UserSummary:
         email = normalise_email(cmd.email)
@@ -82,6 +79,7 @@ class UserService:
         if not user.password_hash.matches(cmd.current_password.get_secret_value()):
             UserError.WRONG_CURRENT_PASSWORD.raise_()
         await self._users.save(user.set_password(cmd.new_password.get_secret_value()))
+        # 회수를 커밋 앞에 둔다. 뒤집으면 비밀번호는 바뀌고 옛 세션이 살아있는 창이 생긴다.
         await self._sessions.remove_all_for_user(user_id)
         await self._commit()
 
@@ -97,6 +95,7 @@ class UserService:
         if user.role is Role.ADMIN:
             await self._reject_if_last_admin()
         await self._users.save(user.deactivate())
+        # change_password 와 같은 이유로 커밋 앞이다.
         await self._sessions.remove_all_for_user(user_id)
         return await self._summary_after(user_id)
 
@@ -127,10 +126,6 @@ class UserService:
         await self._commit()
         assert summary is not None
         return summary
-
-    async def _commit(self) -> None:
-        if self._transaction is not None:
-            await self._transaction.commit()
 
 
 __all__ = ["UserService"]
