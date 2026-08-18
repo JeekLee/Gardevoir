@@ -507,6 +507,21 @@ still persisted — just late, i.e. exactly the defect above, reintroduced invis
 `async with` rolls back whatever the service did not commit, so forgetting shows up as data
 that is missing rather than data that is late.
 
+### Only Postgres is transactional
+
+`Transaction` covers **one store**. Redis cannot join a commit protocol at all — measured against
+the real server: inside `MULTI`/`EXEC` a failing command neither stops the rest nor undoes what
+ran before it (`[True, ResponseError, True]`, and both `SET`s stayed), `DISCARD` only works
+*before* `EXEC`, and of 447 commands there is no `PREPARE` and no `XA`. ClickHouse is batched and
+asynchronous by design (§10), so the audit sink is outside the request's transaction on purpose.
+
+So cross-store work is **ordered to fail safe, not rolled back**: a write that *revokes access*
+goes **before** the commit. `change_password` and `deactivate` both save the user, drop the
+user's Redis sessions, then commit — if the commit fails the sessions are gone and the password
+is unchanged, which is more restrictive. Commit-then-revoke would leave the new password live
+alongside the old sessions, which is a security hole, and "commit first, then side effects" is
+exactly the reordering a reader would reach for.
+
 `Transaction` is a single `Protocol` in `shared_kernel.database`, taken as a **required**
 keyword by every service. Two of the three contexts used to declare their own, and both
 declared a plain `class`, not a `Protocol` — so `AsyncSession` did not satisfy the annotation

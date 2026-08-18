@@ -79,6 +79,7 @@ class UserService:
         if not user.password_hash.matches(cmd.current_password.get_secret_value()):
             UserError.WRONG_CURRENT_PASSWORD.raise_()
         await self._users.save(user.set_password(cmd.new_password.get_secret_value()))
+        # 회수를 커밋 앞에 둔다. 뒤집으면 비밀번호는 바뀌고 옛 세션이 살아있는 창이 생긴다.
         await self._sessions.remove_all_for_user(user_id)
         await self._transaction.commit()
 
@@ -94,6 +95,7 @@ class UserService:
         if user.role is Role.ADMIN:
             await self._reject_if_last_admin()
         await self._users.save(user.deactivate())
+        # change_password 와 같은 이유로 커밋 앞이다.
         await self._sessions.remove_all_for_user(user_id)
         return await self._summary_after(user_id)
 
