@@ -5,14 +5,21 @@ gateway's own knobs.
 """
 
 from functools import lru_cache
+from typing import Annotated
 
-from pydantic import Field
+import orjson
+from pydantic import Field, field_validator
+from pydantic_settings import NoDecode
 
 from shared_kernel.config import BaseAppSettings
 
 
 class GatewaySettings(BaseAppSettings):
     upstream_timeout_s: float = Field(default=120.0, gt=0)
+
+    #: 기본값은 빈 목록이다. 운영 환경에서 설정 누락으로 개발 오리진이 열리는 것보다,
+    #: 필요한 오리진을 배포 설정에 명시하게 하는 편이 안전하다.
+    cors_allow_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     #: 요청 경로에 DB 접근이 없어야 하므로 키 조회를 인메모리로 덮는다 (§6).
     key_cache_ttl_s: float = Field(default=30.0, gt=0)
@@ -59,6 +66,18 @@ class GatewaySettings(BaseAppSettings):
     #: 보이지 않는다. §14 가 "LISTEN/NOTIFY 는 후속, 폴링으로 시작"이라고 했다.
     #: 사용자가 체감하는 것은 "발행 후 반영까지 이 주기"뿐이다.
     plan_poll_interval_s: float = Field(default=5.0, gt=0)
+
+    @field_validator("cors_allow_origins", mode="before")
+    @classmethod
+    def _parse_cors_allow_origins(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        value = value.strip()
+        if not value:
+            return []
+        if value.startswith("["):
+            return orjson.loads(value)
+        return [origin.strip() for origin in value.split(",") if origin.strip()]
 
 
 @lru_cache

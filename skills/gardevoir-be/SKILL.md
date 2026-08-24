@@ -726,6 +726,8 @@ does not know about it.
 - All gardevoir information goes in the top-level `gardevoir` object, which the SDK tolerates
   and exposes (§11.9). This is pinned by a regression test — do not delete it when bumping
   the SDK.
+- 브라우저 콘솔의 CORS 는 설정에 명시한 오리진만 허용하고, §7.2 응답 헤더와 상관 ID 를
+  JavaScript 가 읽을 수 있도록 expose 한다.
 - Blocking must also write a human-readable reason into `content`. Many applications never
   read `finish_reason` (§7.3).
 - The contract version is the URL prefix `/v1`. There is no protocol version header.

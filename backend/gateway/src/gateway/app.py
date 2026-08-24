@@ -17,6 +17,7 @@ from datetime import timedelta
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -36,6 +37,14 @@ from gateway.identity.infrastructure.repository.redis_refresh_session_repository
 from gateway.identity.infrastructure.repository.user_repository import SqlAlchemyUserRepository
 from gateway.identity.presentation import api_key_router, auth_router, user_router
 from gateway.provider.presentation import provider_router
+from gateway.proxy.contract import (
+    HEADER_ACTION,
+    HEADER_AUDIT_ID,
+    HEADER_GUARDRAIL,
+    HEADER_GUARDRAIL_VERSION,
+    HEADER_LATENCY_MS,
+    HEADER_MODE,
+)
 from gateway.proxy.infrastructure.adapter.httpx_upstream import HttpxUpstream
 from gateway.proxy.infrastructure.adapter.provider_upstream_resolver import ProviderUpstreamResolver
 from gateway.proxy.presentation import chat_router
@@ -44,7 +53,7 @@ from shared_kernel.auth import AccessTokenCodec
 from shared_kernel.clickhouse import dispose_clickhouse, get_clickhouse_client
 from shared_kernel.database import SqlAlchemyUnitOfWork, dispose_engine, get_session_factory
 from shared_kernel.exception import ErrorCode, error_response, register_exception_handlers
-from shared_kernel.log import RequestContextMiddleware, configure_logging
+from shared_kernel.log import REQUEST_ID_HEADER, RequestContextMiddleware, configure_logging
 from shared_kernel.redis import dispose_redis, get_redis_client
 
 logger = logging.getLogger(__name__)
@@ -181,6 +190,31 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
     # ServerErrorMiddleware 안에서 돌아 이 미들웨어를 못 지나므로, 상관 ID 헤더는
     # error_response 가 직접 붙인다.
     app.add_middleware(RequestContextMiddleware)
+
+    # Starlette 는 마지막에 등록한 미들웨어가 가장 바깥이다. CORS 가 프리플라이트를 직접
+    # 처리하고 에러 응답에도 헤더를 붙일 수 있도록 요청 컨텍스트보다 나중에 등록한다.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allow_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            HEADER_GUARDRAIL,
+            HEADER_MODE,
+            REQUEST_ID_HEADER,
+        ],
+        expose_headers=[
+            HEADER_ACTION,
+            HEADER_GUARDRAIL,
+            HEADER_GUARDRAIL_VERSION,
+            HEADER_MODE,
+            HEADER_AUDIT_ID,
+            HEADER_LATENCY_MS,
+            REQUEST_ID_HEADER,
+        ],
+    )
 
     register_exception_handlers(app)
     _register_framework_exception_handlers(app)
