@@ -50,6 +50,7 @@
 .navigation {
   align-items: center;
   display: flex;
+  gap: 1.8rem;
   height: 100%;
 }
 

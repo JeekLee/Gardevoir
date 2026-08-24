@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect } from "react";
 
 import { useSession } from "@/src/entities/session";
@@ -11,6 +11,7 @@ import { GardevoirMark } from "@/src/shared/ui/gardevoir-mark";
 import styles from "./console-shell.module.css";
 
 export function ConsoleShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const router = useRouter();
   const { session, isReady, endSession } = useSession();
 
@@ -40,7 +41,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
-        <Link className={styles.brand} href="/providers" aria-label="Gardevoir console home">
+        <Link className={styles.brand} href="/guardrails" aria-label="Gardevoir console home">
           <GardevoirMark compact />
           <span>
             <strong>gardevoir</strong>
@@ -49,7 +50,16 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
         </Link>
 
         <nav className={styles.navigation} aria-label="Console navigation">
-          <Link aria-current="page" href="/providers">
+          <Link
+            aria-current={pathname.startsWith("/guardrails") ? "page" : undefined}
+            href="/guardrails"
+          >
+            Guardrails
+          </Link>
+          <Link
+            aria-current={pathname.startsWith("/providers") ? "page" : undefined}
+            href="/providers"
+          >
             Providers
           </Link>
         </nav>
