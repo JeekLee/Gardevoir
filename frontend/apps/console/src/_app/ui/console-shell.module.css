@@ -1,0 +1,154 @@
+.shell {
+  min-height: 100dvh;
+}
+
+.header {
+  align-items: center;
+  backdrop-filter: blur(18px);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 2.5rem;
+  grid-template-columns: auto 1fr auto;
+  min-height: 5rem;
+  padding: 0 4vw;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.brand {
+  align-items: center;
+  color: var(--text);
+  display: inline-flex;
+  gap: 0.75rem;
+  text-decoration: none;
+}
+
+.brand > span:last-child,
+.identityText {
+  display: grid;
+  line-height: 1.05;
+}
+
+.brand strong {
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  letter-spacing: -0.025em;
+}
+
+.brand small,
+.identityText small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.61rem;
+  letter-spacing: 0.1em;
+  margin-top: 0.25rem;
+  text-transform: uppercase;
+}
+
+.navigation {
+  align-items: center;
+  display: flex;
+  height: 100%;
+}
+
+.navigation a {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 0.84rem;
+  font-weight: 700;
+  height: 100%;
+  padding: 0 0.2rem;
+  position: relative;
+  text-decoration: none;
+}
+
+.navigation a[aria-current="page"] {
+  color: var(--text);
+}
+
+.navigation a[aria-current="page"]::after {
+  background: var(--brand);
+  border-radius: 999px 999px 0 0;
+  bottom: -1px;
+  content: "";
+  height: 3px;
+  left: 0;
+  position: absolute;
+  right: 0;
+}
+
+.account {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+}
+
+.identity {
+  align-items: center;
+  display: flex;
+  gap: 0.65rem;
+}
+
+.identityText strong {
+  font-size: 0.78rem;
+}
+
+.avatar {
+  align-items: center;
+  background: var(--brand-soft);
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--border));
+  border-radius: 50%;
+  color: var(--brand-deep);
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 800;
+  height: 2.15rem;
+  justify-content: center;
+  width: 2.15rem;
+}
+
+.main {
+  margin: 0 auto;
+  max-width: 94rem;
+  padding: 4.5rem 4vw 6rem;
+}
+
+.loading {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  justify-content: center;
+  min-height: 100dvh;
+}
+
+.loading p {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+@media (max-width: 760px) {
+  .header {
+    gap: 0.75rem;
+    grid-template-columns: 1fr auto;
+    padding: 0 1rem;
+  }
+
+  .navigation,
+  .identityText {
+    display: none;
+  }
+
+  .account {
+    gap: 0.55rem;
+  }
+
+  .main {
+    padding: 2.8rem 1rem 4rem;
+  }
+}

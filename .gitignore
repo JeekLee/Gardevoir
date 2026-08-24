@@ -17,6 +17,10 @@ build/
 node_modules/
 .vite/
 ui/dist/
+.next/
+coverage/
+next-env.d.ts
+*.tsbuildinfo
 
 # Env & secrets
 .env

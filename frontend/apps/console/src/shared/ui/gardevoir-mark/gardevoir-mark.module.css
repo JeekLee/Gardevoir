@@ -1,0 +1,43 @@
+.mark {
+  align-items: center;
+  background: var(--brand-soft);
+  border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--border));
+  border-radius: 1rem;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 3rem;
+  justify-content: center;
+  width: 3rem;
+}
+
+.mark svg {
+  height: 2rem;
+  width: 2rem;
+}
+
+.crown {
+  fill: var(--brand);
+}
+
+.face {
+  fill: var(--surface);
+}
+
+.gate {
+  fill: none;
+  stroke: var(--brand-deep);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+}
+
+.compact {
+  border-radius: 0.75rem;
+  height: 2.3rem;
+  width: 2.3rem;
+}
+
+.compact svg {
+  height: 1.55rem;
+  width: 1.55rem;
+}

@@ -1,0 +1,106 @@
+:root {
+  color-scheme: light;
+  --bg: #f6f8f7;
+  --surface: #ffffff;
+  --surface-subtle: #edf3f0;
+  --field: #fafcfb;
+  --border: #e2e8e5;
+  --border-strong: #c5d2cc;
+  --text: #17211d;
+  --muted: #5e6b65;
+  --muted-strong: #46534d;
+  --placeholder: #8f9a95;
+  --brand: #2fa277;
+  --brand-light: #6fd0ae;
+  --brand-strong: #238765;
+  --brand-deep: #176d51;
+  --brand-soft: rgb(47 162 119 / 11%);
+  --danger: #e23c4e;
+  --danger-strong: #b92639;
+  --danger-soft: rgb(226 60 78 / 9%);
+  --overlay: rgb(15 28 22 / 48%);
+  --shadow: 0 1.4rem 4rem rgb(32 62 49 / 9%);
+  --font-display: "Space Grotesk Variable", "Avenir Next", sans-serif;
+  --font-body: "Inter Variable", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "SFMono-Regular", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #101613;
+    --surface: #17211d;
+    --surface-subtle: #1d2924;
+    --field: #131c18;
+    --border: #263029;
+    --border-strong: #3c4b43;
+    --text: #eaf2ee;
+    --muted: #9eaaa4;
+    --muted-strong: #bbc6c0;
+    --placeholder: #738079;
+    --brand: #5cc0a0;
+    --brand-light: #7fd0b6;
+    --brand-strong: #4cad8e;
+    --brand-deep: #70d3b3;
+    --brand-soft: rgb(92 192 160 / 12%);
+    --danger: #f26173;
+    --danger-strong: #ff8997;
+    --danger-soft: rgb(242 97 115 / 11%);
+    --overlay: rgb(3 8 6 / 72%);
+    --shadow: 0 1.4rem 4rem rgb(0 0 0 / 24%);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  background:
+    radial-gradient(circle at 90% -10%, var(--brand-soft), transparent 30rem),
+    var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  margin: 0;
+  min-height: 100dvh;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button,
+a,
+input {
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--brand) 28%, transparent);
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand) 55%, transparent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+}

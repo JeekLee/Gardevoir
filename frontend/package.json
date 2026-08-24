@@ -1,0 +1,9 @@
+{
+  "name": "gardevoir-frontend",
+  "private": true,
+  "packageManager": "pnpm@11.15.1",
+  "scripts": {
+    "build": "pnpm --filter console build",
+    "check": "pnpm --filter console check"
+  }
+}

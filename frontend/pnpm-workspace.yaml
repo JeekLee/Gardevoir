@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+
+allowBuilds:
+  sharp: true
+  unrs-resolver: true
+
+minimumReleaseAgeExclude:
+  - '@types/react-dom@19.2.5'
