@@ -4,8 +4,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gateway.guardrail.definition.infrastructure.guardrail_mapper import to_domain, to_model
-from gateway.guardrail.definition.infrastructure.guardrail_model import GuardrailModel
+from gateway.guardrail.definition.infrastructure.mapper.guardrail_mapper import to_domain, to_model
+from gateway.guardrail.definition.infrastructure.model.guardrail_model import GuardrailModel
 from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
 from gateway.guardrail.domain.models.guardrail import DRAFT_VERSION, Guardrail
 

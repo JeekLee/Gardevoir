@@ -77,11 +77,10 @@ backend/gateway/src/gateway/
 │   │   ├── service/       auth_service.py · user_service.py
 │   │   ├── repository/    user_repository.py · refresh_session_repository.py (write)
 │   │   ├── dao/           user_dao.py (read)
-│   │   ├── command/       user_command.py    ├── result/  user_result.py
-│   │   └── port/          access_token_codec.py (Protocol + AccessTokenClaims)
+│   │   ├── command/       user_command.py    └── result/  user_result.py
 │   ├── composition.py  provide_* + require_role(Role) — providers only, no aliases
 │   ├── presentation/   auth_router.py → /v1/auth/*, user_router.py → /v1/users/*
-│   └── infrastructure/ sqlalchemy repos · dao · ORM model · jwt_access_token_codec.py
+│   └── infrastructure/ model/ · mapper/ · repository/ (sqlalchemy + redis) · dao/
 │
 ├── guardrail/          CORE DOMAIN. 세 관심사가 domain/ 의 집합체를 공유한다
 │   ├── domain/
@@ -89,14 +88,14 @@ backend/gateway/src/gateway/
 │   │   └── exceptions/     guardrail_error.py
 │   ├── definition/     정의·초안·발행·버전 — 컨트롤 플레인 (§5)
 │   │   ├── application/     service/ · repository/ · dao/ · command/ · result/
-│   │   ├── infrastructure/  guardrail_model · guardrail_mapper · repository · dao
+│   │   ├── infrastructure/  model/ · mapper/ · repository/ · dao/
 │   │   └── presentation/    guardrail_router.py  → /v1/guardrails
 │   ├── plan/           컴파일 → 명령·슬롯 → 실행 (§6, §11.4)
 │   │   ├── domain/          models/execution_plan.py (Program·instructions·slots)
 │   │   │                    executor.py — 도메인 서비스라 층 루트에 둔다
 │   │   ├── application/     service/registry.py · port/guardrail_source.py
 │   │   │                    compiler.py — 순수 함수라 층 루트
-│   │   └── infrastructure/  guardrail_source.py (발행본 읽기)
+│   │   └── infrastructure/  adapter/guardrail_source.py (발행본 읽기)
 │   ├── inspection/     체크포인트 ①②③④ → 판정 (§3, §4)
 │   │   └── application/     service/inspector.py
 │   │                        outcome · provenance · text — 값 타입·순수 함수라 층 루트
@@ -105,17 +104,18 @@ backend/gateway/src/gateway/
 ├── proxy/              LLM 쿼리 입출력 — 데이터 플레인 (§7, §9)
 │   ├── application/    service/proxy_service.py · port/llm_upstream.py · streaming/
 │   ├── contract.py     §7 wire contract: headers · extension · Action · to_wire_action
-│   ├── infrastructure/ httpx_upstream.py
+│   ├── infrastructure/ adapter/httpx_upstream.py
 │   ├── composition.py  request-scoped provide_* (별칭 없음)
 │   └── presentation/   chat_router.py  → /v1/chat/completions
 │
 └── audit/              AuditEvent (§10). 저장소가 다르다 — ClickHouse
     ├── application/    port/audit_sink.py · audit_event.py (값 타입이라 층 루트)
-    └── infrastructure/ clickhouse_sink.py · schema.py
+    └── infrastructure/ adapter/clickhouse_sink.py · schema.py (층 루트)
 ```
 
 There is **no `infrastructure/` at the gateway root.** `infrastructure` means one thing —
-adapters implementing a context's ports — and a root directory of the same name holding
+the concrete implementations behind a context's application interfaces (repositories, daos,
+ORM models, mappers, port adapters) — and a root directory of the same name holding
 process resources made the word ambiguous. The engine went to `shared_kernel.database` (it
 has no gateway knowledge), and `orm.py` is gone — `alembic/env.py` walks `**/infrastructure/`
 instead of trusting a hand-maintained list (see below).
@@ -131,18 +131,32 @@ instead of trusting a hand-maintained list (see below).
 `outcome.py`/`audit_event.py` (internal value types, not wire DTOs). Two files that briefly sat
 there did not belong at all, and the layer root is where that became visible:
 
-- `access_token.py` held a class doing HS256 with PyJWT — `import jwt` was the **only external
-  driver anywhere in an application layer**, and it was the one holding a secret. Split into
-  `application/port/access_token_codec.py` (Protocol + `AccessTokenClaims`) and
-  `infrastructure/jwt_access_token_codec.py`, matching `LlmUpstream`/`HttpxUpstream`. The port
-  is not there to swap the algorithm — §12 nails HS256 down — it is there so the driver stays out.
+- `access_token.py` held a class doing HS256 with PyJWT. It first went to a port/adapter, then —
+  once we saw `jwt` is a pure in-process transform, not I/O — to a concrete `AccessTokenCodec` in
+  `shared_kernel.auth` with no port at all (see *Authentication* below). The lesson kept: the
+  layer root is where "this doesn't belong here" becomes visible.
 - `bearer.py` parsed the `Authorization` header, which is transport format, not an application
-  concern. Its one caller was `current_claims` in `composition.py`, i.e. framework glue at the
-  edge, so the four lines went inline there and the file is gone.
+  concern. Its one caller was `current_claims` (now in `shared_kernel.auth`), i.e. framework glue
+  at the edge, so the four lines went inline there and the file is gone.
 
 Do not stretch a role directory to cover a file that does not fit; `plan/domain/`
 already does the same with `executor.py`. A misfiled file is worse than one at the root, because
 the directory name then lies about what is in it.
+
+### `infrastructure/` is split by role too
+
+Mirroring `application/`: `model/` (ORM classes) · `mapper/` (domain↔model) · `repository/`
+(write implementations of `application/repository/` Protocols) · `dao/` (read implementations of
+`application/dao/` Protocols) · `adapter/` (implementations of `application/port/` Protocols —
+`HttpxUpstream`, `ClickHouseAuditSink`, `SessionScopedGuardrailSource`). The role is decided by
+**which application interface the class implements**, not by its backend: `RedisRefreshSessionRepository`
+sits in `repository/` next to the SQLAlchemy ones because it implements a repository Protocol,
+even though it has no ORM model or mapper. A file that implements no application interface — the
+`audit/schema.py` DDL helper — stays at the `infrastructure/` root, same rule as `application/`.
+
+All `__init__.py` are empty; imports use the full role path (`...infrastructure.repository.user_repository`),
+never a package-level re-export — identical to `application/`. `alembic/env.py` still finds every
+model because it walks for `.infrastructure` in the module name, and the role subdirs keep it.
 
 **Each context has only the layers it needs.** `inspection` is pure logic, so it has no
 infrastructure; `audit` has no domain aggregate beyond its event. Do not create empty
@@ -749,8 +763,11 @@ Contexts are packages inside `gateway`, not workspace members — they share the
    context owns an aggregate.
 3. `application/{service,repository,dao,command,result,port}/` — by role, per the rule above.
    Whatever fits none of them goes at the `application/` root, not into the nearest directory.
-4. `infrastructure/`: ORM model, mapper, adapters. No manifest to register the model in —
-   `alembic/env.py` finds it by walking `**/infrastructure/`.
+4. `infrastructure/{model,mapper,repository,dao,adapter}/` — by role, mirroring `application/`:
+   `model/` ORM classes · `mapper/` domain↔model · `repository/` write impls · `dao/` read impls ·
+   `adapter/` implementations of `application/port/` Protocols. A misfit (e.g. `audit/schema.py`,
+   a DDL helper) stays at the `infrastructure/` root. No manifest to register the model in —
+   `alembic/env.py` finds it by walking `**/infrastructure/` (the role subdirs still match).
 5. `<bc>/composition.py` exporting `provide_*` and nothing else; `presentation/<name>_router.py`
    writing `Annotated[Service, Depends(provide_service)]` in each handler signature; mount the
    router in `app.py`. Process-lifetime resources go in `app.py`'s lifespan, not here.

@@ -13,11 +13,11 @@ from fastapi import Request
 
 from gateway.identity.application.service.auth_service import AuthService
 from gateway.identity.application.service.user_service import UserService
-from gateway.identity.infrastructure.redis_refresh_session_repository import (
+from gateway.identity.infrastructure.dao.user_dao import SqlAlchemyUserDao
+from gateway.identity.infrastructure.repository.redis_refresh_session_repository import (
     RedisRefreshSessionRepository,
 )
-from gateway.identity.infrastructure.user_dao import SqlAlchemyUserDao
-from gateway.identity.infrastructure.user_repository import SqlAlchemyUserRepository
+from gateway.identity.infrastructure.repository.user_repository import SqlAlchemyUserRepository
 from shared_kernel.database import SqlAlchemyUnitOfWork
 
 

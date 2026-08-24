@@ -19,11 +19,13 @@ from fastapi.responses import Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from gateway import health
-from gateway.audit.infrastructure import ClickHouseAuditSink
+from gateway.audit.infrastructure.adapter.clickhouse_sink import ClickHouseAuditSink
 from gateway.audit.infrastructure.schema import apply_clickhouse_schema
 from gateway.guardrail.definition.presentation import admin_router
 from gateway.guardrail.plan.application.service.registry import PlanRegistry
-from gateway.guardrail.plan.infrastructure import SessionScopedGuardrailSource
+from gateway.guardrail.plan.infrastructure.adapter.guardrail_source import (
+    SessionScopedGuardrailSource,
+)
 from gateway.identity.application.api_key_service import ApiKeyService
 from gateway.identity.infrastructure import (
     CachedApiKeyRepository,
@@ -32,7 +34,7 @@ from gateway.identity.infrastructure import (
     SqlAlchemyApiKeyRepository,
 )
 from gateway.identity.presentation import admin_router as api_key_router
-from gateway.proxy.infrastructure import HttpxUpstream
+from gateway.proxy.infrastructure.adapter.httpx_upstream import HttpxUpstream
 from gateway.proxy.presentation import chat_router
 from gateway.settings import GatewaySettings, get_settings
 from shared_kernel.clickhouse import dispose_clickhouse, get_clickhouse_client

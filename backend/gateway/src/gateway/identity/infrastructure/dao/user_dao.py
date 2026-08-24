@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gateway.identity.application.result.user_result import UserSummary
-from gateway.identity.infrastructure.user_model import UserModel
+from gateway.identity.infrastructure.model.user_model import UserModel
 from shared_kernel.auth import Role
 
 

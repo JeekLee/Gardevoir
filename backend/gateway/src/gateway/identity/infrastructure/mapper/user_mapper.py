@@ -1,6 +1,6 @@
 from gateway.identity.domain.models.password_hash import PasswordHash
 from gateway.identity.domain.models.user import User
-from gateway.identity.infrastructure.user_model import UserModel
+from gateway.identity.infrastructure.model.user_model import UserModel
 from shared_kernel.auth import Role
 
 

@@ -6,8 +6,8 @@
 
 from sqlalchemy import func, select
 
-from gateway.guardrail.definition.infrastructure.guardrail_mapper import to_domain
-from gateway.guardrail.definition.infrastructure.guardrail_model import GuardrailModel
+from gateway.guardrail.definition.infrastructure.mapper.guardrail_mapper import to_domain
+from gateway.guardrail.definition.infrastructure.model.guardrail_model import GuardrailModel
 from gateway.guardrail.domain.models.guardrail import Guardrail
 
 

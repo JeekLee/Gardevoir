@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gateway.identity.domain.exceptions.user_error import UserError
 from gateway.identity.domain.models.user import User
-from gateway.identity.infrastructure.user_mapper import to_domain, to_model
-from gateway.identity.infrastructure.user_model import UserModel
+from gateway.identity.infrastructure.mapper.user_mapper import to_domain, to_model
+from gateway.identity.infrastructure.model.user_model import UserModel
 from shared_kernel.auth import Role
 
 

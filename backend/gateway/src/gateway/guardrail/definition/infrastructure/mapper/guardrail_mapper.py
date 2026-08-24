@@ -5,7 +5,7 @@ the admin API needs the same conversion, and two parsers would drift. This modul
 only moves the surrounding columns.
 """
 
-from gateway.guardrail.definition.infrastructure.guardrail_model import GuardrailModel
+from gateway.guardrail.definition.infrastructure.model.guardrail_model import GuardrailModel
 from gateway.guardrail.domain.models.guardrail import Guardrail
 
 

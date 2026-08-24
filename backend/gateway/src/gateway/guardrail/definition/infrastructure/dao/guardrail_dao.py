@@ -13,7 +13,7 @@ from gateway.guardrail.definition.application.result.guardrail_result import (
     GuardrailDetail,
     GuardrailSummary,
 )
-from gateway.guardrail.definition.infrastructure.guardrail_model import GuardrailModel
+from gateway.guardrail.definition.infrastructure.model.guardrail_model import GuardrailModel
 from gateway.guardrail.domain.models.guardrail import DRAFT_VERSION
 
 
