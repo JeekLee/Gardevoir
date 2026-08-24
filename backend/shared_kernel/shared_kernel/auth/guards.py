@@ -13,25 +13,25 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from shared_kernel.auth.claims import AccessTokenClaims
+from shared_kernel.auth.codec import AccessTokenCodec
 from shared_kernel.auth.errors import AuthError
 from shared_kernel.auth.role import Role
-from shared_kernel.auth.verifier import AccessTokenVerifier
 
 
-def provide_verifier(request: Request) -> AccessTokenVerifier:
+def provide_codec(request: Request) -> AccessTokenCodec:
     return request.app.state.access_tokens
 
 
 def current_claims(
     request: Request,
-    verifier: Annotated[AccessTokenVerifier, Depends(provide_verifier)],
+    codec: Annotated[AccessTokenCodec, Depends(provide_codec)],
 ) -> AccessTokenClaims:
     """액세스 토큰을 검증해 클레임을 돌려준다. DB 를 읽지 않는다."""
     scheme, _, token = (request.headers.get("authorization") or "").partition(" ")
     token = token.strip()
     if scheme.lower() != "bearer" or not token:
         AuthError.INVALID_TOKEN.raise_()
-    return verifier.decode(token)
+    return codec.decode(token)
 
 
 def require_role(role: Role) -> Callable[..., AccessTokenClaims]:
@@ -47,4 +47,4 @@ def require_role(role: Role) -> Callable[..., AccessTokenClaims]:
     return guard
 
 
-__all__ = ["current_claims", "provide_verifier", "require_role"]
+__all__ = ["current_claims", "provide_codec", "require_role"]

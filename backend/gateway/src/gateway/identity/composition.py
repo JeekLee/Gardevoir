@@ -27,7 +27,7 @@ async def provide_auth_service(request: Request) -> AsyncIterator[AuthService]:
             user_repository=SqlAlchemyUserRepository(session),
             user_dao=SqlAlchemyUserDao(session),
             refresh_session_repository=RedisRefreshSessionRepository(request.app.state.redis),
-            access_token_issuer=request.app.state.access_tokens,
+            access_token_codec=request.app.state.access_tokens,
             refresh_ttl=request.app.state.refresh_ttl,
             unit_of_work=SqlAlchemyUnitOfWork(session),
         )

@@ -195,7 +195,9 @@ The prefix used to double as an operational handle ("block `/v1/admin/*` at the 
 that mitigation existed *because* the admin surface had no human authentication. It has one now.
 
 The guard, the principal it produces, and the role vocabulary live in **`shared_kernel.auth`**,
-not in identity — `require_role`, `AccessTokenClaims`, `Role`, `AuthError`, `AccessTokenVerifier`.
+not in identity — `require_role`, `AccessTokenClaims`, `Role`, `AuthError`, `AccessTokenCodec`.
+JWT is a pure in-process transform (no I/O), so it is not behind a port/adapter — the concrete
+codec sits in `shared_kernel.auth` directly, the way `PasswordHash` does `scrypt`.
 The test is "if the server split, what crosses the boundary?": every context that protects a
 route needs to *verify* a token and read a role, so the verify contract is shared; only *issuing*
 (signing, login, sessions, `User`) stays in identity. A separate service cannot

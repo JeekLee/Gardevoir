@@ -1,7 +1,11 @@
-"""HS256 JWT codec — encode(sign, identity) and decode(verify, the shared contract).
+"""Access token codec — HS256 JWT.
 
-단일 프로세스가 서명하고 검증하므로 대칭 키다. 비대칭(RS256)은 서명하는 서비스와 검증하는
-서비스가 다를 때 값이 있고, §12 는 컨테이너 하나를 못박아 뒀다.
+jwt 는 순수 인프로세스 변환이다(키로 문자열을 서명/검증, I/O 없음). 그래서 포트/어댑터로
+감싸지 않고 여기서 직접 다룬다 — PasswordHash 가 hashlib.scrypt 를 직접 다루는 것과 같다.
+포트는 외부 I/O(httpx·sqlalchemy·clickhouse)를 위한 것이다.
+
+단일 프로세스가 서명하고 검증하므로 대칭 키다(HS256). 서버가 쪼개지면 비대칭(RS256)으로
+바꿔 검증측에 공개키만 주면 된다 — 그때 encode/decode 를 나눈다. 지금 미리 나누지 않는다.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -9,13 +13,15 @@ from uuid import UUID
 
 import jwt
 
-from shared_kernel.auth import AccessTokenClaims, AuthError, Role
+from shared_kernel.auth.claims import AccessTokenClaims
+from shared_kernel.auth.errors import AuthError
+from shared_kernel.auth.role import Role
 
 _ALGORITHM = "HS256"
 _ISSUER = "gardevoir"
 
 
-class JwtAccessTokenCodec:
+class AccessTokenCodec:
     def __init__(self, *, secret: str, ttl: timedelta) -> None:
         self._secret = secret
         self._ttl = ttl
@@ -57,4 +63,4 @@ class JwtAccessTokenCodec:
             raise AuthError.INVALID_TOKEN.exception() from exc
 
 
-__all__ = ["JwtAccessTokenCodec"]
+__all__ = ["AccessTokenCodec"]

@@ -246,48 +246,50 @@ correctly.
 **A composition root does not take an HTTP request.** If a wiring function's signature starts
 with `request: Request`, it is framework glue, not the root.
 
-## Authentication: issue in identity, verify in shared_kernel
+## Authentication lives in `shared_kernel.auth` (no port/adapter for JWT)
 
-The deciding test is **"if the server split into services, what would cross the boundary?"** The
-answer draws the line cleanly:
+JWT is a **pure in-process transform** — it signs/verifies a string with a key, no I/O. So it is
+not wrapped in a port/adapter; a single concrete `AccessTokenCodec` (holds secret + ttl; `encode`,
+`decode`, `ttl_seconds`) does the work directly, exactly as `PasswordHash` calls `hashlib.scrypt`
+directly in the domain. Ports/adapters are for **external I/O** (httpx, sqlalchemy,
+clickhouse-connect, redis), not for crypto. There is no `AccessTokenIssuer`/`AccessTokenVerifier`
+Protocol — those were indirection with no swap behind them (§12 nails HS256 down).
 
-- **Issue side — identity only.** Signing (`encode`), login, refresh, password hashing, the
-  `User` aggregate, refresh sessions. Only the auth service issues tokens; in a split it is the
-  sole holder of the signing key. `AccessTokenIssuer` (Protocol, `encode` + `ttl_seconds`) lives
-  in `identity/application/port/`.
-- **Verify side — `shared_kernel.auth`, shared by everyone.** `Role`, `AccessTokenClaims`,
-  `AccessTokenVerifier` (decode-only Protocol), `AuthError`, and the FastAPI guards. Every
-  context that protects a route needs these; a downstream service would need them too. This is
-  the RS256 asymmetry (public key verifies everywhere, private key signs in one place) — today
-  it is HS256 because §12 nails down one process, but the *shape* is already split-ready.
+The codec lives in `shared_kernel.auth`, not identity: the FastAPI guards (also shared) must
+`decode`, and a concrete in `identity/infrastructure` would force `shared_kernel` to import
+`gateway.identity` (a cycle). `import jwt` in `shared_kernel.auth` is fine — the same way
+`shared_kernel.database` holds `sqlalchemy` and `shared_kernel.redis` holds `redis`; these are
+the cross-cutting infra utilities.
 
-Why `shared_kernel` and not "publish an identity surface": a published Python module does not
-survive an actual split — a separate service cannot `import gateway.identity`. What crosses a
-service boundary is a **contract**, so the contract (claims shape, role vocabulary, verify) is
-the thing that belongs in a shared place. Putting only the *verify contract* there — not the
-issuing machinery — is why the reductio ("then all of auth moves to shared_kernel?") does not
-follow: issuing stays in identity.
+`shared_kernel.auth` therefore holds the whole **authorization contract**: `Role`,
+`AccessTokenClaims` (the principal), `AccessTokenCodec`, `AuthError`, and the guards
+`current_claims` / `require_role`. Every context that protects a route imports the guards from
+here; a separate service could not `import gateway.identity`, so what crosses a boundary is this
+contract, and the contract is what belongs in a shared place.
 
-`Role` therefore lives in `shared_kernel.auth`, not `identity/domain/` — it is the authorization
-vocabulary, and every context enforces authorization. `User.role` (domain) imports it; that is
-the one reason domain may reach past `shared_kernel.exception`.
+`Role` lives here too, not `identity/domain/` — it is the authorization vocabulary and every
+context enforces authorization. `User.role` (domain) imports it; that is the one reason domain
+may reach past `shared_kernel.exception`.
 
-Alternatives considered and why not: **trusted headers** (an edge authenticates, downstream reads
-`X-User-*`) shares no code but needs a trusted network edge; **introspection** (call the auth
-service per request) adds latency and runtime coupling. Both are viable in a real split; the
-shared-verify-contract is the monorepo-pragmatic choice and pre-draws the same line.
+**Issue vs verify is a convention, not a type boundary.** Only identity's `AuthService` calls
+`encode`; the guards call `decode`. If the server actually splits, that is when the RS256
+asymmetry (public key verifies downstream, private key signs in the auth service) gets drawn —
+by splitting the codec then, not by pre-drawing Protocols now for a split that may not come.
+Alternatives for a real split: **trusted headers** (edge authenticates, downstream reads
+`X-User-*`; shares no code, needs a trusted edge) and **introspection** (call the auth service
+per request; latency + coupling).
 
 ## Reuse shared_kernel (don't reinvent)
 
 - `config`: `BaseAppSettings` + nested `DatabaseSettings`, `ClickHouseSettings`, `LogSettings`.
 - `database`: `Base` (DeclarativeBase + `NAMING_CONVENTION`), `TimestampMixin`, the engine
   lifecycle — `get_engine` / `get_session_factory` (both `lru_cache`d) / `dispose_engine` — and
-  `Commit`, the `session.commit` callable every service takes.
+  `UnitOfWork` / `SqlAlchemyUnitOfWork`, the `async with` commit boundary every service takes.
 - `clickhouse`: `get_clickhouse_client` / `dispose_clickhouse`, deliberately the same shape.
 - `redis`: `get_redis_client` / `dispose_redis`, same again.
 - `auth`: the **authorization contract** — `Role`, `AccessTokenClaims` (the principal),
-  `AccessTokenVerifier` (Protocol, decode-only), `AuthError`, and the FastAPI guards
-  `current_claims` / `require_role`. Every context's routers import guards from here.
+  `AccessTokenCodec` (concrete HS256 JWT — jwt is a pure transform, no port), `AuthError`, and the
+  FastAPI guards `current_claims` / `require_role`. Every context's routers import guards from here.
 
 **Both stores open and close in shared_kernel, not in the composition root.** The settings
 that *describe* a store (`DatabaseSettings`, `ClickHouseSettings`) were already there, so the
@@ -330,7 +332,10 @@ depend on any private repository. Keep it to what is actually used.
    Code format `<AGGREGATE>-NNN`. Raise via `<Aggregate>Error.X.exception(...)` or `.raise_()`.
    NO class-per-error. Handler = `shared_kernel.register_exception_handlers`.
 
-5. **Non-DB dependencies use port/adapter.** A `Protocol` port in `application/port/`, an
+5. **External-I/O dependencies use port/adapter; pure transforms do not.** Ports are for I/O to
+   outside systems (httpx, clickhouse-connect, the model tier). A **pure in-process transform** —
+   `jwt`, `hashlib.scrypt`, `orjson`, `re2` — is used **directly** (even in the domain: `PasswordHash`
+   does scrypt inline), never wrapped in a port. For the I/O kind: a `Protocol` port in `application/port/`, an
    adapter in `infrastructure/`, wired in that context's `composition.py`. This covers the upstream LLM
    relay, the audit sink, and the judgement model tier. §12 requires the model tier to be
    swappable (Ollama → vLLM → Bedrock) without touching the core — the port is how.
