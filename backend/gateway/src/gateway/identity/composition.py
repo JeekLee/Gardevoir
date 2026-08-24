@@ -31,22 +31,22 @@ def provide_access_token_codec(request: Request) -> AccessTokenCodec:
 async def provide_auth_service(request: Request) -> AsyncIterator[AuthService]:
     async with request.app.state.session_factory() as session:
         yield AuthService(
-            users=SqlAlchemyUserRepository(session),
-            dao=SqlAlchemyUserDao(session),
-            sessions=RedisRefreshSessionRepository(request.app.state.redis),
-            tokens=request.app.state.access_tokens,
+            user_repository=SqlAlchemyUserRepository(session),
+            user_dao=SqlAlchemyUserDao(session),
+            refresh_session_repository=RedisRefreshSessionRepository(request.app.state.redis),
+            access_token_codec=request.app.state.access_tokens,
             refresh_ttl=request.app.state.refresh_ttl,
-            uow=SqlAlchemyUnitOfWork(session),
+            unit_of_work=SqlAlchemyUnitOfWork(session),
         )
 
 
 async def provide_user_service(request: Request) -> AsyncIterator[UserService]:
     async with request.app.state.session_factory() as session:
         yield UserService(
-            users=SqlAlchemyUserRepository(session),
-            dao=SqlAlchemyUserDao(session),
-            sessions=RedisRefreshSessionRepository(request.app.state.redis),
-            uow=SqlAlchemyUnitOfWork(session),
+            user_repository=SqlAlchemyUserRepository(session),
+            user_dao=SqlAlchemyUserDao(session),
+            refresh_session_repository=RedisRefreshSessionRepository(request.app.state.redis),
+            unit_of_work=SqlAlchemyUnitOfWork(session),
         )
 
 

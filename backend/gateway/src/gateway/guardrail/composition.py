@@ -19,11 +19,11 @@ async def provide_guardrail_service(request: Request) -> AsyncIterator[Guardrail
     """One session per request. 커밋은 서비스가 한다 — shared_kernel.database.transaction 참조."""
     async with request.app.state.session_factory() as session:
         yield GuardrailService(
-            guardrails=SqlAlchemyGuardrailRepository(session),
-            dao=SqlAlchemyGuardrailDao(session),
-            uow=SqlAlchemyUnitOfWork(session),
+            guardrail_repository=SqlAlchemyGuardrailRepository(session),
+            guardrail_dao=SqlAlchemyGuardrailDao(session),
+            unit_of_work=SqlAlchemyUnitOfWork(session),
             # 기본값을 두지 않는다. 레지스트리는 lifespan 이 항상 만들고, 없는데도
             # None 으로 넘어가면 발행이 재컴파일 없이 200 을 돌려준다 — 배선 실수가
             # 예외 대신 조용한 무동작이 된다.
-            plans=request.app.state.plans,
+            plan_refresher=request.app.state.plans,
         )

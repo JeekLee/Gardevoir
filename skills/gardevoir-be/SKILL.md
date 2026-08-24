@@ -283,6 +283,12 @@ depend on any private repository. Keep it to what is actually used.
 3. **Services are classes.** `<Aggregate>Service.__init__(*, repos/daos/ports)`; methods are
    use cases. The handler asks for one inline:
    `service: Annotated[UserService, Depends(provide_user_service)]`.
+   **Collaborator fields name their kind, spelled out** — `self._user_repository`,
+   `self._user_dao`, `self._refresh_session_repository`, `self._access_token_codec`,
+   `self._unit_of_work`, with the constructor parameter matching. Not `self._users`/`_dao`/`_uow`:
+   `user_repository`/`user_dao` reads write-side vs read-side at a glance where `users`/`dao` is
+   asymmetric and `dao` decodes to nothing. The stutter with the type is cheaper than the decode.
+   Plain values keep a plain name (`refresh_ttl`).
 
 4. **Errors = ErrorCatalog enum per aggregate.** Members `NAME = (code, default_message, category)`.
    Code format `<AGGREGATE>-NNN`. Raise via `<Aggregate>Error.X.exception(...)` or `.raise_()`.

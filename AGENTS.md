@@ -234,6 +234,16 @@ meant "check this one" — it is now `authenticate(pw)`, which is simply the ope
   `User` answer `ensure_active()`, and the reason each might not be active (`revoked_at`,
   `expires_at`, `deactivated_at`) is what the error codes distinguish.
 
+**A collaborator field names its kind, spelled out — not a terse handle.** A service holds
+`self._user_repository`, `self._user_dao`, `self._refresh_session_repository`,
+`self._access_token_codec`, `self._unit_of_work` — the constructor parameter matches
+(`user_repository: UserRepository`). Not `self._users`, `self._dao`, `self._uow`. The collection
+metaphor (`users` for a repository) reads nicely in isolation but pairs badly with the read side
+(`users` write / `dao` read is asymmetric and `dao` says nothing); the parallel
+`user_repository` / `user_dao` says write-side vs read-side at a glance, and no field is a bare
+layer-abbreviation you have to decode. The stutter with the type is the price, and it is cheaper
+than the decode. Values, not collaborators, keep their plain name (`refresh_ttl: timedelta`).
+
 ## Conventions
 
 - `ruff check` and `ruff format --check` must pass before commit.
