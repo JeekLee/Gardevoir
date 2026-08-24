@@ -19,7 +19,7 @@ code changes.
     app.py            composition root — lifespan builds the process-lifetime graph,
                       mounts routers, owns API_PREFIX ("/v1")
     settings.py  health.py
-    identity/         ApiKey — credentials and scopes (§7.2)
+    identity/         ApiKey (proxy credential) · User (JWT·Role) (§7.2)
     guardrail/        CORE DOMAIN — domain/ shared by definition · plan · inspection
     proxy/            LLM request/response, streaming, the §7 wire contract
     provider/         upstream LLM providers — routed by the request's model

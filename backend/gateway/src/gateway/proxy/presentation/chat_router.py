@@ -1,18 +1,21 @@
 """The OpenAI-compatible chat completions route.
 
-Thin: it reads the contract headers, delegates to the services, and frames the
-response. No infrastructure imports (skills/gardevoir-be).
+Thin: 계약 헤더를 읽고, 크레덴셜을 검증하고, 서비스에 위임한다. 인프라 임포트 없음.
 """
 
-from fastapi import APIRouter, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response, StreamingResponse
 
 from gateway.guardrail.domain.models.mode import Mode
-from gateway.identity.composition import AuthenticationServiceDep
-from gateway.identity.domain.models.api_key import Scope
-from gateway.proxy.application.service.proxy_service import wants_stream
-from gateway.proxy.composition import ProxyServiceDep
+from gateway.identity.application.service.authentication_service import AuthenticationService
+from gateway.identity.composition import provide_authentication_service
+from gateway.proxy.application.authenticated_request import AuthenticatedRequest
+from gateway.proxy.application.service.proxy_service import ProxyService, wants_stream
+from gateway.proxy.composition import provide_proxy_service
 from gateway.proxy.contract import HEADER_GUARDRAIL, HEADER_MODE, HEADER_REQUEST_ID
+from gateway.proxy.errors import ProxyError
 
 router = APIRouter()
 
@@ -20,14 +23,15 @@ router = APIRouter()
 @router.post("/chat/completions")
 async def chat_completions(
     request: Request,
-    auth_service: AuthenticationServiceDep,
-    proxy: ProxyServiceDep,
+    authentication: Annotated[AuthenticationService, Depends(provide_authentication_service)],
+    proxy: Annotated[ProxyService, Depends(provide_proxy_service)],
 ) -> Response:
-    auth = await auth_service.authenticate(
-        authorization=request.headers.get("authorization"),
-        guardrail=request.headers.get(HEADER_GUARDRAIL),
-        require=Scope.PROXY,
-    )
+    key = await authentication.authenticate(request.headers.get("authorization"))
+    guardrail = request.headers.get(HEADER_GUARDRAIL)
+    if not guardrail:
+        ProxyError.GUARDRAIL_REQUIRED.raise_()
+    auth = AuthenticatedRequest(api_key_id=key.id, app_name=key.name, guardrail=guardrail)
+
     # 모드는 권한 검사 없이 자유 선택이다. 공격자는 대화 텍스트만 통제하고 HTTP 헤더는
     # 만지지 못하므로 dry-run 이 자유여도 도움이 되지 않는다. 남는 리스크는 거버넌스이고,
     # 그것은 감사 로그에 모드를 남겨 드러낸다.
@@ -63,7 +67,6 @@ async def _stream(proxy, *, auth, mode, payload: bytes, request_id: str) -> Stre
             async for chunk in stream.aiter():
                 yield chunk
         finally:
-            # 여기서 나가면서 감사가 기록되고 업스트림 연결이 닫힌다.
             await cm.__aexit__(None, None, None)
 
     return StreamingResponse(

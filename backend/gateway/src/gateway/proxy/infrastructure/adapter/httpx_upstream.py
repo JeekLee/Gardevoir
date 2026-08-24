@@ -57,11 +57,11 @@ class HttpxUpstream:
 
     def _headers(self, api_key: str) -> dict[str, str]:
         # 업스트림에는 업스트림 키만 보낸다. gardevoir 헤더는 전달하지 않는다.
-        return {
-            "authorization": f"Bearer {api_key}",
-            "content-type": "application/json",
-            "accept": "application/json",
-        }
+        headers = {"content-type": "application/json", "accept": "application/json"}
+        # 로컬 호스팅 프로바이더는 키가 없다 — 빈 'Bearer ' 는 불법 헤더값이다.
+        if api_key:
+            headers["authorization"] = f"Bearer {api_key}"
+        return headers
 
     async def complete(
         self, *, base_url: str, api_key: str, path: str, payload: bytes

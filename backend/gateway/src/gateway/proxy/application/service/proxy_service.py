@@ -40,8 +40,9 @@ from gateway.guardrail.inspection.application.service.inspector import (
     Inspector,
 )
 from gateway.guardrail.plan.domain.models.execution_plan import ExecutionPlan
-from gateway.identity.application.authentication_service import AuthenticatedRequest
+from gateway.proxy.application.authenticated_request import AuthenticatedRequest
 from gateway.proxy.application.port.llm_upstream import LlmUpstream
+from gateway.proxy.application.port.upstream_resolver import UpstreamResolver
 from gateway.proxy.application.streaming.relay import StreamRelay
 from gateway.proxy.contract import (
     EXTENSION_KEY,
@@ -53,6 +54,7 @@ from gateway.proxy.contract import (
     response_headers,
     to_wire_action,
 )
+from gateway.proxy.errors import ProxyError
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,13 @@ def wants_stream(payload: bytes) -> bool:
     """Read the `stream` flag without failing on anything the upstream would reject."""
     body = _decode(payload)
     return bool(isinstance(body, dict) and body.get("stream"))
+
+
+def _model_of(decoded: object) -> str:
+    model = decoded.get("model") if isinstance(decoded, dict) else None
+    if not isinstance(model, str) or not model:
+        ProxyError.MODEL_REQUIRED.raise_()
+    return model
 
 
 def _decode(payload: bytes) -> object | None:
@@ -234,12 +243,14 @@ class ProxyService:
         self,
         *,
         upstream: LlmUpstream,
+        upstream_resolver: UpstreamResolver,
         audit: AuditSink,
         inspector: Inspector | None = None,
         holdback_chars: int = 128,
         window_chars: int = 512,
     ) -> None:
         self._upstream = upstream
+        self._upstream_resolver = upstream_resolver
         self._audit = audit
         self._inspector = inspector
         self._holdback_chars = holdback_chars
@@ -266,9 +277,10 @@ class ProxyService:
                 latency_ms=self._added_latency_ms(started, 0.0),
             )
 
+        upstream = await self._upstream_resolver.resolve(_model_of(decoded))
         result = await self._upstream.complete(
-            base_url=auth.key.upstream_base_url,
-            api_key=auth.key.upstream_api_key,
+            base_url=upstream.base_url,
+            api_key=upstream.api_key,
             path=UPSTREAM_PATH,
             payload=payload,
         )
@@ -372,9 +384,10 @@ class ProxyService:
             holdback_chars=self._holdback_chars,
             window_chars=self._window_chars,
         )
+        upstream = await self._upstream_resolver.resolve(_model_of(_decode(payload)))
         cm = self._upstream.open_stream(
-            base_url=auth.key.upstream_base_url,
-            api_key=auth.key.upstream_api_key,
+            base_url=upstream.base_url,
+            api_key=upstream.api_key,
             path=UPSTREAM_PATH,
             payload=payload,
         )
@@ -601,8 +614,8 @@ class ProxyService:
                 id=audit_id,
                 created_at=dt.datetime.now(dt.UTC).replace(tzinfo=None),
                 request_id=request_id,
-                api_key_id=auth.key.id,
-                app_name=auth.key.name,
+                api_key_id=str(auth.api_key_id),
+                app_name=auth.app_name,
                 guardrail=auth.guardrail,
                 guardrail_version=verdicts.guardrail_version,
                 mode=str(verdicts.mode),

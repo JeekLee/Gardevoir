@@ -187,7 +187,8 @@ directories to make the contexts look symmetric.
 
 **gardevoir ships as one backend service.** The control plane (guardrail
 authoring, `/v1/guardrails` and `/v1/users`) and the data plane (`/v1/chat/completions`) live in the
-same process, separated by route prefix and by credential scope — not by topology.
+same process, separated by which credential authenticates — a human account (JWT) for the
+control plane, an API key for the data plane — not by topology.
 
 This is a decision, not an accident. Do not re-litigate it:
 
@@ -408,9 +409,9 @@ What left, and why it was not a loss:
 
 | Removed | Where it belongs |
 |---|---|
-| `upstream_base_url` · `upstream_api_key` | provider configuration — a secret that several keys can share is not part of one key's identity |
-| `allowed_guardrails` · `default_guardrail` | authorisation attached to the credential, not the credential |
-| `scopes` | same, and the admin surface's authorisation is a separate credential (§14) |
+| `upstream_base_url` · `upstream_api_key` | the **`provider` BC** — routed by the request's `model`; a secret several keys share is not one key's identity |
+| `allowed_guardrails` · `default_guardrail` | gone — the guardrail is named per request by the `X-Gardevoir-Guardrail` header (required) |
+| `scopes` | gone — a valid API key may call the proxy; the admin surface authenticates with a human account (JWT·Role) |
 | `has_scope` · `require_scope` · `resolve_guardrail` | they hung off those fields and left with them |
 | `hash_key` · `generate_key` · `KEY_PREFIX` | folded into `issue()`, which is the only caller |
 
