@@ -11,9 +11,13 @@ from collections.abc import AsyncIterator
 
 from fastapi import Request
 
+from gateway.identity.application.service.api_key_service import ApiKeyService
 from gateway.identity.application.service.auth_service import AuthService
+from gateway.identity.application.service.authentication_service import AuthenticationService
 from gateway.identity.application.service.user_service import UserService
+from gateway.identity.infrastructure.dao.api_key_dao import SqlAlchemyApiKeyDao
 from gateway.identity.infrastructure.dao.user_dao import SqlAlchemyUserDao
+from gateway.identity.infrastructure.repository.api_key_repository import SqlAlchemyApiKeyRepository
 from gateway.identity.infrastructure.repository.redis_refresh_session_repository import (
     RedisRefreshSessionRepository,
 )
@@ -40,4 +44,20 @@ async def provide_user_service(request: Request) -> AsyncIterator[UserService]:
             user_dao=SqlAlchemyUserDao(session),
             refresh_session_repository=RedisRefreshSessionRepository(request.app.state.redis),
             unit_of_work=SqlAlchemyUnitOfWork(session),
+        )
+
+
+async def provide_api_key_service(request: Request) -> AsyncIterator[ApiKeyService]:
+    async with request.app.state.session_factory() as session:
+        yield ApiKeyService(
+            api_key_repository=SqlAlchemyApiKeyRepository(session),
+            api_key_dao=SqlAlchemyApiKeyDao(session),
+            unit_of_work=SqlAlchemyUnitOfWork(session),
+        )
+
+
+async def provide_authentication_service(request: Request) -> AsyncIterator[AuthenticationService]:
+    async with request.app.state.session_factory() as session:
+        yield AuthenticationService(
+            api_key_repository=SqlAlchemyApiKeyRepository(session),
         )
