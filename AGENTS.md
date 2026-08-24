@@ -154,6 +154,9 @@ Add a skill once under `skills/<name>/SKILL.md`; both tools pick it up.
   modifying any backend code** (layers, repositories/DAOs, ports, services, command/result
   DTOs, domain errors, DI, guardrail compilation, and the request-path performance
   constraints).
+- **`gardevoir-fe`** — frontend architecture conventions. **Read it before implementing or
+  modifying any frontend code** (Next.js App Router, Feature-Sliced Design boundaries,
+  authentication/API access, TanStack Query, React Flow authoring, and frontend verification).
 
 ## Working in the backend
 
