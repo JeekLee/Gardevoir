@@ -1,0 +1,76 @@
+# gardevoir 전체 스택 — 인프라 + 마이그레이션 + 게이트웨이 + 콘솔.
+#
+# 실행:
+#   docker compose --env-file infra/envs/example/compose.env \
+#     -f infra/docker-compose/gardevoir.yml up -d --build
+#
+# 브라우저는 NEXT_PUBLIC_API_BASE/CORS 오리진으로 게이트웨이·콘솔에 붙는다.
+# NEXT_PUBLIC_API_BASE 는 next build 때 브라우저 번들에 '고정'되므로, 값을 바꾸면 콘솔을
+# 반드시 다시 빌드해야 한다(--build). 게이트웨이는 GARDEVOIR_CORS_ALLOW_ORIGINS 로 그 오리진을 허용한다.
+
+include:
+  - postgres.yml
+  - redis.yml
+  - clickhouse.yml
+
+services:
+  # 서빙 전에 스키마를 올린다(원샷). 게이트웨이가 이 완료를 기다린다.
+  migrate:
+    build:
+      context: ../..
+      dockerfile: infra/dockerfiles/gateway.Dockerfile
+    image: gardevoir-gateway:local
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      GARDEVOIR_APP_NAME: gardevoir
+      GARDEVOIR_DATABASE__DSN: postgresql+psycopg://gardevoir:gardevoir@postgres:5432/gardevoir
+      GARDEVOIR_CLICKHOUSE__HOST: clickhouse
+      GARDEVOIR_REDIS__HOST: redis
+      GARDEVOIR_JWT_SECRET: ${GARDEVOIR_JWT_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  gateway:
+    build:
+      context: ../..
+      dockerfile: infra/dockerfiles/gateway.Dockerfile
+    image: gardevoir-gateway:local
+    environment:
+      GARDEVOIR_APP_NAME: gardevoir
+      GARDEVOIR_DATABASE__DSN: postgresql+psycopg://gardevoir:gardevoir@postgres:5432/gardevoir
+      GARDEVOIR_CLICKHOUSE__HOST: clickhouse
+      GARDEVOIR_REDIS__HOST: redis
+      GARDEVOIR_JWT_SECRET: ${GARDEVOIR_JWT_SECRET}
+      GARDEVOIR_ROOT_EMAIL: ${GARDEVOIR_ROOT_EMAIL}
+      GARDEVOIR_ROOT_PASSWORD: ${GARDEVOIR_ROOT_PASSWORD}
+      # 브라우저가 콘솔을 여는 오리진을 허용한다. 로컬 편의로 localhost 도 함께.
+      GARDEVOIR_CORS_ALLOW_ORIGINS: "${GARDEVOIR_CORS_ALLOW_ORIGINS}"
+    ports:
+      - "${GATEWAY_HTTP_PORT}:21000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  console:
+    build:
+      context: ../../frontend
+      dockerfile: ../infra/dockerfiles/console.Dockerfile
+      args:
+        # 브라우저가 직접 호출하는 게이트웨이 주소. 빌드타임에 번들로 고정된다.
+        NEXT_PUBLIC_API_BASE: "${NEXT_PUBLIC_API_BASE}"
+    image: gardevoir-console:local
+    ports:
+      - "${CONSOLE_HTTP_PORT}:3000"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped

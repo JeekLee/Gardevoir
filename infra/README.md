@@ -162,3 +162,21 @@ WHERE datname = 'gardevoir' AND pid <> pg_backend_pid();
 ```bash
 GARDEVOIR_PLAN_POLL_INTERVAL_S=600 uv run uvicorn --factory ... 
 ```
+
+## 전체 스택 (인프라 + 게이트웨이 + 콘솔)
+
+한 번에 올리기 — 콘솔·게이트웨이 이미지까지 빌드한다:
+
+```bash
+docker compose \
+  --env-file infra/envs/example/compose.env \
+  --env-file infra/envs/local/compose.env \
+  -f infra/docker-compose/gardevoir.yml up -d --build
+```
+
+- `example/compose.env` 는 템플릿(localhost). 머신별 실제 값은 `infra/envs/local/compose.env`
+  에서 덮어쓴다(git 에 커밋하지 않음). 최소 두 가지:
+  - `NEXT_PUBLIC_API_BASE` — 브라우저가 호출할 게이트웨이 주소. **next build 때 콘솔 번들로
+    고정되므로 바꾸면 `--build` 로 다시 빌드**해야 한다.
+  - `GARDEVOIR_CORS_ALLOW_ORIGINS` — 게이트웨이가 허용할 오리진(콘솔을 여는 주소와 일치, 콤마 구분).
+- Dockerfile 은 `infra/dockerfiles/`(gateway·console). 콘솔 빌드 컨텍스트는 `frontend/`.

@@ -42,3 +42,4 @@ minio-data/
 
 # Logs
 *.log
+infra/envs/local/
