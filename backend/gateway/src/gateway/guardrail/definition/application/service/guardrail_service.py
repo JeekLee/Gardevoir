@@ -27,7 +27,7 @@ from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
 from gateway.guardrail.domain.models.guardrail import DRAFT_VERSION, Guardrail, require_valid_name
 from gateway.guardrail.plan.application.compiler import compile_guardrail
 from shared_kernel.api import Page
-from shared_kernel.database import Commit
+from shared_kernel.database import UnitOfWork
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +47,12 @@ class GuardrailService:
         *,
         guardrails: GuardrailRepository,
         dao: GuardrailDao,
-        commit: Commit,
+        uow: UnitOfWork,
         plans: PlanRefresher | None = None,
     ) -> None:
         self._guardrails = guardrails
         self._dao = dao
-        self._commit = commit
+        self._uow = uow
         self._plans = plans
 
     async def create(self, cmd: CreateGuardrail) -> GuardrailDetail:
@@ -60,43 +60,43 @@ class GuardrailService:
         _validate(draft)
         # 유일 제약이 DB 에도 있지만, IntegrityError 를 409 로 번역하는 것보다
         # 여기서 먼저 확인하는 편이 오류 메시지가 정확하다.
-        if await self._guardrails.exists(cmd.name):
-            GuardrailError.NAME_TAKEN.raise_(details={"name": cmd.name})
-        await self._guardrails.add(draft, id=_new_id())
-        # 커밋 전에 읽는다 — 같은 세션이므로 방금 쓴 것이 보이고, 트랜잭션이 하나로
-        # 유지된다. 커밋 뒤에 읽으면 읽기 트랜잭션이 새로 열려서 응답이 나간 뒤에야
-        # 닫힌다 (조립 루트의 정리 코드에서). 그 열린 트랜잭션이 DDL 을 막는다.
-        detail = await self._detail(cmd.name, DRAFT_VERSION)
-        await self._commit()
+        async with self._uow:
+            if await self._guardrails.exists(cmd.name):
+                GuardrailError.NAME_TAKEN.raise_(details={"name": cmd.name})
+            await self._guardrails.add(draft, id=_new_id())
+            # 블록 안(=커밋 전)에서 읽는다 — 같은 세션이라 방금 쓴 것이 보이고 트랜잭션이
+            # 하나로 유지된다. 커밋 뒤에 읽으면 읽기 트랜잭션이 새로 열려 응답 뒤에야
+            # 닫히고, 그 열린 트랜잭션이 DDL 을 막는다.
+            detail = await self._detail(cmd.name, DRAFT_VERSION)
         return detail
 
     async def update_draft(self, name: str, cmd: UpdateDraft) -> GuardrailDetail:
         draft = Guardrail.draft(name, cmd.graph)
         _validate(draft)
-        # draft 가 없으면 repository 가 GUARDRAIL-008 을 올린다.
-        await self._guardrails.replace_draft(draft)
-        detail = await self._detail(name, DRAFT_VERSION)
-        await self._commit()
+        async with self._uow:
+            # draft 가 없으면 repository 가 GUARDRAIL-008 을 올린다.
+            await self._guardrails.replace_draft(draft)
+            detail = await self._detail(name, DRAFT_VERSION)
         return detail
 
     async def publish(self, name: str) -> GuardrailDetail:
         require_valid_name(name)
-        draft = await self._guardrails.find_draft(name)
-        if draft is None:
-            GuardrailError.NO_DRAFT.raise_(details={"name": name})
+        async with self._uow:
+            draft = await self._guardrails.find_draft(name)
+            if draft is None:
+                GuardrailError.NO_DRAFT.raise_(details={"name": name})
 
-        # 쓰기 전에 검증한다 — 실패한 발행이 행을 남기면 버전 열에 구멍이 생기고,
-        # 감사 추적에서 "3번은 어디 갔나"를 설명할 수 없게 된다. 번호 자체는
-        # max()+1 로 유도되므로 호출만으로 소모되지는 않는다.
-        _validate(draft)
+            # 쓰기 전에 검증한다 — 실패한 발행이 행을 남기면 버전 열에 구멍이 생기고,
+            # 감사 추적에서 "3번은 어디 갔나"를 설명할 수 없게 된다. 번호 자체는
+            # max()+1 로 유도되므로 호출만으로 소모되지는 않는다.
+            _validate(draft)
 
-        version_number = await self._guardrails.next_version_number(name)
-        await self._guardrails.add(draft.published_as(version_number), id=_new_id())
-        # draft 행은 그대로 남는다 — 발행 후에도 계속 편집할 수 있어야 한다 (§6).
-        detail = await self._detail(name, str(version_number))
-        await self._commit()
-        # 커밋 뒤에 재컴파일한다 — 레지스트리는 새 세션을 열기 때문에 커밋 전에
-        # 부르면 아직 보이지 않는 행 대신 이전 버전을 컴파일한다.
+            version_number = await self._guardrails.next_version_number(name)
+            await self._guardrails.add(draft.published_as(version_number), id=_new_id())
+            # draft 행은 그대로 남는다 — 발행 후에도 계속 편집할 수 있어야 한다 (§6).
+            detail = await self._detail(name, str(version_number))
+        # 블록을 나가면 커밋됐다. 재컴파일은 그 뒤 — 레지스트리는 새 세션을 열기 때문에
+        # 커밋 전에 부르면 아직 보이지 않는 행 대신 이전 버전을 컴파일한다.
         await self._recompile(name)
         return detail
 

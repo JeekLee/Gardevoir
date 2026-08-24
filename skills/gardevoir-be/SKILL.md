@@ -501,15 +501,17 @@ new session cannot see uncommitted rows), and read your own write *before* commi
 request stays one transaction: a read issued after the commit opens a second transaction that
 only closes during cleanup, and that open transaction blocks DDL.
 
-**Therefore the service is the *only* commit.** `provide_*` must not commit after its `yield`.
+**Therefore the service owns the commit, and `provide_*` must not commit after its `yield`.**
 It did for a while, and that safety net cancelled the rule: a service that forgot to commit
-still persisted — just late, i.e. exactly the defect above, reintroduced invisibly. Now the
-`async with` rolls back whatever the service did not commit, so forgetting shows up as data
-that is missing rather than data that is late.
+still persisted — just late, i.e. exactly the defect above, reintroduced invisibly. The service
+now demarcates the boundary with `async with self._uow:`; on a clean exit the unit of work
+commits, on an exception it rolls back. Forgetting the boundary means the write is never
+committed and the session's `async with` in `provide_*` rolls it back — the miss shows up as
+data that is *missing*, not data that is *late*.
 
 ### Only Postgres is transactional
 
-`Commit` covers **one store**. Redis cannot join a commit protocol at all — measured against
+The unit of work covers **one store**. Redis cannot join a commit protocol at all — measured against
 the real server: inside `MULTI`/`EXEC` a failing command neither stops the rest nor undoes what
 ran before it (`[True, ResponseError, True]`, and both `SET`s stayed), `DISCARD` only works
 *before* `EXEC`, and of 447 commands there is no `PREPARE` and no `XA`. ClickHouse is batched and
@@ -522,18 +524,32 @@ is unchanged, which is more restrictive. Commit-then-revoke would leave the new 
 alongside the old sessions, which is a security hole, and "commit first, then side effects" is
 exactly the reordering a reader would reach for.
 
-**The service takes the commit function, not a transaction object** —
-`Commit = Callable[[], Awaitable[None]]` in `shared_kernel.database`, wired as
-`commit=session.commit`, called as `await self._commit()`. Required keyword, no default: a
-default on a wired dependency is how a missing wire becomes a silent wrong answer, the same
-shape as `plans=` and `mode=` before it.
+**The service declares the boundary; the word `commit` never appears in it.** It takes a
+`UnitOfWork` (a `Protocol` in `shared_kernel.database`) and writes:
 
-It was a `Transaction` `Protocol` with one `commit()` method for a while, and the name was the
-problem. It manages no transaction — opening is autobegin's and rolling back is `close()`'s — so
-the docstring grew three paragraphs explaining what the type is *not*, which is this repo's
-oldest smell. `await self._commit()` needs none of that. (Worse, two of the three contexts had
-declared their own copy as a plain `class`, not a `Protocol`, so `AsyncSession` did not satisfy
-the annotation at all — invisible because nothing type-checks this repo.)
+```python
+async with self._uow:          # uow=SqlAlchemyUnitOfWork(session) at the composition root
+    await self._users.add(user)
+    summary = await self._summary(user.id)   # read-own-write, still before the commit
+# committed here on clean exit; post-commit work (publish's recompile) goes after the block
+```
+
+`commit`/`rollback` live only in `SqlAlchemyUnitOfWork.__aexit__` — that is an SQLAlchemy concept
+and the application has no business knowing it. What the application *does* own is the boundary:
+what is atomic together, what a side effect must precede (§ the revoke-before-commit above), and
+what must follow the commit (`publish` recompiles **after** the `async with` block, where it is
+visible — not in an after-commit hook). Required keyword, **no default**: a default on a wired
+dependency is how a missing wire becomes a silent wrong answer, the same shape as `plans=` and
+`mode=`. Opening is autobegin's job (the transaction starts at the first SQL) and closing is the
+session's `async with` in `provide_*`; the unit of work only decides commit-or-rollback.
+
+This went `Transaction` `Protocol` (one `commit()`, managed nothing — a name for a thing that did
+not exist) → `Commit` type alias → a bare callable, before landing on the unit of work. The first
+two named a *verb* the application had to call; `UnitOfWork` names the *boundary* the application
+actually owns, and it does real work in `__aexit__`, so the name finally matches the thing. A
+decorator (`@transactional`, Spring-style) was measured too and rejected: it commits at method
+return, which forces `publish`'s post-commit recompile into an after-commit hook and hides the
+revoke-before-commit ordering — both of which the `async with` keeps visible.
 
 Verify by running real uvicorn and reading the ordering in the log. Disable anything that
 could mask it first — set a huge `GARDEVOIR_PLAN_POLL_INTERVAL_S` so the poller cannot cover

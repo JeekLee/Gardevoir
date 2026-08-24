@@ -56,11 +56,11 @@ root does not take an HTTP request — if a wiring function's signature starts w
 **3. A default on a wired dependency turns a missing wire into a silent wrong answer.**
 Three times: `plans=getattr(state, "plans", None)` made publish return 200 without recompiling,
 `mode: Mode = Mode.ENFORCE` made dry-run requests record themselves as `enforce` while
-inspecting correctly, and `commit: Commit | None = None` made a service with no commit wired
-persist nothing at all. Let it fail instead. The related shape is a **second owner**
-of the same decision: while `provide_*` also committed after its `yield`, a service that forgot
-to commit still persisted — just after the response, which is the defect the port exists to
-prevent. A safety net that hides the failure it catches is not a safety net.
+inspecting correctly, and a defaulted `uow=None` would let a service with no unit of work wired
+persist nothing at all. Let it fail instead. The related shape is a **second owner** of the same
+decision: while `provide_*` also committed after its `yield`, a service that forgot to commit
+still persisted — just after the response, which is the defect the boundary exists to prevent. A
+safety net that hides the failure it catches is not a safety net.
 
 **4. A list that has to be remembered is a failure mode.** `orm.py` existed to import every
 ORM model, and its own docstring warned that a model missing from it would vanish from

@@ -21,6 +21,7 @@ from gateway.identity.infrastructure.redis_refresh_session_repository import (
 )
 from gateway.identity.infrastructure.user_dao import SqlAlchemyUserDao
 from gateway.identity.infrastructure.user_repository import SqlAlchemyUserRepository
+from shared_kernel.database import SqlAlchemyUnitOfWork
 
 
 def provide_access_token_codec(request: Request) -> AccessTokenCodec:
@@ -35,7 +36,7 @@ async def provide_auth_service(request: Request) -> AsyncIterator[AuthService]:
             sessions=RedisRefreshSessionRepository(request.app.state.redis),
             tokens=request.app.state.access_tokens,
             refresh_ttl=request.app.state.refresh_ttl,
-            commit=session.commit,
+            uow=SqlAlchemyUnitOfWork(session),
         )
 
 
@@ -45,7 +46,7 @@ async def provide_user_service(request: Request) -> AsyncIterator[UserService]:
             users=SqlAlchemyUserRepository(session),
             dao=SqlAlchemyUserDao(session),
             sessions=RedisRefreshSessionRepository(request.app.state.redis),
-            commit=session.commit,
+            uow=SqlAlchemyUnitOfWork(session),
         )
 
 

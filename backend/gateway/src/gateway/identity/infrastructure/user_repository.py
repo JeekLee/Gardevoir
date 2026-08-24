@@ -1,9 +1,11 @@
 from uuid import UUID
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gateway.identity.domain.enums.role import Role
+from gateway.identity.domain.exceptions.user_error import UserError
 from gateway.identity.domain.models.user import User
 from gateway.identity.infrastructure.user_mapper import to_domain, to_model
 from gateway.identity.infrastructure.user_model import UserModel
@@ -25,7 +27,13 @@ class SqlAlchemyUserRepository:
 
     async def add(self, user: User) -> None:
         self._session.add(to_model(user))
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            # 서비스가 미리 확인하지만 확인과 제약 사이에 틈이 있다. 같은 이메일로 동시
+            # 요청이 들어오면 지는 쪽이 500 이 아니라 409 를 받아야 한다. 번역이 여기
+            # 있는 이유: IntegrityError 는 SQLAlchemy 타입이고 application 은 몰라야 한다.
+            raise UserError.EMAIL_TAKEN.exception(details={"email": user.email}) from exc
 
     async def save(self, user: User) -> None:
         await self._session.execute(

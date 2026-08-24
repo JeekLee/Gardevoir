@@ -36,7 +36,11 @@ from gateway.proxy.infrastructure import HttpxUpstream
 from gateway.proxy.presentation import chat_router
 from gateway.settings import GatewaySettings, get_settings
 from shared_kernel.clickhouse import dispose_clickhouse, get_clickhouse_client
-from shared_kernel.database import dispose_engine, get_session_factory
+from shared_kernel.database import (
+    SqlAlchemyUnitOfWork,
+    dispose_engine,
+    get_session_factory,
+)
 from shared_kernel.exception import ErrorCode, error_response, register_exception_handlers
 from shared_kernel.log import RequestContextMiddleware, configure_logging
 
@@ -101,7 +105,7 @@ async def _bootstrap_admin_key(settings: GatewaySettings, session_factory) -> No
         service = ApiKeyService(
             keys=SqlAlchemyApiKeyRepository(session),
             dao=SqlAlchemyApiKeyDao(session),
-            commit=session.commit,
+            uow=SqlAlchemyUnitOfWork(session),
         )
         await service.ensure_bootstrap_admin(settings.bootstrap_admin_key)
 

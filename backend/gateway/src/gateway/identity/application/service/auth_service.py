@@ -15,7 +15,7 @@ from gateway.identity.domain.exceptions.session_error import SessionError
 from gateway.identity.domain.exceptions.user_error import UserError
 from gateway.identity.domain.models.refresh_session import RefreshSession
 from gateway.identity.domain.models.user import User, normalise_email
-from shared_kernel.database import Commit
+from shared_kernel.database import UnitOfWork
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +29,14 @@ class AuthService:
         sessions: RefreshSessionRepository,
         tokens: AccessTokenCodec,
         refresh_ttl: timedelta,
-        commit: Commit,
+        uow: UnitOfWork,
     ) -> None:
         self._users = users
         self._dao = dao
         self._sessions = sessions
         self._tokens = tokens
         self._refresh_ttl = refresh_ttl
-        self._commit = commit
+        self._uow = uow
 
     async def login(self, cmd: Login) -> LoginResult:
         user = await self._users.find_by_email(normalise_email(cmd.email))
@@ -44,9 +44,9 @@ class AuthService:
             UserError.INVALID_CREDENTIALS.raise_()
         user.authenticate(cmd.password.get_secret_value())
 
-        pair = await self._issue(user)
-        summary = await self._dao.get_summary(user.id)
-        await self._commit()
+        async with self._uow:
+            pair = await self._issue(user)
+            summary = await self._dao.get_summary(user.id)
         assert summary is not None
         logger.info("user %s logged in", user.email)
         return LoginResult(tokens=pair, user=summary)
@@ -61,21 +61,20 @@ class AuthService:
             SessionError.INVALID.raise_()
         session.ensure_active()
 
-        user = await self._users.get(session.user_id)
-        if user is None:
-            SessionError.INVALID.raise_()
-        user.ensure_active()
-
-        await self._sessions.remove(session)
-        pair = await self._issue(user)
-        await self._commit()
+        async with self._uow:
+            user = await self._users.get(session.user_id)
+            if user is None:
+                SessionError.INVALID.raise_()
+            user.ensure_active()
+            await self._sessions.remove(session)
+            pair = await self._issue(user)
         return pair
 
     async def logout(self, refresh_token: str) -> None:
+        # 순수 Redis 다 — Postgres 를 건드리지 않으므로 커밋 경계가 없다.
         session = await self._sessions.find_by_token(refresh_token)
         if session is not None:
             await self._sessions.remove(session)
-        await self._commit()
 
     async def _issue(self, user: User) -> TokenPair:
         session = RefreshSession.issue(user_id=user.id, ttl=self._refresh_ttl)
