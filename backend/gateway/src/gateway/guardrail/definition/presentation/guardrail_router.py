@@ -19,10 +19,8 @@ from gateway.guardrail.definition.application.result.guardrail_result import (
     GuardrailSummary,
 )
 from gateway.guardrail.definition.application.service.guardrail_service import GuardrailService
-from gateway.identity.application.port.access_token_codec import AccessTokenClaims
-from gateway.identity.composition import require_role
-from gateway.identity.domain.enums.role import Role
 from shared_kernel.api import JsonResponse, Page
+from shared_kernel.auth import AccessTokenClaims, Role, require_role
 
 router = APIRouter(prefix="/guardrails", tags=["guardrails"], default_response_class=JsonResponse)
 

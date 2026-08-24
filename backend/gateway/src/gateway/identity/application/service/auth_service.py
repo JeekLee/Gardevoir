@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from gateway.identity.application.command.user_command import Login, Refresh
 from gateway.identity.application.dao.user_dao import UserDao
-from gateway.identity.application.port.access_token_codec import AccessTokenCodec
+from gateway.identity.application.port.access_token_issuer import AccessTokenIssuer
 from gateway.identity.application.repository.refresh_session_repository import (
     RefreshSessionRepository,
 )
@@ -27,14 +27,14 @@ class AuthService:
         user_repository: UserRepository,
         user_dao: UserDao,
         refresh_session_repository: RefreshSessionRepository,
-        access_token_codec: AccessTokenCodec,
+        access_token_issuer: AccessTokenIssuer,
         refresh_ttl: timedelta,
         unit_of_work: UnitOfWork,
     ) -> None:
         self._user_repository = user_repository
         self._user_dao = user_dao
         self._refresh_session_repository = refresh_session_repository
-        self._access_token_codec = access_token_codec
+        self._access_token_issuer = access_token_issuer
         self._refresh_ttl = refresh_ttl
         self._unit_of_work = unit_of_work
 
@@ -80,11 +80,11 @@ class AuthService:
         session = RefreshSession.issue(user_id=user.id, ttl=self._refresh_ttl)
         await self._refresh_session_repository.add(session)
         return TokenPair(
-            access_token=self._access_token_codec.encode(
+            access_token=self._access_token_issuer.encode(
                 user_id=user.id, email=user.email, role=user.role
             ),
             refresh_token=session.token,
-            expires_in=self._access_token_codec.ttl_seconds,
+            expires_in=self._access_token_issuer.ttl_seconds,
         )
 
 

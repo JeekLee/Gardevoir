@@ -211,8 +211,10 @@ rather than external.
 
 ## Dependency direction (strict)
 
-- **domain** — pure / persistence-ignorant. May import only `shared_kernel.exception`
-  category bases (for the ErrorCatalog). NO SQLAlchemy / FastAPI / httpx.
+- **domain** — pure / persistence-ignorant. May import only cross-cutting `shared_kernel`
+  primitives: `shared_kernel.exception` category bases (for the ErrorCatalog) and
+  `shared_kernel.auth` (the authorization vocabulary — `Role`; `User.role` is domain but the
+  role vocabulary is shared, see below). NO SQLAlchemy / FastAPI / httpx.
   Split into `models/` (aggregates, value objects, enums) and `exceptions/` (one
   `ErrorCatalog` per aggregate). Anything that is neither — a domain service such as
   `plan/domain/executor.py` — sits at the layer root rather than being forced into one.
@@ -244,6 +246,37 @@ correctly.
 **A composition root does not take an HTTP request.** If a wiring function's signature starts
 with `request: Request`, it is framework glue, not the root.
 
+## Authentication: issue in identity, verify in shared_kernel
+
+The deciding test is **"if the server split into services, what would cross the boundary?"** The
+answer draws the line cleanly:
+
+- **Issue side — identity only.** Signing (`encode`), login, refresh, password hashing, the
+  `User` aggregate, refresh sessions. Only the auth service issues tokens; in a split it is the
+  sole holder of the signing key. `AccessTokenIssuer` (Protocol, `encode` + `ttl_seconds`) lives
+  in `identity/application/port/`.
+- **Verify side — `shared_kernel.auth`, shared by everyone.** `Role`, `AccessTokenClaims`,
+  `AccessTokenVerifier` (decode-only Protocol), `AuthError`, and the FastAPI guards. Every
+  context that protects a route needs these; a downstream service would need them too. This is
+  the RS256 asymmetry (public key verifies everywhere, private key signs in one place) — today
+  it is HS256 because §12 nails down one process, but the *shape* is already split-ready.
+
+Why `shared_kernel` and not "publish an identity surface": a published Python module does not
+survive an actual split — a separate service cannot `import gateway.identity`. What crosses a
+service boundary is a **contract**, so the contract (claims shape, role vocabulary, verify) is
+the thing that belongs in a shared place. Putting only the *verify contract* there — not the
+issuing machinery — is why the reductio ("then all of auth moves to shared_kernel?") does not
+follow: issuing stays in identity.
+
+`Role` therefore lives in `shared_kernel.auth`, not `identity/domain/` — it is the authorization
+vocabulary, and every context enforces authorization. `User.role` (domain) imports it; that is
+the one reason domain may reach past `shared_kernel.exception`.
+
+Alternatives considered and why not: **trusted headers** (an edge authenticates, downstream reads
+`X-User-*`) shares no code but needs a trusted network edge; **introspection** (call the auth
+service per request) adds latency and runtime coupling. Both are viable in a real split; the
+shared-verify-contract is the monorepo-pragmatic choice and pre-draws the same line.
+
 ## Reuse shared_kernel (don't reinvent)
 
 - `config`: `BaseAppSettings` + nested `DatabaseSettings`, `ClickHouseSettings`, `LogSettings`.
@@ -252,6 +285,9 @@ with `request: Request`, it is framework glue, not the root.
   `Commit`, the `session.commit` callable every service takes.
 - `clickhouse`: `get_clickhouse_client` / `dispose_clickhouse`, deliberately the same shape.
 - `redis`: `get_redis_client` / `dispose_redis`, same again.
+- `auth`: the **authorization contract** — `Role`, `AccessTokenClaims` (the principal),
+  `AccessTokenVerifier` (Protocol, decode-only), `AuthError`, and the FastAPI guards
+  `current_claims` / `require_role`. Every context's routers import guards from here.
 
 **Both stores open and close in shared_kernel, not in the composition root.** The settings
 that *describe* a store (`DatabaseSettings`, `ClickHouseSettings`) were already there, so the

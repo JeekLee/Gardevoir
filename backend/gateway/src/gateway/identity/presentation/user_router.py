@@ -11,12 +11,11 @@ from gateway.identity.application.command.user_command import (
     CreateUser,
     UpdateUser,
 )
-from gateway.identity.application.port.access_token_codec import AccessTokenClaims
 from gateway.identity.application.result.user_result import UserSummary
 from gateway.identity.application.service.user_service import UserService
-from gateway.identity.composition import current_claims, provide_user_service, require_role
-from gateway.identity.domain.enums.role import Role
+from gateway.identity.composition import provide_user_service
 from shared_kernel.api import JsonResponse, Page
+from shared_kernel.auth import AccessTokenClaims, Role, current_claims, require_role
 
 router = APIRouter(prefix="/users", tags=["users"], default_response_class=JsonResponse)
 

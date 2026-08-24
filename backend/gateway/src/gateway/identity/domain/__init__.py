@@ -1,4 +1,3 @@
-from gateway.identity.domain.enums.role import Role
 from gateway.identity.domain.enums.scope import Scope
 from gateway.identity.domain.exceptions.api_key_error import ApiKeyError
 from gateway.identity.domain.exceptions.session_error import SessionError
@@ -13,7 +12,6 @@ __all__ = [
     "ApiKeyError",
     "PasswordHash",
     "RefreshSession",
-    "Role",
     "Scope",
     "SessionError",
     "User",

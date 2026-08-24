@@ -1,8 +1,8 @@
 from datetime import datetime
 from uuid import UUID
 
-from gateway.identity.domain.enums.role import Role
 from shared_kernel.api import CamelModel
+from shared_kernel.auth import Role
 
 
 class UserSummary(CamelModel):

@@ -194,6 +194,15 @@ over HTTP — `POST /v1/users` with no token and an empty body returns 401, not 
 The prefix used to double as an operational handle ("block `/v1/admin/*` at the ingress"), but
 that mitigation existed *because* the admin surface had no human authentication. It has one now.
 
+The guard, the principal it produces, and the role vocabulary live in **`shared_kernel.auth`**,
+not in identity — `require_role`, `AccessTokenClaims`, `Role`, `AuthError`, `AccessTokenVerifier`.
+The test is "if the server split, what crosses the boundary?": every context that protects a
+route needs to *verify* a token and read a role, so the verify contract is shared; only *issuing*
+(signing, login, sessions, `User`) stays in identity. A separate service cannot
+`import gateway.identity`, so what it would need is a contract, and the contract is what belongs
+in `shared_kernel`. This is the one reason the domain may import past `shared_kernel.exception`:
+`User.role` uses the shared `Role`.
+
 ## Dependency injection
 
 `<bc>/composition.py` exports `provide_*` functions and nothing else. Write

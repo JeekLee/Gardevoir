@@ -4,11 +4,11 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gateway.identity.domain.enums.role import Role
 from gateway.identity.domain.exceptions.user_error import UserError
 from gateway.identity.domain.models.user import User
 from gateway.identity.infrastructure.user_mapper import to_domain, to_model
 from gateway.identity.infrastructure.user_model import UserModel
+from shared_kernel.auth import Role
 
 
 class SqlAlchemyUserRepository:

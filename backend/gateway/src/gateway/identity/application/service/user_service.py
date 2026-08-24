@@ -15,10 +15,10 @@ from gateway.identity.application.repository.refresh_session_repository import (
 )
 from gateway.identity.application.repository.user_repository import UserRepository
 from gateway.identity.application.result.user_result import UserSummary
-from gateway.identity.domain.enums.role import Role
 from gateway.identity.domain.exceptions.user_error import UserError
 from gateway.identity.domain.models.user import User, normalise_email
 from shared_kernel.api import Page
+from shared_kernel.auth import Role
 from shared_kernel.database import UnitOfWork
 
 logger = logging.getLogger(__name__)

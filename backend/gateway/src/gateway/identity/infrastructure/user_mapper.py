@@ -1,7 +1,7 @@
-from gateway.identity.domain.enums.role import Role
 from gateway.identity.domain.models.password_hash import PasswordHash
 from gateway.identity.domain.models.user import User
 from gateway.identity.infrastructure.user_model import UserModel
+from shared_kernel.auth import Role
 
 
 def to_domain(row: UserModel) -> User:

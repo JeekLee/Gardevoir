@@ -1,4 +1,4 @@
-"""``AccessTokenCodec`` over HS256 JWT.
+"""HS256 JWT codec — encode(sign, identity) and decode(verify, the shared contract).
 
 단일 프로세스가 서명하고 검증하므로 대칭 키다. 비대칭(RS256)은 서명하는 서비스와 검증하는
 서비스가 다를 때 값이 있고, §12 는 컨테이너 하나를 못박아 뒀다.
@@ -9,9 +9,7 @@ from uuid import UUID
 
 import jwt
 
-from gateway.identity.application.port.access_token_codec import AccessTokenClaims
-from gateway.identity.domain.enums.role import Role
-from gateway.identity.domain.exceptions.user_error import UserError
+from shared_kernel.auth import AccessTokenClaims, AuthError, Role
 
 _ALGORITHM = "HS256"
 _ISSUER = "gardevoir"
@@ -56,7 +54,7 @@ class JwtAccessTokenCodec:
                 role=Role(payload["role"]),
             )
         except (jwt.InvalidTokenError, KeyError, ValueError) as exc:
-            raise UserError.INVALID_TOKEN.exception() from exc
+            raise AuthError.INVALID_TOKEN.exception() from exc
 
 
 __all__ = ["JwtAccessTokenCodec"]
