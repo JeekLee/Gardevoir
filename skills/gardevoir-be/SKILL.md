@@ -108,6 +108,13 @@ backend/gateway/src/gateway/
 │   ├── composition.py  request-scoped provide_* (별칭 없음)
 │   └── presentation/   chat_router.py  → /v1/chat/completions
 │
+├── provider/           업스트림 LLM 프로바이더 — 요청 model 로 라우팅 (프론티어/로컬)
+│   ├── domain/         models/provider.py · exceptions/provider_error.py
+│   ├── application/     service/ · repository/ (find_by_model) · dao/ · command/ · result/
+│   ├── infrastructure/  model/ · mapper/ · repository/ · dao/  (models 는 JSONB+GIN)
+│   ├── composition.py  provide_provider_service
+│   └── presentation/   provider_router.py → /v1/providers (Role.ADMIN)
+│
 └── audit/              AuditEvent (§10). 저장소가 다르다 — ClickHouse
     ├── application/    port/audit_sink.py · audit_event.py (값 타입이라 층 루트)
     └── infrastructure/ adapter/clickhouse_sink.py · schema.py (층 루트)

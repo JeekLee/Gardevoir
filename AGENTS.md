@@ -22,6 +22,7 @@ code changes.
     identity/         ApiKey — credentials and scopes (§7.2)
     guardrail/        CORE DOMAIN — domain/ shared by definition · plan · inspection
     proxy/            LLM request/response, streaming, the §7 wire contract
+    provider/         upstream LLM providers — routed by the request's model
     audit/            AuditEvent — ClickHouse
   ```
 
