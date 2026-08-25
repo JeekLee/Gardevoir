@@ -4,6 +4,7 @@ import type { GuardrailGraph } from "@/src/entities/guardrail";
 import type { ProviderSummary } from "@/src/entities/provider";
 
 import {
+  GuardrailTestStreamParser,
   parseGuardrailTestResult,
   providerModelOptions,
   testHighlights,
@@ -32,6 +33,7 @@ describe("guardrail test result", () => {
       toolCalls: [],
       auditId: null,
       latencyMs: 42.25,
+      unmaskable: 1,
     });
 
     expect(result.overallAction).toBe("mask");
@@ -43,6 +45,55 @@ describe("guardrail test result", () => {
     });
     expect(result.rawContent).toContain("900101-1234567");
     expect(result.appliedContent).toContain("[개인정보 삭제됨]");
+    expect(result.unmaskable).toBe(1);
+  });
+
+  it("분할된 OpenAI SSE delta와 종료 결과를 순서대로 파싱한다", () => {
+    const parser = new GuardrailTestStreamParser();
+    const encoder = new TextEncoder();
+    const result = {
+      guardrail: "default",
+      version: "draft",
+      model: "local-model",
+      checkpoints: {
+        input: checkpoint(),
+        toolResult: checkpoint(),
+        output: checkpoint({ action: "mask", masked: true }),
+        toolCall: checkpoint(),
+      },
+      overallAction: "mask",
+      blocked: false,
+      blockedAt: null,
+      blockedReason: null,
+      rawContent: "",
+      appliedContent: "[개인정보 삭제됨]",
+      toolCalls: [],
+      auditId: null,
+      latencyMs: 31.5,
+      unmaskable: 0,
+    };
+    const wire = encoder.encode(
+      'data: {"choices":[{"delta":{"content":"[개인정보 삭제됨]"}}]}' +
+        `\r\n\r\ndata: [DONE]\n\nevent: result\ndata: ${JSON.stringify(result)}\n\n`,
+    );
+    const splitInsideKorean = wire.findIndex((byte) => byte >= 0x80) + 1;
+    const source = [
+      wire.slice(0, splitInsideKorean),
+      wire.slice(splitInsideKorean),
+    ];
+
+    const events = source.flatMap((chunk) => parser.push(chunk));
+    events.push(...parser.finish());
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toEqual({
+      type: "delta",
+      content: "[개인정보 삭제됨]",
+    });
+    expect(events[1]).toMatchObject({
+      type: "result",
+      result: { overallAction: "mask", unmaskable: 0 },
+    });
   });
 
   it("업스트림 호출 전 차단 결과를 파싱한다", () => {

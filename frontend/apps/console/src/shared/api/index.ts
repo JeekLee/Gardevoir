@@ -1,1 +1,1 @@
-export { apiRequest, ConsoleApiError } from "./request";
+export { apiRequest, apiStream, ConsoleApiError } from "./request";

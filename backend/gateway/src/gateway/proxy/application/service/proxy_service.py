@@ -44,6 +44,7 @@ from gateway.proxy.application.authenticated_request import AuthenticatedRequest
 from gateway.proxy.application.port.llm_upstream import LlmUpstream, UpstreamResult
 from gateway.proxy.application.port.upstream_resolver import UpstreamResolver
 from gateway.proxy.application.streaming.relay import StreamRelay
+from gateway.proxy.application.streaming.sse import parse_frames
 from gateway.proxy.contract import (
     EXTENSION_KEY,
     UNVERSIONED_GUARDRAIL,
@@ -121,6 +122,36 @@ class GuardrailTestCompletion:
     output: Inspection
     tool_call: Inspection
     latency_ms: float
+
+
+@dataclass(frozen=True, slots=True)
+class GuardrailTestStreamingCompletion:
+    applied_content: str
+    tool_calls: list[dict]
+    blocked_before_upstream: bool
+    blocked_after_upstream: bool
+    input: Inspection
+    tool_result: Inspection
+    output: Inspection
+    tool_call: Inspection
+    latency_ms: float
+    unmaskable: int
+
+
+@dataclass(slots=True)
+class GuardrailTestProxyStream:
+    status_code: int
+    media_type: str
+    _chunks: AsyncIterator[bytes] = field(repr=False)
+    _completion: GuardrailTestStreamingCompletion | None = field(default=None, repr=False)
+
+    def aiter(self) -> AsyncIterator[bytes]:
+        return self._chunks
+
+    def result(self) -> GuardrailTestStreamingCompletion:
+        if self._completion is None:
+            raise RuntimeError("guardrail test stream has not completed")
+        return self._completion
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,6 +405,97 @@ class ProxyService:
             tool_call=verdicts.tool_call,
             latency_ms=completion.total_latency_ms,
         )
+
+    @asynccontextmanager
+    async def test_stream(
+        self, *, plan: ExecutionPlan, payload: bytes
+    ) -> AsyncIterator[GuardrailTestProxyStream]:
+        """Run a compiled plan through the streaming relay without auditing."""
+        started = time.perf_counter()
+        decoded = _decode(payload)
+        verdicts = self._inspect_before_upstream(plan, decoded, Mode.ENFORCE)
+
+        if verdicts.blocked_before_upstream:
+
+            async def empty() -> AsyncIterator[bytes]:
+                if False:
+                    yield b""
+
+            yield GuardrailTestProxyStream(
+                status_code=200,
+                media_type=SSE_MEDIA_TYPE,
+                _chunks=empty(),
+                _completion=GuardrailTestStreamingCompletion(
+                    applied_content="",
+                    tool_calls=[],
+                    blocked_before_upstream=True,
+                    blocked_after_upstream=False,
+                    input=verdicts.input,
+                    tool_result=verdicts.tool_result,
+                    output=verdicts.output,
+                    tool_call=verdicts.tool_call,
+                    latency_ms=(time.perf_counter() - started) * 1000,
+                    unmaskable=0,
+                ),
+            )
+            return
+
+        upstream = await self._upstream_resolver.resolve(_model_of(decoded))
+        cm = self._upstream.open_stream(
+            base_url=upstream.base_url,
+            api_key=upstream.api_key,
+            path=UPSTREAM_PATH,
+            payload=payload,
+        )
+        async with cm as upstream_stream:
+            if upstream_stream.status_code >= 400:
+                yield GuardrailTestProxyStream(
+                    status_code=upstream_stream.status_code,
+                    media_type=upstream_stream.headers.get("content-type", JSON_MEDIA_TYPE),
+                    _chunks=upstream_stream.aiter(),
+                )
+                return
+
+            relay = StreamRelay(
+                inspector=self._inspector,
+                plan=plan,
+                mode=Mode.ENFORCE,
+                tainted=verdicts.tainted,
+                payload=decoded,
+                holdback_chars=self._holdback_chars,
+                window_chars=self._window_chars,
+            )
+            applied_content: list[str] = []
+
+            async def chunks() -> AsyncIterator[bytes]:
+                nonlocal verdicts
+                async for chunk in relay.relay(upstream_stream.aiter()):
+                    applied_content.extend(_delta_contents(chunk))
+                    yield chunk
+                verdicts = replace(
+                    verdicts,
+                    output=relay.outcome.output,
+                    tool_call=relay.outcome.tool_call,
+                )
+                stream._completion = GuardrailTestStreamingCompletion(
+                    applied_content="".join(applied_content),
+                    tool_calls=relay.tool_calls,
+                    blocked_before_upstream=False,
+                    blocked_after_upstream=verdicts.blocked_after_upstream,
+                    input=verdicts.input,
+                    tool_result=verdicts.tool_result,
+                    output=verdicts.output,
+                    tool_call=verdicts.tool_call,
+                    latency_ms=(time.perf_counter() - started) * 1000,
+                    unmaskable=relay.outcome.unmaskable,
+                )
+
+            stream = GuardrailTestProxyStream(
+                status_code=upstream_stream.status_code,
+                media_type=SSE_MEDIA_TYPE,
+                _chunks=chunks(),
+            )
+            yield stream
 
     @asynccontextmanager
     async def stream(
@@ -713,12 +835,35 @@ class ProxyService:
         )
 
 
+def _delta_contents(chunk: bytes) -> list[str]:
+    contents: list[str] = []
+    frames, _ = parse_frames(chunk)
+    for frame in frames:
+        if frame.payload is None:
+            continue
+        choices = frame.payload.get("choices")
+        if not isinstance(choices, list):
+            continue
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            delta = choice.get("delta")
+            if not isinstance(delta, dict):
+                continue
+            content = delta.get("content")
+            if isinstance(content, str):
+                contents.append(content)
+    return contents
+
+
 __all__ = [
     "BLOCKED_INPUT_STATUS",
     "JSON_MEDIA_TYPE",
     "SSE_MEDIA_TYPE",
     "UPSTREAM_PATH",
     "GuardrailTestCompletion",
+    "GuardrailTestProxyStream",
+    "GuardrailTestStreamingCompletion",
     "ProxyResult",
     "ProxyService",
     "ProxyStream",

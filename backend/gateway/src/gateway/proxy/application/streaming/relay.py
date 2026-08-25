@@ -91,6 +91,11 @@ class StreamRelay:
     def inspects_tool_calls(self) -> bool:
         return self._program(CHECKPOINT_TOOL_CALL) is not None
 
+    @property
+    def tool_calls(self) -> list[dict]:
+        """Return the fully accumulated tool calls after relay completion."""
+        return self._acc.tool_calls
+
     async def relay(self, upstream: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
         tail = b""
         opened = False

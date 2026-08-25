@@ -23,6 +23,7 @@
 .form label > span,
 .form small,
 .resultSummary span,
+.streamedResult span,
 .responseResults span,
 .firedChecks > span,
 .evidence > span {
@@ -89,6 +90,7 @@
 }
 
 .runButton,
+.cancelButton,
 .error button {
   background: var(--brand-strong);
   border: 1px solid var(--brand-strong);
@@ -99,6 +101,17 @@
   font-weight: 850;
   min-height: 2.7rem;
   padding: 0 0.9rem;
+}
+
+.formActions {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.cancelButton {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--muted-strong);
 }
 
 .runButton:disabled {
@@ -131,6 +144,50 @@
   display: grid;
   gap: 0.9rem;
   padding-top: 1rem;
+}
+
+.streamedResult {
+  background: color-mix(in srgb, var(--brand-soft) 48%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--brand) 34%, var(--border));
+  border-radius: 0.75rem;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem;
+}
+
+.streamedResult > header {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.streamedResult > header small {
+  color: var(--brand-deep);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  margin-left: auto;
+}
+
+.streamedResult pre {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  line-height: 1.55;
+  margin: 0;
+  max-height: 16rem;
+  min-height: 3rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.unmaskableBadge {
+  background: color-mix(in srgb, #d99b24 18%, var(--surface));
+  border-radius: 999px;
+  color: color-mix(in srgb, #9c6500 88%, var(--text));
+  font-size: 0.62rem;
+  padding: 0.35rem 0.55rem;
 }
 
 .resultSummary {
@@ -298,18 +355,9 @@
   word-break: break-word;
 }
 
-.responseResults .appliedResult {
-  background: color-mix(in srgb, var(--brand-soft) 48%, var(--surface));
-  border-color: color-mix(in srgb, var(--brand) 34%, var(--border));
-}
-
-.responseResults .blockedResult {
+.blockedResult {
   background: var(--danger-soft);
   border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
-}
-
-.responseResults .rawResult {
-  background: var(--surface-subtle);
 }
 
 .responseResults .toolCalls {
@@ -318,7 +366,7 @@
 
 @media (max-width: 1120px) {
   .form { grid-template-columns: 1fr 1fr; }
-  .runButton { grid-column: 1 / -1; }
+  .formActions { grid-column: 1 / -1; }
   .checkpoints { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

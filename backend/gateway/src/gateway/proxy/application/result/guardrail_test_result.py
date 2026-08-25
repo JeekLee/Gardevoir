@@ -34,3 +34,4 @@ class GuardrailTestResult(CamelModel):
     tool_calls: list[dict]
     audit_id: None = None
     latency_ms: float
+    unmaskable: int = 0

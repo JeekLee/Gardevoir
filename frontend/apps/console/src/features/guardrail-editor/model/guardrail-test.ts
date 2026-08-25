@@ -43,7 +43,12 @@ export type GuardrailTestResult = {
   toolCalls: Record<string, unknown>[];
   auditId: null;
   latencyMs: number;
+  unmaskable?: number;
 };
+
+export type GuardrailTestStreamEvent =
+  | { type: "delta"; content: string }
+  | { type: "result"; result: GuardrailTestResult };
 
 export type ProviderModelOption = {
   model: string;
@@ -71,7 +76,11 @@ export function parseGuardrailTestResult(value: unknown): GuardrailTestResult {
     !Array.isArray(value.toolCalls) ||
     !value.toolCalls.every(isRecord) ||
     value.auditId !== null ||
-    typeof value.latencyMs !== "number"
+    typeof value.latencyMs !== "number" ||
+    (value.unmaskable !== undefined &&
+      (typeof value.unmaskable !== "number" ||
+        !Number.isInteger(value.unmaskable) ||
+        value.unmaskable < 0))
   ) {
     throw new Error("Invalid guardrail test response");
   }
@@ -95,7 +104,43 @@ export function parseGuardrailTestResult(value: unknown): GuardrailTestResult {
     toolCalls: value.toolCalls,
     auditId: null,
     latencyMs: value.latencyMs,
+    unmaskable:
+      typeof value.unmaskable === "number" ? value.unmaskable : undefined,
   };
+}
+
+export class GuardrailTestStreamParser {
+  readonly #decoder = new TextDecoder();
+  #buffer = "";
+
+  push(chunk: Uint8Array): GuardrailTestStreamEvent[] {
+    this.#buffer += this.#decoder.decode(chunk, { stream: true });
+    return this.#drain(false);
+  }
+
+  finish(): GuardrailTestStreamEvent[] {
+    this.#buffer += this.#decoder.decode();
+    return this.#drain(true);
+  }
+
+  #drain(flush: boolean): GuardrailTestStreamEvent[] {
+    this.#buffer = this.#buffer.replaceAll("\r\n", "\n");
+    const events: GuardrailTestStreamEvent[] = [];
+    while (true) {
+      const boundary = this.#buffer.indexOf("\n\n");
+      if (boundary < 0) break;
+      const block = this.#buffer.slice(0, boundary);
+      this.#buffer = this.#buffer.slice(boundary + 2);
+      const event = parseStreamBlock(block);
+      if (event) events.push(event);
+    }
+    if (flush && this.#buffer.trim()) {
+      const event = parseStreamBlock(this.#buffer);
+      if (event) events.push(event);
+      this.#buffer = "";
+    }
+    return events;
+  }
 }
 
 export function providerModelOptions(
@@ -188,6 +233,46 @@ function parseEvidence(value: unknown): GuardrailTestEvidence {
     throw new Error("Invalid guardrail test evidence");
   }
   return { tool: value.tool, arguments: value.arguments };
+}
+
+function parseStreamBlock(block: string): GuardrailTestStreamEvent | null {
+  let eventName = "message";
+  const data: string[] = [];
+  for (const line of block.split("\n")) {
+    if (line.startsWith(":")) continue;
+    if (line.startsWith("event:")) {
+      eventName = line.slice("event:".length).trim();
+    } else if (line.startsWith("data:")) {
+      data.push(line.slice("data:".length).trimStart());
+    }
+  }
+  if (data.length === 0) return null;
+
+  const payload = data.join("\n");
+  if (payload === "[DONE]") return null;
+
+  let value: unknown;
+  try {
+    value = JSON.parse(payload);
+  } catch {
+    throw new Error("Invalid guardrail test stream event");
+  }
+
+  if (eventName === "result") {
+    return { type: "result", result: parseGuardrailTestResult(value) };
+  }
+
+  if (!isRecord(value) || !Array.isArray(value.choices)) return null;
+  const content = value.choices
+    .map((choice) =>
+      isRecord(choice) &&
+      isRecord(choice.delta) &&
+      typeof choice.delta.content === "string"
+        ? choice.delta.content
+        : "",
+    )
+    .join("");
+  return content ? { type: "delta", content } : null;
 }
 
 function isGuardrailAction(value: unknown): value is GuardrailAction {

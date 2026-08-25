@@ -2,7 +2,9 @@
 
 from typing import Annotated
 
+import orjson
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 
 from gateway.proxy.application.command.guardrail_test_command import TestGuardrail
 from gateway.proxy.application.result.guardrail_test_result import GuardrailTestResult
@@ -22,3 +24,34 @@ async def test_guardrail(
     service: Annotated[GuardrailTestService, Depends(provide_guardrail_test_service)],
 ) -> GuardrailTestResult:
     return await service.test(name, body)
+
+
+@router.post("/{name}/test/stream")
+async def stream_guardrail_test(
+    name: str,
+    body: TestGuardrail,
+    _: Annotated[AccessTokenClaims, Depends(require_role(Role.ADMIN))],
+    service: Annotated[
+        GuardrailTestService,
+        Depends(provide_guardrail_test_service, scope="function"),
+    ],
+) -> StreamingResponse:
+    cm = service.stream(name, body)
+    stream = await cm.__aenter__()
+
+    async def chunks():
+        try:
+            async for chunk in stream.aiter():
+                yield chunk
+            if stream.status_code < 400:
+                payload = stream.result().model_dump(mode="json", by_alias=True)
+                yield b"event: result\ndata: " + orjson.dumps(payload) + b"\n\n"
+        finally:
+            await cm.__aexit__(None, None, None)
+
+    return StreamingResponse(
+        chunks(),
+        status_code=stream.status_code,
+        media_type=stream.media_type,
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

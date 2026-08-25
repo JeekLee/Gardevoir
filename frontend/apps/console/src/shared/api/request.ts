@@ -17,6 +17,10 @@ type EmptyRequest = RequestBase & {
   parse?: never;
 };
 
+type StreamRequest = RequestBase & {
+  onChunk: (chunk: Uint8Array) => void | Promise<void>;
+};
+
 export class ConsoleApiError extends Error {
   readonly httpStatus: number;
   readonly code: string;
@@ -111,6 +115,75 @@ export async function apiRequest<T>(
   }
 }
 
+export async function apiStream(options: StreamRequest): Promise<void> {
+  const apiBase = (
+    process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:21000/v1"
+  ).replace(/\/+$/, "");
+  const headers = new Headers({ Accept: "text/event-stream" });
+  if (options.body !== undefined) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (options.accessToken) {
+    headers.set("Authorization", `Bearer ${options.accessToken}`);
+  }
+
+  const timeout = createTimeoutSignal(options.signal, options.timeoutMs);
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`${apiBase}${options.path}`, {
+        method: options.method ?? "GET",
+        headers,
+        body:
+          options.body === undefined ? undefined : JSON.stringify(options.body),
+        cache: "no-store",
+        signal: timeout.signal,
+      });
+    } catch (error) {
+      throw normalizeTransportError(error, options.signal, timeout.didExpire());
+    }
+
+    if (!response.ok) {
+      throw await toConsoleError(response);
+    }
+    if (!response.body) {
+      throw unexpectedResponse(response);
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().startsWith("text/event-stream")) {
+      throw unexpectedResponse(response);
+    }
+
+    const reader = response.body.getReader();
+    try {
+      while (true) {
+        let read: ReadableStreamReadResult<Uint8Array>;
+        try {
+          read = await reader.read();
+        } catch (error) {
+          throw normalizeTransportError(
+            error,
+            options.signal,
+            timeout.didExpire(),
+          );
+        }
+        if (read.done) return;
+        try {
+          await options.onChunk(read.value);
+        } catch (error) {
+          await reader.cancel();
+          throw error;
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  } finally {
+    timeout.dispose();
+  }
+}
+
 async function toConsoleError(response: Response): Promise<ConsoleApiError> {
   const requestIdHeader = response.headers.get("x-request-id") ?? undefined;
   let body: unknown;
@@ -152,6 +225,32 @@ function isErrorEnvelope(
 
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function unexpectedResponse(response: Response): ConsoleApiError {
+  return new ConsoleApiError({
+    httpStatus: response.status,
+    code: "CONSOLE-003",
+    message: "The gateway returned an unexpected response.",
+    requestId: response.headers.get("x-request-id") ?? undefined,
+  });
+}
+
+function normalizeTransportError(
+  error: unknown,
+  source: AbortSignal | undefined,
+  expired: boolean,
+): unknown {
+  if (source?.aborted) {
+    return error;
+  }
+  return new ConsoleApiError({
+    httpStatus: 0,
+    code: expired ? "CONSOLE-002" : "CONSOLE-001",
+    message: expired
+      ? "The gateway did not respond in time."
+      : "The console could not reach the gateway.",
+  });
 }
 
 function createTimeoutSignal(source?: AbortSignal, timeoutMs = 15_000) {

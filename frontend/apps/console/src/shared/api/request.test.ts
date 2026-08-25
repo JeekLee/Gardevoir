@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiRequest } from "./request";
+import { apiRequest, apiStream } from "./request";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -59,5 +59,63 @@ describe("apiRequest", () => {
       details: { model: "gpt-5" },
       requestId: "req-test",
     });
+  });
+});
+
+describe("apiStream", () => {
+  it("SSE 응답 청크를 도착 순서대로 소비한다", async () => {
+    const encoder = new TextEncoder();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(encoder.encode("data: first\n\n"));
+              controller.enqueue(encoder.encode("data: second\n\n"));
+              controller.close();
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+      ),
+    );
+    const chunks: string[] = [];
+
+    await apiStream({
+      path: "/guardrails/default/test/stream",
+      method: "POST",
+      accessToken: "access-token",
+      body: {},
+      onChunk: (chunk) => {
+        chunks.push(new TextDecoder().decode(chunk));
+      },
+    });
+
+    expect(chunks).toEqual(["data: first\n\n", "data: second\n\n"]);
+  });
+
+  it("스트림 시작 전 게이트웨이 오류를 보존한다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ code: "GUARDRAIL-004", message: "invalid draft" }),
+          {
+            status: 422,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+      ),
+    );
+
+    await expect(
+      apiStream({
+        path: "/guardrails/default/test/stream",
+        method: "POST",
+        body: {},
+        onChunk: () => undefined,
+      }),
+    ).rejects.toMatchObject({ httpStatus: 422, code: "GUARDRAIL-004" });
   });
 });

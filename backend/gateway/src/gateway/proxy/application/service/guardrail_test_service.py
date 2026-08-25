@@ -1,8 +1,13 @@
 """Test an authored guardrail against a real upstream response."""
 
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+
 import orjson
 
 from gateway.guardrail.definition.application.dao.guardrail_dao import GuardrailDao
+from gateway.guardrail.definition.application.result.guardrail_result import GuardrailDetail
 from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
 from gateway.guardrail.domain.models.guardrail import (
     DRAFT_VERSION,
@@ -13,13 +18,18 @@ from gateway.guardrail.domain.models.guardrail import (
 )
 from gateway.guardrail.inspection.application.outcome import Inspection
 from gateway.guardrail.plan.application.compiler import compile_guardrail
+from gateway.guardrail.plan.domain.models.execution_plan import ExecutionPlan
 from gateway.proxy.application.command.guardrail_test_command import TestGuardrail
 from gateway.proxy.application.result.guardrail_test_result import (
     GuardrailTestResult,
     TestCheckpointResult,
     TestCheckpoints,
 )
-from gateway.proxy.application.service.proxy_service import ProxyService
+from gateway.proxy.application.service.proxy_service import (
+    GuardrailTestProxyStream,
+    GuardrailTestStreamingCompletion,
+    ProxyService,
+)
 
 _SEVERITY = {
     VerdictAction.ALLOW: 0,
@@ -28,21 +38,85 @@ _SEVERITY = {
 }
 
 
+@dataclass(slots=True)
+class GuardrailTestStream:
+    status_code: int
+    media_type: str
+    _chunks: AsyncIterator[bytes] = field(repr=False)
+    _result: Callable[[], GuardrailTestResult] = field(repr=False)
+
+    def aiter(self) -> AsyncIterator[bytes]:
+        return self._chunks
+
+    def result(self) -> GuardrailTestResult:
+        return self._result()
+
+
 class GuardrailTestService:
     def __init__(self, *, guardrail_dao: GuardrailDao, proxy_service: ProxyService) -> None:
         self._guardrail_dao = guardrail_dao
         self._proxy_service = proxy_service
 
     async def test(self, name: str, cmd: TestGuardrail) -> GuardrailTestResult:
+        detail, guardrail, plan = await self._prepare(name, cmd.version)
+        completion = await self._proxy_service.test(
+            plan=plan,
+            payload=orjson.dumps({"model": cmd.model, "messages": cmd.messages, "stream": False}),
+        )
+
+        blocked = completion.blocked_before_upstream or completion.blocked_after_upstream
+        return _result(
+            detail=detail,
+            guardrail=guardrail,
+            model=cmd.model,
+            input_inspection=completion.input,
+            tool_result_inspection=completion.tool_result,
+            output_inspection=completion.output,
+            tool_call_inspection=completion.tool_call,
+            raw_content=_content(completion.raw_response),
+            applied_content="" if blocked else _content(completion.applied_response),
+            tool_calls=_tool_calls(completion.raw_response),
+            latency_ms=completion.latency_ms,
+        )
+
+    @asynccontextmanager
+    async def stream(self, name: str, cmd: TestGuardrail) -> AsyncIterator[GuardrailTestStream]:
+        """Compile before opening SSE, then relay the draft through enforce mode."""
+        detail, guardrail, plan = await self._prepare(name, cmd.version)
+        payload = orjson.dumps(
+            {
+                "model": cmd.model,
+                "messages": cmd.messages,
+                "stream": True,
+            }
+        )
+        cm = self._proxy_service.test_stream(plan=plan, payload=payload)
+        proxy_stream = await cm.__aenter__()
+        try:
+            yield GuardrailTestStream(
+                status_code=proxy_stream.status_code,
+                media_type=proxy_stream.media_type,
+                _chunks=proxy_stream.aiter(),
+                _result=lambda: _stream_result(
+                    detail=detail,
+                    guardrail=guardrail,
+                    model=cmd.model,
+                    stream=proxy_stream,
+                ),
+            )
+        finally:
+            await cm.__aexit__(None, None, None)
+
+    async def _prepare(
+        self, name: str, version: str
+    ) -> tuple[GuardrailDetail, Guardrail, ExecutionPlan]:
         require_valid_name(name)
-        detail = await self._guardrail_dao.get_detail(name, cmd.version)
+        detail = await self._guardrail_dao.get_detail(name, version)
         if detail is None:
             error = (
-                GuardrailError.NO_DRAFT
-                if cmd.version == DRAFT_VERSION
-                else GuardrailError.NOT_FOUND
+                GuardrailError.NO_DRAFT if version == DRAFT_VERSION else GuardrailError.NOT_FOUND
             )
-            error.raise_(details={"name": name, "version": cmd.version})
+            error.raise_(details={"name": name, "version": version})
 
         guardrail = Guardrail.from_graph(
             name=detail.name,
@@ -51,35 +125,71 @@ class GuardrailTestService:
             graph=detail.graph,
         )
         guardrail.validate()
-        plan = compile_guardrail(guardrail)
-        completion = await self._proxy_service.test(
-            plan=plan,
-            payload=orjson.dumps({"model": cmd.model, "messages": cmd.messages, "stream": False}),
-        )
+        return detail, guardrail, compile_guardrail(guardrail)
 
-        verdicts = _verdicts(guardrail)
-        checkpoints = TestCheckpoints(
-            input=_checkpoint(completion.input, verdicts),
-            tool_result=_checkpoint(completion.tool_result, verdicts),
-            output=_checkpoint(completion.output, verdicts),
-            tool_call=_checkpoint(completion.tool_call, verdicts),
-        )
-        blocked_at, blocked_reason = _blocked(checkpoints)
-        blocked = blocked_at is not None
-        return GuardrailTestResult(
-            guardrail=detail.name,
-            version=detail.version,
-            model=cmd.model,
-            checkpoints=checkpoints,
-            overall_action=_overall(checkpoints),
-            blocked=blocked,
-            blocked_at=blocked_at,
-            blocked_reason=blocked_reason,
-            raw_content=_content(completion.raw_response),
-            applied_content="" if blocked else _content(completion.applied_response),
-            tool_calls=_tool_calls(completion.raw_response),
-            latency_ms=completion.latency_ms,
-        )
+
+def _stream_result(
+    *,
+    detail: GuardrailDetail,
+    guardrail: Guardrail,
+    model: str,
+    stream: GuardrailTestProxyStream,
+) -> GuardrailTestResult:
+    completion: GuardrailTestStreamingCompletion = stream.result()
+    return _result(
+        detail=detail,
+        guardrail=guardrail,
+        model=model,
+        input_inspection=completion.input,
+        tool_result_inspection=completion.tool_result,
+        output_inspection=completion.output,
+        tool_call_inspection=completion.tool_call,
+        raw_content="",
+        applied_content=completion.applied_content,
+        tool_calls=completion.tool_calls,
+        latency_ms=completion.latency_ms,
+        unmaskable=completion.unmaskable,
+    )
+
+
+def _result(
+    *,
+    detail: GuardrailDetail,
+    guardrail: Guardrail,
+    model: str,
+    input_inspection: Inspection,
+    tool_result_inspection: Inspection,
+    output_inspection: Inspection,
+    tool_call_inspection: Inspection,
+    raw_content: str,
+    applied_content: str,
+    tool_calls: list[dict],
+    latency_ms: float,
+    unmaskable: int = 0,
+) -> GuardrailTestResult:
+    verdicts = _verdicts(guardrail)
+    checkpoints = TestCheckpoints(
+        input=_checkpoint(input_inspection, verdicts),
+        tool_result=_checkpoint(tool_result_inspection, verdicts),
+        output=_checkpoint(output_inspection, verdicts),
+        tool_call=_checkpoint(tool_call_inspection, verdicts),
+    )
+    blocked_at, blocked_reason = _blocked(checkpoints)
+    return GuardrailTestResult(
+        guardrail=detail.name,
+        version=detail.version,
+        model=model,
+        checkpoints=checkpoints,
+        overall_action=_overall(checkpoints),
+        blocked=blocked_at is not None,
+        blocked_at=blocked_at,
+        blocked_reason=blocked_reason,
+        raw_content=raw_content,
+        applied_content=applied_content,
+        tool_calls=tool_calls,
+        latency_ms=latency_ms,
+        unmaskable=unmaskable,
+    )
 
 
 def _verdicts(guardrail: Guardrail) -> dict[str, tuple[str, VerdictAction]]:
