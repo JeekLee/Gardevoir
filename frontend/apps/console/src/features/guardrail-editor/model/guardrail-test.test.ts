@@ -17,7 +17,11 @@ describe("guardrail test result", () => {
       version: "draft",
       model: "local-model",
       checkpoints: {
-        input: checkpoint({ checksFired: ["input-secret"] }),
+        input: checkpoint({
+          action: "mask",
+          checksFired: ["input-secret"],
+          masked: true,
+        }),
         toolResult: checkpoint({ ran: false }),
         output: checkpoint({ action: "mask", masked: true }),
         toolCall: checkpoint({
@@ -38,6 +42,8 @@ describe("guardrail test result", () => {
 
     expect(result.overallAction).toBe("mask");
     expect(result.checkpoints.input.checksFired).toEqual(["input-secret"]);
+    expect(result.checkpoints.input.action).toBe("mask");
+    expect(result.checkpoints.input.masked).toBe(true);
     expect(result.checkpoints.output.action).toBe("mask");
     expect(result.checkpoints.toolCall.evidence[0]).toEqual({
       tool: "send_email",

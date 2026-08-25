@@ -5,6 +5,7 @@ v38 로 검사하면 판정이 앞뒤가 안 맞고 나중에 재현이 불가�
 """
 
 import logging
+from collections.abc import Callable
 
 from gateway.guardrail.domain.models.guardrail import VerdictAction
 from gateway.guardrail.domain.models.mode import Mode
@@ -20,11 +21,15 @@ from gateway.guardrail.inspection.application.provenance import (
     tool_name,
 )
 from gateway.guardrail.inspection.application.text import (
+    MessageTextLocation,
     extract_input_text,
+    extract_input_texts,
     extract_output_texts,
     extract_tool_result_text,
+    extract_tool_result_texts,
     extract_trusted_text,
     is_tainted,
+    replace_message_text,
 )
 from gateway.guardrail.plan.application.service.registry import PlanRegistry
 from gateway.guardrail.plan.domain.executor import Subject, execute
@@ -62,7 +67,13 @@ class Inspector:
         if program is None:
             return NOT_INSPECTED
         subject = Subject(text=extract_input_text(payload), tainted=tainted)
-        return self._run(program, subject, mode=mode)
+        return self._run(
+            program,
+            subject,
+            payload,
+            locate_texts=extract_input_texts,
+            mode=mode,
+        )
 
     def tool_result(
         self, plan: ExecutionPlan | None, payload: object, *, mode: Mode, tainted: bool = False
@@ -75,7 +86,13 @@ class Inspector:
         if program is None:
             return NOT_INSPECTED
         subject = Subject(text=extract_tool_result_text(payload), tainted=tainted)
-        return self._run(program, subject, mode=mode)
+        return self._run(
+            program,
+            subject,
+            payload,
+            locate_texts=extract_tool_result_texts,
+            mode=mode,
+        )
 
     @staticmethod
     def tainted(payload: object) -> bool:
@@ -174,6 +191,7 @@ class Inspector:
         pending: list[str] = []
         blocked = False
         masked = False
+        would_mask = False
 
         for position, text in texts:
             result = execute(
@@ -186,13 +204,15 @@ class Inspector:
 
             if result.action is VerdictAction.BLOCK:
                 blocked = True
-            elif result.action is VerdictAction.MASK and mode is not Mode.DRY_RUN:
+            elif result.action is VerdictAction.MASK:
+                if mode is Mode.DRY_RUN:
+                    would_mask = True
                 # dry-run 에서 응답을 고치면 시험이 아니다.
-                if self._mask_choice(program, body, position, result.checks_fired):
+                elif self._mask_choice(program, body, position, result.checks_fired):
                     masked = True
 
-        would_have = VerdictAction.BLOCK if blocked else None
-        if blocked and mode is Mode.DRY_RUN:
+        would_have = VerdictAction.BLOCK if blocked else VerdictAction.MASK if would_mask else None
+        if would_have is not None and mode is Mode.DRY_RUN:
             return Inspection(
                 action=VerdictAction.ALLOW,
                 tier=TIER_RULES,
@@ -210,24 +230,63 @@ class Inspector:
 
     # -- helpers ------------------------------------------------------------
 
-    def _run(self, program: Program, subject: Subject, *, mode: Mode) -> Inspection:
+    def _run(
+        self,
+        program: Program,
+        subject: Subject,
+        payload: object,
+        *,
+        locate_texts: Callable[[object], list[tuple[MessageTextLocation, str]]],
+        mode: Mode,
+    ) -> Inspection:
         result = execute(program, subject, collect_all=mode is Mode.DRY_RUN)
         blocked = result.action is VerdictAction.BLOCK
 
-        if blocked and mode is Mode.DRY_RUN:
+        would_have = result.action if result.action is not VerdictAction.ALLOW else None
+        if would_have is not None and mode is Mode.DRY_RUN:
             return Inspection(
                 action=VerdictAction.ALLOW,
                 tier=TIER_RULES,
                 checks_fired=result.checks_fired,
                 pending_model=result.pending_model,
-                would_have=VerdictAction.BLOCK,
+                would_have=would_have,
             )
+        masked = result.action is VerdictAction.MASK and self._mask_request(
+            program,
+            payload,
+            locate_texts(payload),
+            result.checks_fired,
+        )
         return Inspection(
             action=VerdictAction.BLOCK if blocked else VerdictAction.ALLOW,
             tier=TIER_RULES,
             checks_fired=result.checks_fired,
             pending_model=result.pending_model,
+            masked=masked,
         )
+
+    @staticmethod
+    def _mask_request(
+        program: Program,
+        payload: object,
+        texts: list[tuple[MessageTextLocation, str]],
+        fired: tuple[str, ...],
+    ) -> bool:
+        """Replace matching spans in each request message without joining them."""
+        patterns = Inspector._mask_patterns(program, fired)
+        if not patterns:
+            return False
+
+        changed = False
+        for location, text in texts:
+            replaced = Inspector._apply(patterns, text)
+            if replaced == text:
+                continue
+            if replace_message_text(payload, location, replaced):
+                changed = True
+        if not changed:
+            logger.warning("a mask verdict fired but nothing matched the original text")
+        return changed
 
     @staticmethod
     def _mask_choice(program: Program, body: dict, position: int, fired: tuple[str, ...]) -> bool:
@@ -323,19 +382,20 @@ class Inspector:
             program, Subject(text=text, tainted=tainted), collect_all=mode is Mode.DRY_RUN
         )
         blocked = result.action is VerdictAction.BLOCK
+        would_have = result.action if result.action is not VerdictAction.ALLOW else None
         spans = (
             self.mask_spans(program, result.checks_fired, text)
             if result.action is VerdictAction.MASK and mode is not Mode.DRY_RUN
             else []
         )
-        if blocked and mode is Mode.DRY_RUN:
+        if would_have is not None and mode is Mode.DRY_RUN:
             return (
                 Inspection(
                     action=VerdictAction.ALLOW,
                     tier=TIER_RULES,
                     checks_fired=result.checks_fired,
                     pending_model=result.pending_model,
-                    would_have=VerdictAction.BLOCK,
+                    would_have=would_have,
                 ),
                 [],
             )

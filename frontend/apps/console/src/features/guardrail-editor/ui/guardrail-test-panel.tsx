@@ -143,7 +143,8 @@ export function GuardrailTestPanel({
           <p>Draft enforce</p>
           <h2 id="guardrail-test-title">실제 업스트림 호출 테스트</h2>
           <span>
-            저장된 draft를 즉석 컴파일하고 마스킹된 응답을 실시간으로 확인합니다.
+            저장된 draft를 즉석 컴파일하고 입력·출력 마스킹 적용 결과를 실시간으로
+            확인합니다.
           </span>
         </div>
         <button type="button" onClick={close} aria-label="테스트 패널 닫기">

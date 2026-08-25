@@ -5,6 +5,7 @@
 내게 한다.
 """
 
+from dataclasses import dataclass
 from typing import Any
 
 #: ① 은 사용자 입력이다. assistant 는 ③, tool 결과는 ② 가 본다.
@@ -20,6 +21,14 @@ TRUSTED_ROLES = frozenset({"user", "system", "developer"})
 _JOIN = "\n"
 
 
+@dataclass(frozen=True, slots=True)
+class MessageTextLocation:
+    """Location of one text value inside a request message."""
+
+    message: int
+    part: int | None = None
+
+
 def extract_input_text(payload: Any) -> str:
     """① 검사 대상.
 
@@ -27,6 +36,11 @@ def extract_input_text(payload: Any) -> str:
     턴에 나눠 심은 것을 놓치므로 전부 이어붙인다.
     """
     return _JOIN.join(_texts_for_roles(payload, INPUT_ROLES))
+
+
+def extract_input_texts(payload: Any) -> list[tuple[MessageTextLocation, str]]:
+    """Return each ① masking target with its request location."""
+    return _located_texts_for_roles(payload, INPUT_ROLES)
 
 
 def extract_output_texts(body: Any) -> list[tuple[int, str]]:
@@ -63,6 +77,11 @@ def extract_tool_result_text(payload: Any) -> str:
     return _JOIN.join(_texts_for_roles(payload, TOOL_RESULT_ROLES))
 
 
+def extract_tool_result_texts(payload: Any) -> list[tuple[MessageTextLocation, str]]:
+    """Return each ② masking target with its request location."""
+    return _located_texts_for_roles(payload, TOOL_RESULT_ROLES)
+
+
 def extract_trusted_text(payload: Any) -> str:
     """출처 판정의 신뢰 원천 — 사용자 메시지와 시스템 프롬프트 (§8 3단계).
 
@@ -94,6 +113,35 @@ def is_tainted(payload: Any) -> bool:
     )
 
 
+def replace_message_text(payload: Any, location: MessageTextLocation, text: str) -> bool:
+    """Replace one string or multimodal text part in a request message."""
+    if not isinstance(payload, dict):
+        return False
+    messages = payload.get("messages")
+    if not isinstance(messages, list) or location.message >= len(messages):
+        return False
+    message = messages[location.message]
+    if not isinstance(message, dict):
+        return False
+
+    if location.part is None:
+        if not isinstance(message.get("content"), str):
+            return False
+        message["content"] = text
+        return True
+
+    content = message.get("content")
+    if not isinstance(content, list) or location.part >= len(content):
+        return False
+    part = content[location.part]
+    if not isinstance(part, dict) or part.get("type") != "text":
+        return False
+    if not isinstance(part.get("text"), str):
+        return False
+    part["text"] = text
+    return True
+
+
 def _texts_for_roles(payload: Any, roles: frozenset[str]) -> list[str]:
     if not isinstance(payload, dict):
         return []
@@ -107,6 +155,35 @@ def _texts_for_roles(payload: Any, roles: frozenset[str]) -> list[str]:
             continue
         parts.extend(_content_texts(message.get("content")))
     return parts
+
+
+def _located_texts_for_roles(
+    payload: Any, roles: frozenset[str]
+) -> list[tuple[MessageTextLocation, str]]:
+    if not isinstance(payload, dict):
+        return []
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return []
+
+    found: list[tuple[MessageTextLocation, str]] = []
+    for message_index, message in enumerate(messages):
+        if not isinstance(message, dict) or message.get("role") not in roles:
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            if content:
+                found.append((MessageTextLocation(message_index), content))
+            continue
+        if not isinstance(content, list):
+            continue
+        for part_index, part in enumerate(content):
+            if not isinstance(part, dict) or part.get("type") != "text":
+                continue
+            text = part.get("text")
+            if isinstance(text, str) and text:
+                found.append((MessageTextLocation(message_index, part_index), text))
+    return found
 
 
 def _content_texts(content: Any) -> list[str]:
@@ -133,9 +210,13 @@ __all__ = [
     "INPUT_ROLES",
     "TOOL_RESULT_ROLES",
     "TRUSTED_ROLES",
+    "MessageTextLocation",
     "extract_input_text",
+    "extract_input_texts",
     "extract_output_texts",
     "extract_tool_result_text",
+    "extract_tool_result_texts",
     "extract_trusted_text",
     "is_tainted",
+    "replace_message_text",
 ]

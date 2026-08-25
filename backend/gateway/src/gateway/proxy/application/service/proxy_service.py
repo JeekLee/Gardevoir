@@ -219,9 +219,17 @@ class _Verdicts:
             or self.tool_call.blocked
         ):
             return VerdictAction.BLOCK
-        if self.output.masked:
+        if self.masked:
             return VerdictAction.MASK
         return VerdictAction.ALLOW
+
+    @property
+    def masked(self) -> bool:
+        return self.input.masked or self.tool_result.masked or self.output.masked
+
+    @property
+    def masked_before_upstream(self) -> bool:
+        return self.input.masked or self.tool_result.masked
 
     @property
     def action(self) -> Action:
@@ -230,12 +238,17 @@ class _Verdicts:
 
     @property
     def would_have(self) -> VerdictAction | None:
-        return (
-            self.input.would_have
-            or self.tool_result.would_have
-            or self.output.would_have
-            or self.tool_call.would_have
+        outcomes = (
+            self.input.would_have,
+            self.tool_result.would_have,
+            self.output.would_have,
+            self.tool_call.would_have,
         )
+        if VerdictAction.BLOCK in outcomes:
+            return VerdictAction.BLOCK
+        if VerdictAction.MASK in outcomes:
+            return VerdictAction.MASK
+        return None
 
     @property
     def blocked_before_upstream(self) -> bool:
@@ -251,7 +264,22 @@ class _Verdicts:
             return Checkpoint.TOOL_RESULT
         if self.tool_call.blocked:
             return Checkpoint.TOOL_CALL
-        if self.output.blocked or self.output.masked:
+        if self.output.blocked:
+            return Checkpoint.OUTPUT
+        if self.input.masked:
+            return Checkpoint.INPUT
+        if self.tool_result.masked:
+            return Checkpoint.TOOL_RESULT
+        if self.output.masked:
+            return Checkpoint.OUTPUT
+        would_have = self.would_have
+        if self.input.would_have is would_have and would_have is not None:
+            return Checkpoint.INPUT
+        if self.tool_result.would_have is would_have and would_have is not None:
+            return Checkpoint.TOOL_RESULT
+        if self.tool_call.would_have is would_have and would_have is not None:
+            return Checkpoint.TOOL_CALL
+        if self.output.would_have is would_have and would_have is not None:
             return Checkpoint.OUTPUT
         if self.input.ran:
             return Checkpoint.INPUT
@@ -445,7 +473,7 @@ class ProxyService:
             base_url=upstream.base_url,
             api_key=upstream.api_key,
             path=UPSTREAM_PATH,
-            payload=payload,
+            payload=self._payload_for_upstream(payload, decoded, verdicts),
         )
         async with cm as upstream_stream:
             if upstream_stream.status_code >= 400:
@@ -514,7 +542,8 @@ class ProxyService:
         started = time.perf_counter()
 
         plan = self._plan_for(auth)
-        verdicts = self._inspect_before_upstream(plan, _decode(payload), mode)
+        decoded = _decode(payload)
+        verdicts = self._inspect_before_upstream(plan, decoded, mode)
 
         if verdicts.blocked_before_upstream:
             yield await self._blocked_input_stream(
@@ -531,16 +560,16 @@ class ProxyService:
             plan=plan,
             mode=mode,
             tainted=verdicts.tainted,
-            payload=_decode(payload),
+            payload=decoded,
             holdback_chars=self._holdback_chars,
             window_chars=self._window_chars,
         )
-        upstream = await self._upstream_resolver.resolve(_model_of(_decode(payload)))
+        upstream = await self._upstream_resolver.resolve(_model_of(decoded))
         cm = self._upstream.open_stream(
             base_url=upstream.base_url,
             api_key=upstream.api_key,
             path=UPSTREAM_PATH,
-            payload=payload,
+            payload=self._payload_for_upstream(payload, decoded, verdicts),
         )
         # 스트리밍 지연은 "전체 - 업스트림 대기"로 계산할 수 없다. 청크 사이의 대기가
         # 전부 업스트림 몫이고 그 시간은 우리가 잰 적이 없다. 그래서 우리가 실제로 쓴
@@ -660,7 +689,7 @@ class ProxyService:
             base_url=upstream.base_url,
             api_key=upstream.api_key,
             path=UPSTREAM_PATH,
-            payload=payload,
+            payload=self._payload_for_upstream(payload, decoded, verdicts),
         )
         body = _decode(result.body)
         if isinstance(body, dict) and self._inspector is not None:
@@ -746,6 +775,11 @@ class ProxyService:
         return max(0.0, total - upstream_elapsed_s) * 1000
 
     @staticmethod
+    def _payload_for_upstream(payload: bytes, decoded: object, verdicts: _Verdicts) -> bytes:
+        """Serialize only when request masking actually changed the decoded payload."""
+        return orjson.dumps(decoded) if verdicts.masked_before_upstream else payload
+
+    @staticmethod
     def _extension(auth: AuthenticatedRequest, audit_id: str, verdicts: _Verdicts) -> dict:
         would_have = verdicts.would_have
         return build_extension(
@@ -818,7 +852,7 @@ class ProxyService:
                 verdicts=orjson.dumps(
                     {
                         "would_have": str(would_have) if would_have else None,
-                        "masked": verdicts.output.masked,
+                        "masked": verdicts.masked,
                         "pending_model": list(verdicts.pending_model),
                         "inspected": list(verdicts.inspected),
                         # 툴 이름과 인수 **이름** 만. 값은 남기지 않는다 (§10).
