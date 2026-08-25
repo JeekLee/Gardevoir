@@ -14,15 +14,28 @@ import {
 } from "../model/guardrail-test";
 import styles from "./guardrail-test-panel.module.css";
 
-const checkpointCards: {
+type StreamState = "idle" | "streaming" | "cancelled";
+
+const checkpointSections: {
   key: keyof GuardrailTestResult["checkpoints"];
   index: string;
   label: string;
+  timing: "immediate" | "streaming";
 }[] = [
-  { key: "input", index: "①", label: "Input" },
-  { key: "toolResult", index: "②", label: "Tool result" },
-  { key: "output", index: "③", label: "Output" },
-  { key: "toolCall", index: "④", label: "Tool call" },
+  { key: "input", index: "①", label: "input 적용 결과", timing: "immediate" },
+  {
+    key: "toolResult",
+    index: "②",
+    label: "tool_result 적용 결과",
+    timing: "immediate",
+  },
+  { key: "output", index: "③", label: "output 적용 결과", timing: "streaming" },
+  {
+    key: "toolCall",
+    index: "④",
+    label: "tool_call 적용 결과",
+    timing: "streaming",
+  },
 ];
 
 export function GuardrailTestPanel({
@@ -56,9 +69,7 @@ export function GuardrailTestPanel({
   const [result, setResult] = useState<GuardrailTestResult | null>(null);
   const [streamedContent, setStreamedContent] = useState("");
   const [hasStarted, setHasStarted] = useState(false);
-  const [streamState, setStreamState] = useState<
-    "idle" | "streaming" | "cancelled"
-  >("idle");
+  const [streamState, setStreamState] = useState<StreamState>("idle");
   const [error, setError] = useState<ConsoleApiError | null>(null);
   const [isPreparing, setIsPreparing] = useState(false);
   const abortController = useRef<AbortController | null>(null);
@@ -138,23 +149,56 @@ export function GuardrailTestPanel({
 
   return (
     <section className={styles.panel} aria-labelledby="guardrail-test-title">
-      <header>
-        <div>
-          <p>Draft enforce</p>
-          <h2 id="guardrail-test-title">실제 업스트림 호출 테스트</h2>
+      <header className={styles.panelHeader}>
+        <div className={styles.headerCopy}>
+          <h2 id="guardrail-test-title">Upstream Test</h2>
           <span>
             저장된 draft를 즉석 컴파일하고 입력·출력 마스킹 적용 결과를 실시간으로
             확인합니다.
           </span>
         </div>
-        <button type="button" onClick={close} aria-label="테스트 패널 닫기">
-          ×
-        </button>
+        <div className={styles.headerControls}>
+          <div className={styles.testContext}>
+            <p>Draft enforce</p>
+            <label className={styles.modelPicker}>
+              <span>업스트림 모델</span>
+              <select
+                value={selectedModel}
+                onChange={(event) => setModel(event.target.value)}
+                disabled={isBusy || providers.isLoading || modelOptions.length === 0}
+                required
+              >
+                {modelOptions.length === 0 ? (
+                  <option value="">사용 가능한 모델 없음</option>
+                ) : (
+                  modelOptions.map((option) => (
+                    <option key={option.model} value={option.model}>
+                      {option.model} · {option.provider}
+                    </option>
+                  ))
+                )}
+              </select>
+              <small>
+                {providers.isLoading
+                  ? "모델을 불러오는 중입니다."
+                  : "등록된 프로바이더 모델"}
+              </small>
+            </label>
+          </div>
+          <button
+            className={styles.closeButton}
+            type="button"
+            onClick={close}
+            aria-label="테스트 패널 닫기"
+          >
+            ×
+          </button>
+        </div>
       </header>
 
       <form className={styles.form} onSubmit={(event) => void runTest(event)}>
         <label>
-          <span>샘플 user 메시지</span>
+          <span>테스트 메시지</span>
           <textarea
             value={message}
             onChange={(event) => setMessage(event.target.value)}
@@ -162,30 +206,6 @@ export function GuardrailTestPanel({
             rows={4}
             required
           />
-        </label>
-        <label>
-          <span>업스트림 모델</span>
-          <select
-            value={selectedModel}
-            onChange={(event) => setModel(event.target.value)}
-            disabled={isBusy || providers.isLoading || modelOptions.length === 0}
-            required
-          >
-            {modelOptions.length === 0 ? (
-              <option value="">사용 가능한 모델 없음</option>
-            ) : (
-              modelOptions.map((option) => (
-                <option key={option.model} value={option.model}>
-                  {option.model} · {option.provider}
-                </option>
-              ))
-            )}
-          </select>
-          <small>
-            {providers.isLoading
-              ? "프로바이더 모델을 불러오는 중입니다."
-              : "GET /v1/providers에 등록된 모델만 표시합니다."}
-          </small>
         </label>
         <div className={styles.formActions}>
           <button
@@ -233,138 +253,235 @@ export function GuardrailTestPanel({
       ) : null}
 
       {hasStarted ? (
-        <StreamedResponse
-          content={result?.appliedContent ?? streamedContent}
+        <TestFlow
           result={result}
+          streamedContent={streamedContent}
           state={streamState}
         />
       ) : null}
-
-      {result ? <TestResult result={result} /> : null}
     </section>
   );
 }
 
-function TestResult({ result }: { result: GuardrailTestResult }) {
-  return (
-    <div className={styles.result}>
-      <div className={styles.resultSummary}>
-        <div>
-          <span>Overall action</span>
-          <strong className={styles[result.overallAction]}>
-            {result.overallAction}
-          </strong>
-        </div>
-        <dl>
-          <div>
-            <dt>Model</dt>
-            <dd>{result.model}</dd>
-          </div>
-          <div>
-            <dt>Latency</dt>
-            <dd>{result.latencyMs.toFixed(1)} ms</dd>
-          </div>
-          {result.auditId ? (
-            <div>
-              <dt>Audit</dt>
-              <dd>{result.auditId}</dd>
-            </div>
-          ) : null}
-        </dl>
-      </div>
-
-      <div className={styles.checkpoints} aria-label="체크포인트 테스트 결과">
-        {checkpointCards.map((card) => (
-          <CheckpointCard
-            key={card.key}
-            checkpoint={result.checkpoints[card.key]}
-            index={card.index}
-            label={card.label}
-          />
-        ))}
-      </div>
-
-      {result.toolCalls.length > 0 ? (
-        <div className={styles.responseResults}>
-          <div className={styles.toolCalls}>
-            <span>Tool calls</span>
-            <pre>{JSON.stringify(result.toolCalls, null, 2)}</pre>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function StreamedResponse({
-  content,
+function TestFlow({
   result,
+  streamedContent,
   state,
 }: {
-  content: string;
   result: GuardrailTestResult | null;
-  state: "idle" | "streaming" | "cancelled";
+  streamedContent: string;
+  state: StreamState;
 }) {
-  const blocked = result?.blocked ?? false;
+  const appliedContent = result?.appliedContent ?? streamedContent;
+
   return (
-    <div
-      className={`${styles.streamedResult} ${blocked ? styles.blockedResult : ""}`}
-      aria-live="polite"
-      aria-busy={state === "streaming"}
-    >
-      <header>
-        <span>실제 적용 결과 · 실시간</span>
-        {state === "streaming" ? <small>스트리밍 중</small> : null}
-        {(result?.unmaskable ?? 0) > 0 ? (
-          <strong className={styles.unmaskableBadge}>
-            {`일부 매치가 홀드백을 벗어나 마스킹되지 못함(${result?.unmaskable})`}
+    <div className={styles.result}>
+      {result ? (
+        <ResultSummary result={result} />
+      ) : (
+        <div className={styles.streamingSummary} role="status">
+          <span>Upstream response</span>
+          <strong>
+            {state === "streaming" ? "스트리밍 중" : "스트리밍 취소됨"}
           </strong>
-        ) : null}
-      </header>
-      <pre>
-        {blocked
-          ? `🚫 차단됨 — ${result?.blockedAt ?? "unknown"} (${result?.blockedReason ?? "사유 없음"})`
-          : content ||
-            (state === "streaming"
-              ? "업스트림 응답을 기다리는 중…"
-              : state === "cancelled"
-                ? "(스트리밍이 취소되었습니다)"
-                : "(텍스트 응답 없음)")}
-      </pre>
+        </div>
+      )}
+
+      <div className={styles.checkpoints} aria-label="체크포인트 테스트 결과">
+        {checkpointSections.map((section) => {
+          const inactiveReason = knownInactiveReason(section.key, result);
+          return (
+            <CheckpointSection
+              key={section.key}
+              checkpoint={result?.checkpoints[section.key] ?? null}
+              checkpointKey={section.key}
+              index={section.index}
+              label={section.label}
+              timing={section.timing}
+              state={state}
+              inactiveReason={inactiveReason}
+              blocked={result?.blockedAt === section.key}
+              blockedReason={
+                result?.blockedAt === section.key ? result.blockedReason : null
+              }
+              appliedContent={
+                section.key === "output" ? appliedContent : undefined
+              }
+              rawContent={
+                section.key === "output" ? result?.rawContent : undefined
+              }
+              toolCalls={
+                section.key === "toolCall" ? (result?.toolCalls ?? []) : undefined
+              }
+              unmaskable={
+                section.key === "output" ? result?.unmaskable : undefined
+              }
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function CheckpointCard({
+function ResultSummary({ result }: { result: GuardrailTestResult }) {
+  return (
+    <div className={styles.resultSummary}>
+      <div>
+        <span>Overall action</span>
+        <strong className={styles[result.overallAction]}>
+          {result.overallAction}
+        </strong>
+      </div>
+      <dl>
+        <div>
+          <dt>Model</dt>
+          <dd>{result.model}</dd>
+        </div>
+        <div>
+          <dt>Latency</dt>
+          <dd>{result.latencyMs.toFixed(1)} ms</dd>
+        </div>
+        {result.auditId ? (
+          <div>
+            <dt>Audit</dt>
+            <dd>{result.auditId}</dd>
+          </div>
+        ) : null}
+      </dl>
+    </div>
+  );
+}
+
+function CheckpointSection({
   checkpoint,
+  checkpointKey,
   index,
   label,
+  timing,
+  state,
+  inactiveReason,
+  blocked,
+  blockedReason,
+  appliedContent,
+  rawContent,
+  toolCalls,
+  unmaskable,
 }: {
-  checkpoint: GuardrailTestCheckpoint;
+  checkpoint: GuardrailTestCheckpoint | null;
+  checkpointKey: keyof GuardrailTestResult["checkpoints"];
   index: string;
   label: string;
+  timing: "immediate" | "streaming";
+  state: StreamState;
+  inactiveReason: string | null;
+  blocked: boolean;
+  blockedReason: string | null;
+  appliedContent?: string;
+  rawContent?: string;
+  toolCalls?: Record<string, unknown>[];
+  unmaskable?: number;
 }) {
+  const inactive = inactiveReason !== null || (checkpoint !== null && !checkpoint.ran);
+
   return (
-    <article className={checkpoint.checksFired.length > 0 ? styles.firedCard : undefined}>
+    <article
+      className={`${styles.checkpointSection} ${
+        checkpoint && checkpoint.checksFired.length > 0 ? styles.firedCard : ""
+      } ${inactive ? styles.inactiveSection : ""}`}
+    >
       <header>
-        <span>{index}</span>
-        <strong>{label}</strong>
-        <b className={styles[checkpoint.action]}>
-          {checkpoint.ran ? checkpoint.action : "not run"}
-        </b>
+        <span className={styles.checkpointIndex}>{index}</span>
+        <div>
+          <h3>{label}</h3>
+          <small>{timing === "immediate" ? "즉시 확정" : "streaming"}</small>
+        </div>
+        {checkpoint ? (
+          <b
+            className={
+              !inactive
+                ? `${styles.actionBadge} ${styles[checkpoint.action]}`
+                : styles.inactiveBadge
+            }
+            aria-label={
+              !inactive
+                ? `적용 판정 ${checkpoint.action}`
+                : "적용 판정 미발동"
+            }
+          >
+            {!inactive ? checkpoint.action : "미발동"}
+          </b>
+        ) : (
+          <b className={inactive ? styles.inactiveBadge : styles.pendingBadge}>
+            {inactive ? "미발동" : "확인 중"}
+          </b>
+        )}
       </header>
+
+      {blocked ? (
+        <p className={styles.blockedNotice}>
+          🚫 차단됨 — {blockedReason || "사유 없음"}
+        </p>
+      ) : null}
+
+      {checkpoint ? (
+        <CheckpointDetails
+          checkpoint={checkpoint}
+          checkpointKey={checkpointKey}
+          inactiveReason={inactiveReason}
+        />
+      ) : (
+        <PendingCheckpoint inactiveReason={inactiveReason} state={state} />
+      )}
+
+      {checkpointKey === "output" ? (
+        <OutputContent
+          content={appliedContent ?? ""}
+          rawContent={rawContent ?? ""}
+          state={state}
+          unmaskable={unmaskable ?? 0}
+        />
+      ) : null}
+
+      {checkpointKey === "toolCall" && (toolCalls?.length ?? 0) > 0 ? (
+        <div className={styles.toolCalls}>
+          <span>Tool calls</span>
+          <pre>{JSON.stringify(toolCalls, null, 2)}</pre>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function CheckpointDetails({
+  checkpoint,
+  checkpointKey,
+  inactiveReason,
+}: {
+  checkpoint: GuardrailTestCheckpoint;
+  checkpointKey: keyof GuardrailTestResult["checkpoints"];
+  inactiveReason: string | null;
+}) {
+  const inactive = inactiveReason !== null || !checkpoint.ran;
+  return (
+    <div className={styles.checkpointDetails}>
+      {inactive ? (
+        <p className={styles.inactiveState}>
+          {inactiveReason ?? inactiveMessage(checkpointKey)}
+        </p>
+      ) : null}
       <dl>
         <div>
           <dt>Ran</dt>
-          <dd>{checkpoint.ran ? "yes" : "no"}</dd>
+          <dd>{inactive ? "no" : "yes"}</dd>
         </div>
         <div>
           <dt>Tier</dt>
-          <dd>{checkpoint.tier || "—"}</dd>
+          <dd>{inactive ? "—" : checkpoint.tier || "—"}</dd>
         </div>
         <div>
           <dt>Masked</dt>
-          <dd>{checkpoint.masked ? "yes" : "no"}</dd>
+          <dd>{!inactive && checkpoint.masked ? "yes" : "no"}</dd>
         </div>
       </dl>
       <div className={styles.firedChecks}>
@@ -379,19 +496,101 @@ function CheckpointCard({
           <small>없음</small>
         )}
       </div>
-      {checkpoint.evidence.length > 0 ? (
-        <div className={styles.evidence}>
-          <span>Evidence</span>
-          {checkpoint.evidence.map((item, index) => (
+      <div className={styles.evidence}>
+        <span>Evidence</span>
+        {checkpoint.evidence.length > 0 ? (
+          checkpoint.evidence.map((item, index) => (
             <p key={`${item.tool}-${index}`}>
               <strong>{item.tool}</strong>
               <code>{item.arguments.join(", ") || "arguments 없음"}</code>
             </p>
-          ))}
-        </div>
-      ) : null}
-    </article>
+          ))
+        ) : (
+          <small>없음</small>
+        )}
+      </div>
+    </div>
   );
+}
+
+function PendingCheckpoint({
+  inactiveReason,
+  state,
+}: {
+  inactiveReason: string | null;
+  state: StreamState;
+}) {
+  if (inactiveReason !== null) {
+    return <p className={styles.inactiveState}>{inactiveReason}</p>;
+  }
+  return (
+    <p className={styles.pendingState}>
+      {state === "cancelled" ? "결과 없음 (스트리밍 취소)" : "판정 결과 확인 중…"}
+    </p>
+  );
+}
+
+function OutputContent({
+  content,
+  rawContent,
+  state,
+  unmaskable,
+}: {
+  content: string;
+  rawContent: string;
+  state: StreamState;
+  unmaskable: number;
+}) {
+  return (
+    <div
+      className={styles.outputContent}
+      aria-live="polite"
+      aria-busy={state === "streaming"}
+    >
+      <header>
+        <span>실제 적용 텍스트</span>
+        {state === "streaming" ? <small>스트리밍 중</small> : null}
+        {unmaskable > 0 ? (
+          <strong className={styles.unmaskableBadge}>
+            일부 매치가 마스킹되지 못함 ({unmaskable})
+          </strong>
+        ) : null}
+      </header>
+      <pre>
+        {content ||
+          (state === "streaming"
+            ? "업스트림 응답을 기다리는 중…"
+            : state === "cancelled"
+              ? "(스트리밍이 취소되었습니다)"
+              : "(텍스트 응답 없음)")}
+      </pre>
+      {rawContent && rawContent !== content ? (
+        <details>
+          <summary>원본 모델 응답</summary>
+          <pre>{rawContent}</pre>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+function inactiveMessage(
+  checkpointKey: keyof GuardrailTestResult["checkpoints"],
+): string {
+  if (checkpointKey === "toolResult") return "미발동 (입력 없음)";
+  if (checkpointKey === "toolCall") return "미발동 (도구 없음)";
+  return "미발동 (이전 단계에서 종료)";
+}
+
+function knownInactiveReason(
+  checkpointKey: keyof GuardrailTestResult["checkpoints"],
+  result: GuardrailTestResult | null,
+): string | null {
+  if (checkpointKey === "toolResult") return "미발동 (입력 없음)";
+  if (checkpointKey === "toolCall" && (result?.toolCalls.length ?? 0) === 0) {
+    return "미발동 (도구 없음)";
+  }
+  return null;
 }
 
 function normalizeError(error: unknown): ConsoleApiError {
