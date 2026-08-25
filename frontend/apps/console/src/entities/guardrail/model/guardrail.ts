@@ -7,6 +7,10 @@ export const checkpoints = [
 
 export type Checkpoint = (typeof checkpoints)[number];
 
+export const guardrailActions = ["block", "mask", "allow"] as const;
+
+export type GuardrailAction = (typeof guardrailActions)[number];
+
 export const nodeTypes = [
   "extract",
   "regex",
@@ -42,6 +46,10 @@ export type GuardrailSummary = {
   latestVersionNumber: number | null;
   hasDraft: boolean;
   updatedAt: string;
+  checkpoints: Checkpoint[];
+  actions: GuardrailAction[];
+  checkCount: number;
+  verdictCount: number;
 };
 
 export type GuardrailPage = {
@@ -127,6 +135,10 @@ function parseGuardrailSummary(value: unknown): GuardrailSummary {
     latestVersionNumber: value.latestVersionNumber,
     hasDraft: value.hasDraft,
     updatedAt: value.updatedAt,
+    checkpoints: parseCheckpoints(value.checkpoints),
+    actions: parseActions(value.actions),
+    checkCount: parseCount(value.checkCount),
+    verdictCount: parseCount(value.verdictCount),
   };
 }
 
@@ -161,6 +173,44 @@ function parseGuardrailEdge(value: unknown): GuardrailEdge {
 
 function isGuardrailNodeType(value: unknown): value is GuardrailNodeType {
   return typeof value === "string" && nodeTypes.some((type) => type === value);
+}
+
+function parseCheckpoints(value: unknown): Checkpoint[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every(isCheckpoint)) {
+    throw new Error("Invalid guardrail summary checkpoints");
+  }
+  return [...value];
+}
+
+function parseActions(value: unknown): GuardrailAction[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every(isGuardrailAction)) {
+    throw new Error("Invalid guardrail summary actions");
+  }
+  return [...value];
+}
+
+function parseCount(value: unknown): number {
+  if (value === undefined) return 0;
+  if (!Number.isInteger(value) || typeof value !== "number" || value < 0) {
+    throw new Error("Invalid guardrail summary count");
+  }
+  return value;
+}
+
+function isCheckpoint(value: unknown): value is Checkpoint {
+  return (
+    typeof value === "string" &&
+    checkpoints.some((checkpoint) => checkpoint === value)
+  );
+}
+
+function isGuardrailAction(value: unknown): value is GuardrailAction {
+  return (
+    typeof value === "string" &&
+    guardrailActions.some((action) => action === value)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

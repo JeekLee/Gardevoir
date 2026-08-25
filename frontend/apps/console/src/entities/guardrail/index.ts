@@ -5,12 +5,14 @@ export {
 } from "./api/guardrail-api";
 export {
   checkpoints,
+  guardrailActions,
   nodeTypes,
   parseGuardrailDetail,
   parseGuardrailGraph,
   parseGuardrailPage,
   type Checkpoint,
   type GuardrailDetail,
+  type GuardrailAction,
   type GuardrailEdge,
   type GuardrailGraph,
   type GuardrailNode,
@@ -24,3 +26,7 @@ export {
   guardrailListOptions,
   guardrailVersionOptions,
 } from "./model/queries";
+export {
+  describeGuardrailGraph,
+  describeGuardrailSummary,
+} from "./model/policy-summary";

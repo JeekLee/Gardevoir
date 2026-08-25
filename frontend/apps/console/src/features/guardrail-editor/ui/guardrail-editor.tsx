@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   checkpoints,
+  describeGuardrailGraph,
   guardrailKeys,
   publishGuardrail,
   updateGuardrailDraft,
@@ -44,10 +45,12 @@ import {
   type GuardrailFlowEdge,
   type GuardrailFlowNode,
 } from "../model/graph-mapper";
+import type { GuardrailTemplate } from "../model/templates";
 import { CheckpointLane, type LaneFlowNode } from "./checkpoint-lane";
 import { GuardrailNodeCard } from "./guardrail-node";
 import styles from "./guardrail-editor.module.css";
 import { NodeInspector } from "./node-inspector";
+import { TemplatePicker } from "./template-picker";
 
 type CanvasNode = GuardrailFlowNode | LaneFlowNode;
 
@@ -104,6 +107,7 @@ export function GuardrailEditor({
   const [publishedVersion, setPublishedVersion] = useState<number | null>(
     readOnly ? detail.versionNumber : null,
   );
+  const [isChoosingTemplate, setIsChoosingTemplate] = useState(false);
 
   const saveMutation = useMutation({
     mutationFn: (wireGraph: GuardrailGraph) =>
@@ -181,6 +185,27 @@ export function GuardrailEditor({
     setSelectedNodeId(id);
     setGraphError(null);
     setStatus(`${nodeCatalogByType[type].label} added to lane ${checkpointMeta[checkpoint].index}.`);
+  }
+
+  function applyTemplate(template: GuardrailTemplate) {
+    if (
+      graph.nodes.length > 0 &&
+      !window.confirm(
+        "현재 캔버스의 노드와 연결을 선택한 템플릿으로 바꾸시겠습니까? 저장 전에는 되돌릴 수 없습니다.",
+      )
+    ) {
+      return;
+    }
+
+    const nextGraph = toEditorGraph(template.graph);
+    setGraph(nextGraph);
+    setSelectedNodeId(nextGraph.nodes[0]?.id ?? null);
+    setGraphError(null);
+    setStatus(`${template.name} 템플릿을 불러왔습니다. 저장 전 내용을 확인하세요.`);
+    setIsChoosingTemplate(false);
+    requestAnimationFrame(() => {
+      void flowInstance?.fitView({ padding: 0.08, duration: 240 });
+    });
   }
 
   function updateNodeConfig(nodeId: string, config: Record<string, unknown>) {
@@ -455,6 +480,16 @@ export function GuardrailEditor({
         </div>
 
         <div className={styles.editorActions}>
+          {!readOnly ? (
+            <button
+              className={styles.secondaryAction}
+              type="button"
+              disabled={isBusy}
+              onClick={() => setIsChoosingTemplate(true)}
+            >
+              ＋ 템플릿에서 시작
+            </button>
+          ) : null}
           {publishedVersion !== null && !readOnly ? (
             <Link
               className={styles.secondaryAction}
@@ -496,6 +531,11 @@ export function GuardrailEditor({
           )}
         </div>
       </header>
+
+      <div className={styles.policySummary}>
+        <span>정책 요약</span>
+        <p>{describeGuardrailGraph(wireGraph)}</p>
+      </div>
 
       <div className={styles.editorStatus} aria-live="polite">
         <span className={graphError ? styles.errorDot : styles.statusDot} aria-hidden="true" />
@@ -614,6 +654,13 @@ export function GuardrailEditor({
           onRemoveEdge={removeEdge}
         />
       </div>
+
+      {isChoosingTemplate ? (
+        <TemplatePicker
+          onApply={applyTemplate}
+          onClose={() => setIsChoosingTemplate(false)}
+        />
+      ) : null}
     </section>
   );
 }

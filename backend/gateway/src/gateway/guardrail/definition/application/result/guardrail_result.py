@@ -15,6 +15,10 @@ class GuardrailSummary(CamelModel):
     latest_version_number: int | None
     has_draft: bool
     updated_at: datetime
+    checkpoints: list[str]
+    actions: list[str]
+    check_count: int
+    verdict_count: int
 
 
 class GuardrailDetail(CamelModel):

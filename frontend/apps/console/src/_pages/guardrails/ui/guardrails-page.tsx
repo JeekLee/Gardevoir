@@ -6,7 +6,10 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import {
+  describeGuardrailSummary,
   guardrailListOptions,
+  type Checkpoint,
+  type GuardrailAction,
   type GuardrailSummary,
 } from "@/src/entities/guardrail";
 import { useSession } from "@/src/entities/session";
@@ -194,14 +197,35 @@ function GuardrailCard({
         </div>
       </div>
 
-      <div className={styles.miniFlow} aria-hidden="true">
-        <span>①</span>
-        <i />
-        <span className={styles.actionNode}>②</span>
-        <i />
-        <span className={styles.actionNode}>④</span>
-        <i />
-        <span>③</span>
+      <div className={styles.policyProjection}>
+        <p className={styles.policyDescription}>
+          {describeGuardrailSummary(guardrail)}
+        </p>
+
+        <div className={styles.projectionRow}>
+          <span>검사 지점</span>
+          <CheckpointPath checkpoints={guardrail.checkpoints} />
+        </div>
+        <div className={styles.projectionRow}>
+          <span>결과</span>
+          <div className={styles.actionChips}>
+            {guardrail.actions.length > 0 ? (
+              guardrail.actions.map((action) => (
+                <span
+                  key={action}
+                  className={`${styles.actionChip} ${actionClassName(action)}`}
+                >
+                  {action}
+                </span>
+              ))
+            ) : (
+              <span className={styles.emptyProjection}>결정 없음</span>
+            )}
+          </div>
+        </div>
+        <div className={styles.policyScale}>
+          체크 {guardrail.checkCount} · verdict {guardrail.verdictCount}
+        </div>
       </div>
 
       <footer className={styles.cardFooter}>
@@ -229,6 +253,45 @@ function GuardrailCard({
       </footer>
     </article>
   );
+}
+
+const checkpointCardCopy: Record<
+  Checkpoint,
+  { index: "①" | "②" | "④" | "③"; label: string }
+> = {
+  input: { index: "①", label: "Input" },
+  tool_result: { index: "②", label: "Tool result" },
+  tool_call: { index: "④", label: "Tool call" },
+  output: { index: "③", label: "Output" },
+};
+
+function CheckpointPath({ checkpoints }: { checkpoints: Checkpoint[] }) {
+  if (checkpoints.length === 0) {
+    return <span className={styles.emptyProjection}>검사 지점 없음</span>;
+  }
+
+  return (
+    <div className={styles.checkpointPath}>
+      {checkpoints.map((checkpoint, index) => (
+        <span key={checkpoint} className={styles.checkpointPathItem}>
+          {index > 0 ? <i aria-hidden="true">→</i> : null}
+          <b>{checkpointCardCopy[checkpoint].index}</b>
+          <span>{checkpointCardCopy[checkpoint].label}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function actionClassName(action: GuardrailAction): string {
+  switch (action) {
+    case "block":
+      return styles.blockAction;
+    case "mask":
+      return styles.maskAction;
+    case "allow":
+      return styles.allowAction;
+  }
 }
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {

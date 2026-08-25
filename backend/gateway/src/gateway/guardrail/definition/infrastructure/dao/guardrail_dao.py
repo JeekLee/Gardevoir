@@ -1,12 +1,9 @@
-"""SQLAlchemy Guardrail dao.
+"""SQLAlchemy Guardrail read projections."""
 
-Aggregates in SQL rather than in Python: the list screen wants one row per
-guardrail, but the table holds one row per version. Loading every version to fold
-them in the application would read the whole graph column for rows we then throw
-away.
-"""
+from dataclasses import dataclass
+from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gateway.guardrail.definition.application.result.guardrail_result import (
@@ -14,7 +11,30 @@ from gateway.guardrail.definition.application.result.guardrail_result import (
     GuardrailSummary,
 )
 from gateway.guardrail.definition.infrastructure.model.guardrail_model import GuardrailModel
-from gateway.guardrail.domain.models.guardrail import DRAFT_VERSION
+from gateway.guardrail.domain.models.guardrail import (
+    DRAFT_VERSION,
+    VALID_CHECKPOINTS,
+    NodeType,
+    VerdictAction,
+)
+
+_CHECKPOINT_ORDER = ("input", "tool_result", "tool_call", "output")
+_ACTION_ORDER = tuple(
+    action.value for action in (VerdictAction.BLOCK, VerdictAction.MASK, VerdictAction.ALLOW)
+)
+_CHECK_NODE_TYPES = frozenset(
+    {NodeType.REGEX.value, NodeType.LENGTH.value, NodeType.TRANSFORM.value}
+)
+_TOOL_CALL_NODE_TYPES = frozenset({NodeType.SIDE_EFFECT.value, NodeType.PROVENANCE.value})
+
+
+@dataclass(slots=True)
+class _SummaryState:
+    name: str
+    latest_version_number: int | None
+    has_draft: bool
+    updated_at: datetime
+    graph: object
 
 
 class SqlAlchemyGuardrailDao:
@@ -58,16 +78,96 @@ class SqlAlchemyGuardrailDao:
             await self._session.execute(
                 select(
                     GuardrailModel.name,
-                    func.max(GuardrailModel.version_number).label("latest_version_number"),
-                    func.bool_or(GuardrailModel.version == DRAFT_VERSION).label("has_draft"),
-                    # 이름 단위 최신 시각. 발행본이 draft 보다 새로울 수 있다.
-                    func.max(GuardrailModel.updated_at).label("updated_at"),
+                    GuardrailModel.version,
+                    GuardrailModel.version_number,
+                    GuardrailModel.graph,
+                    GuardrailModel.updated_at,
                 )
-                .group_by(GuardrailModel.name)
                 # 순서가 없으면 목록 화면이 요청마다 흔들린다.
                 .order_by(GuardrailModel.name)
             )
         ).all()
 
-        items = [GuardrailSummary.model_validate(row) for row in rows]
+        states: dict[str, _SummaryState] = {}
+        for row in rows:
+            state = states.get(row.name)
+            if state is None:
+                state = _SummaryState(
+                    name=row.name,
+                    latest_version_number=None,
+                    has_draft=False,
+                    updated_at=row.updated_at,
+                    graph=None,
+                )
+                states[row.name] = state
+
+            state.updated_at = max(state.updated_at, row.updated_at)
+            if row.version == DRAFT_VERSION:
+                state.has_draft = True
+                if state.latest_version_number is None:
+                    state.graph = row.graph
+            if row.version_number is not None and (
+                state.latest_version_number is None
+                or row.version_number > state.latest_version_number
+            ):
+                state.latest_version_number = row.version_number
+                state.graph = row.graph
+
+        items = []
+        for state in states.values():
+            checkpoints, actions, check_count, verdict_count = _project_graph(state.graph)
+            items.append(
+                GuardrailSummary(
+                    name=state.name,
+                    latest_version_number=state.latest_version_number,
+                    has_draft=state.has_draft,
+                    updated_at=state.updated_at,
+                    checkpoints=checkpoints,
+                    actions=actions,
+                    check_count=check_count,
+                    verdict_count=verdict_count,
+                )
+            )
         return items, len(items)
+
+
+def _project_graph(graph: object) -> tuple[list[str], list[str], int, int]:
+    if not isinstance(graph, dict):
+        return [], [], 0, 0
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return [], [], 0, 0
+
+    checkpoints: set[str] = set()
+    actions: set[str] = set()
+    check_count = 0
+    verdict_count = 0
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        node_type = node.get("type")
+        if node_type in _CHECK_NODE_TYPES:
+            check_count += 1
+        if node_type == NodeType.VERDICT.value:
+            verdict_count += 1
+
+        config = node.get("config")
+        if not isinstance(config, dict):
+            config = {}
+
+        if node_type in _TOOL_CALL_NODE_TYPES:
+            checkpoints.add("tool_call")
+        elif config.get("checkpoint") in VALID_CHECKPOINTS:
+            checkpoints.add(config["checkpoint"])
+
+        action = config.get("action")
+        if node_type == NodeType.VERDICT.value and action in _ACTION_ORDER:
+            actions.add(action)
+
+    return (
+        [checkpoint for checkpoint in _CHECKPOINT_ORDER if checkpoint in checkpoints],
+        [action for action in _ACTION_ORDER if action in actions],
+        check_count,
+        verdict_count,
+    )
