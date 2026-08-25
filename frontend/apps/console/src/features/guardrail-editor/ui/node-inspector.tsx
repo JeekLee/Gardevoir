@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 
-import {
-  checkpoints,
-  type Checkpoint,
-  type GuardrailNode,
-} from "@/src/entities/guardrail";
+import { type Checkpoint, type GuardrailNode } from "@/src/entities/guardrail";
 
-import { checkpointMeta, incomingRange, nodeCatalogByType } from "../model/catalog";
+import {
+  checkpointMeta,
+  incomingRange,
+  nodeCatalogByType,
+} from "../model/catalog";
 import { connectionError } from "../model/connections";
 import type { EditorGraph, GuardrailFlowNode } from "../model/graph-mapper";
 import styles from "./guardrail-editor.module.css";
@@ -19,7 +19,6 @@ export function NodeInspector({
   readOnly,
   onSelect,
   onConfigChange,
-  onCheckpointChange,
   onDelete,
   onConnect,
   onRemoveEdge,
@@ -29,7 +28,6 @@ export function NodeInspector({
   readOnly: boolean;
   onSelect: (nodeId: string) => void;
   onConfigChange: (nodeId: string, config: Record<string, unknown>) => void;
-  onCheckpointChange: (nodeId: string, checkpoint: Checkpoint) => void;
   onDelete: (nodeId: string) => void;
   onConnect: (sourceId: string, targetId: string) => void;
   onRemoveEdge: (edgeId: string) => void;
@@ -51,14 +49,20 @@ export function NodeInspector({
               <button
                 key={node.id}
                 className={
-                  node.id === selectedNode?.id ? styles.activeRosterNode : undefined
+                  node.id === selectedNode?.id
+                    ? styles.activeRosterNode
+                    : undefined
                 }
                 type="button"
                 onClick={() => onSelect(node.id)}
               >
                 <span>{checkpointMeta[node.data.checkpoint].index}</span>
-                <strong>{nodeCatalogByType[node.data.domainNode.type].label}</strong>
-                {node.data.validationMessage ? <i aria-label="Validation error">!</i> : null}
+                <strong>
+                  {nodeCatalogByType[node.data.domainNode.type].label}
+                </strong>
+                {node.data.validationMessage ? (
+                  <i aria-label="Validation error">!</i>
+                ) : null}
               </button>
             ))}
           </div>
@@ -72,7 +76,6 @@ export function NodeInspector({
           node={selectedNode}
           readOnly={readOnly}
           onConfigChange={onConfigChange}
-          onCheckpointChange={onCheckpointChange}
           onDelete={onDelete}
           onConnect={onConnect}
           onRemoveEdge={onRemoveEdge}
@@ -96,7 +99,6 @@ function SelectedNodeInspector({
   node,
   readOnly,
   onConfigChange,
-  onCheckpointChange,
   onDelete,
   onConnect,
   onRemoveEdge,
@@ -105,7 +107,6 @@ function SelectedNodeInspector({
   node: GuardrailFlowNode;
   readOnly: boolean;
   onConfigChange: (nodeId: string, config: Record<string, unknown>) => void;
-  onCheckpointChange: (nodeId: string, checkpoint: Checkpoint) => void;
   onDelete: (nodeId: string) => void;
   onConnect: (sourceId: string, targetId: string) => void;
   onRemoveEdge: (edgeId: string) => void;
@@ -156,13 +157,13 @@ function SelectedNodeInspector({
           checkpoint={node.data.checkpoint}
           setConfig={setConfig}
           removeConfig={removeConfig}
-          onCheckpointChange={(checkpoint) =>
-            onCheckpointChange(domainNode.id, checkpoint)
-          }
         />
       </fieldset>
 
-      <section className={styles.connections} aria-labelledby={`connections-${node.id}`}>
+      <section
+        className={styles.connections}
+        aria-labelledby={`connections-${node.id}`}
+      >
         <div className={styles.sectionTitle}>
           <h3 id={`connections-${node.id}`}>Connections</h3>
           <span>
@@ -200,11 +201,15 @@ function SelectedNodeInspector({
           <div className={styles.connectionForm}>
             <label>
               <span>Connect output to</span>
-              <select value={targetId} onChange={(event) => setTargetId(event.target.value)}>
+              <select
+                value={targetId}
+                onChange={(event) => setTargetId(event.target.value)}
+              >
                 <option value="">Choose a node</option>
                 {availableTargets.map((target) => (
                   <option key={target.id} value={target.id}>
-                    {nodeCatalogByType[target.data.domainNode.type].label} · {target.id}
+                    {nodeCatalogByType[target.data.domainNode.type].label} ·{" "}
+                    {target.id}
                   </option>
                 ))}
               </select>
@@ -242,20 +247,16 @@ function ConfigFields({
   checkpoint,
   setConfig,
   removeConfig,
-  onCheckpointChange,
 }: {
   node: GuardrailNode;
   checkpoint: Checkpoint;
   setConfig: (key: string, value: unknown) => void;
   removeConfig: (key: string) => void;
-  onCheckpointChange: (checkpoint: Checkpoint) => void;
 }) {
   switch (node.type) {
     case "extract":
     case "taint":
-      return (
-        <CheckpointField value={checkpoint} onChange={onCheckpointChange} />
-      );
+      return <FixedCheckpoint checkpoint={checkpoint} />;
     case "regex":
       return (
         <label>
@@ -331,7 +332,7 @@ function ConfigFields({
     case "side_effect":
       return (
         <>
-          <FixedCheckpoint />
+          <FixedCheckpoint checkpoint={checkpoint} />
           <label>
             <span>Read-only tools</span>
             <textarea
@@ -352,7 +353,7 @@ function ConfigFields({
     case "provenance":
       return (
         <>
-          <FixedCheckpoint />
+          <FixedCheckpoint checkpoint={checkpoint} />
           <label>
             <span>Minimum argument length</span>
             <input
@@ -376,32 +377,15 @@ function ConfigFields({
   }
 }
 
-function CheckpointField({
-  value,
-  onChange,
-}: {
-  value: Checkpoint;
-  onChange: (checkpoint: Checkpoint) => void;
-}) {
+function FixedCheckpoint({ checkpoint }: { checkpoint: Checkpoint }) {
   return (
     <label>
-      <span>Checkpoint lane</span>
-      <select value={value} onChange={(event) => onChange(event.target.value as Checkpoint)}>
-        {checkpoints.map((checkpoint) => (
-          <option key={checkpoint} value={checkpoint}>
-            {checkpointMeta[checkpoint].index} {checkpointMeta[checkpoint].label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function FixedCheckpoint() {
-  return (
-    <label>
-      <span>Checkpoint lane</span>
-      <input value="④ Tool call" readOnly />
+      <span>Checkpoint</span>
+      <input
+        value={`${checkpointMeta[checkpoint].index} ${checkpointMeta[checkpoint].label}`}
+        readOnly
+      />
+      <small>체크포인트는 현재 탭에 고정됩니다.</small>
     </label>
   );
 }
@@ -444,7 +428,11 @@ function EdgeItem({
     <li>
       <code>{label}</code>
       {!readOnly ? (
-        <button type="button" onClick={() => onRemove(edgeId)} aria-label={`Remove ${label}`}>
+        <button
+          type="button"
+          onClick={() => onRemove(edgeId)}
+          aria-label={`Remove ${label}`}
+        >
           ×
         </button>
       ) : null}

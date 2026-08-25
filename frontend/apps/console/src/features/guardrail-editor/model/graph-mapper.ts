@@ -7,8 +7,6 @@ import {
   type GuardrailNode,
 } from "@/src/entities/guardrail";
 
-import { checkpointMeta } from "./catalog";
-
 export type GuardrailNodeData = {
   checkpoint: Checkpoint;
   domainNode: GuardrailNode;
@@ -31,21 +29,19 @@ export function toEditorGraph(
   positions?: PositionMap,
 ): EditorGraph {
   const resolvedCheckpoints = resolveCheckpoints(graph);
-  const laneCounts = new Map<Checkpoint, number>();
+  const layout = layoutPositions(graph, resolvedCheckpoints);
 
   return {
     nodes: graph.nodes.map((domainNode) => {
       const checkpoint = resolvedCheckpoints.get(domainNode.id) ?? "input";
-      const laneOrder = laneCounts.get(checkpoint) ?? 0;
-      laneCounts.set(checkpoint, laneOrder + 1);
 
       return {
         id: domainNode.id,
         type: "guardrail",
-        position: positions?.get(domainNode.id) ?? {
-          x: checkpointMeta[checkpoint].x + 30,
-          y: 124 + laneOrder * 146,
-        },
+        position:
+          positions?.get(domainNode.id) ??
+          layout.get(domainNode.id) ??
+          { x: 80, y: 80 },
         data: {
           checkpoint,
           domainNode: cloneNode(domainNode),
@@ -123,6 +119,52 @@ function resolveCheckpoints(graph: GuardrailGraph): Map<string, Checkpoint> {
     if (checkpoint) resolved.set(node.id, checkpoint);
   });
   return resolved;
+}
+
+function layoutPositions(
+  graph: GuardrailGraph,
+  checkpointsByNode: ReadonlyMap<string, Checkpoint>,
+): Map<string, XYPosition> {
+  const incoming = new Map<string, string[]>();
+  graph.nodes.forEach((node) => incoming.set(node.id, []));
+  graph.edges.forEach((edge) => incoming.get(edge.dst)?.push(edge.src));
+
+  const depths = new Map<string, number>();
+  function depth(nodeId: string, visiting: Set<string>): number {
+    const cached = depths.get(nodeId);
+    if (cached !== undefined) return cached;
+    if (visiting.has(nodeId)) return 0;
+
+    const checkpoint = checkpointsByNode.get(nodeId) ?? "input";
+    const upstream = (incoming.get(nodeId) ?? []).filter(
+      (sourceId) =>
+        (checkpointsByNode.get(sourceId) ?? "input") === checkpoint,
+    );
+    const nextVisiting = new Set(visiting).add(nodeId);
+    const resolved =
+      upstream.length === 0
+        ? 0
+        : Math.max(
+            ...upstream.map((sourceId) => depth(sourceId, nextVisiting)),
+          ) + 1;
+    depths.set(nodeId, resolved);
+    return resolved;
+  }
+
+  const rows = new Map<string, number>();
+  const positions = new Map<string, XYPosition>();
+  for (const node of graph.nodes) {
+    const checkpoint = checkpointsByNode.get(node.id) ?? "input";
+    const column = depth(node.id, new Set());
+    const columnKey = `${checkpoint}:${column}`;
+    const row = rows.get(columnKey) ?? 0;
+    rows.set(columnKey, row + 1);
+    positions.set(node.id, {
+      x: 80 + column * 310,
+      y: 80 + row * 160,
+    });
+  }
+  return positions;
 }
 
 function readCheckpoint(value: unknown): Checkpoint | null {

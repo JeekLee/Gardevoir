@@ -22,8 +22,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
-  checkpoints,
-  describeGuardrailGraph,
   guardrailKeys,
   publishGuardrail,
   updateGuardrailDraft,
@@ -35,7 +33,17 @@ import {
 import { ConsoleApiError } from "@/src/shared/api";
 import { randomId } from "@/src/shared/lib";
 
-import { checkpointMeta, nodeCatalog, nodeCatalogByType } from "../model/catalog";
+import {
+  catalogForCheckpoint,
+  checkpointMeta,
+  createCatalogNode,
+  nodeCatalogByType,
+} from "../model/catalog";
+import {
+  checkpointForNode,
+  graphForCheckpoint,
+  type EditorTab,
+} from "../model/checkpoint-view";
 import { connectionError } from "../model/connections";
 import {
   firedCheckCodes,
@@ -53,44 +61,29 @@ import {
   type GuardrailFlowNode,
 } from "../model/graph-mapper";
 import type { GuardrailTemplate } from "../model/templates";
-import { CheckpointLane, type LaneFlowNode } from "./checkpoint-lane";
-import { GuardrailNodeCard } from "./guardrail-node";
+import { EditorTabs } from "./editor-tabs";
 import styles from "./guardrail-editor.module.css";
+import { GuardrailNodeCard } from "./guardrail-node";
+import { GuardrailOverview } from "./guardrail-overview";
 import { GuardrailTestPanel } from "./guardrail-test-panel";
 import { NodeInspector } from "./node-inspector";
 import { TemplatePicker } from "./template-picker";
 
-type CanvasNode = GuardrailFlowNode | LaneFlowNode;
-
-const nodeTypes = {
-  checkpointLane: CheckpointLane,
+const flowNodeTypes = {
   guardrail: GuardrailNodeCard,
 };
-
-const laneNodes: LaneFlowNode[] = checkpoints.map((checkpoint) => ({
-  id: `lane-${checkpoint}`,
-  type: "checkpointLane",
-  position: { x: checkpointMeta[checkpoint].x, y: 0 },
-  data: { checkpoint },
-  width: 300,
-  height: 850,
-  draggable: false,
-  selectable: false,
-  connectable: false,
-  deletable: false,
-  focusable: false,
-  zIndex: -2,
-}));
 
 export function GuardrailEditor({
   detail,
   accessToken,
   readOnly,
+  latestPublishedVersion,
   onAuthorizationError,
 }: {
   detail: GuardrailDetail;
   accessToken: string;
   readOnly: boolean;
+  latestPublishedVersion: number | null;
   onAuthorizationError: (error: ConsoleApiError) => void;
 }) {
   const queryClient = useQueryClient();
@@ -98,13 +91,14 @@ export function GuardrailEditor({
     toEditorGraph(detail.graph),
   );
   const [baseline, setBaseline] = useState<GuardrailGraph>(detail.graph);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
-    graph.nodes[0]?.id ?? null,
+  const [activeTab, setActiveTab] = useState<EditorTab>("overview");
+  const [tabFocusRequest, setTabFocusRequest] = useState(0);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [pendingFocusNodeId, setPendingFocusNodeId] = useState<string | null>(
+    null,
   );
-  const [catalogCheckpoint, setCatalogCheckpoint] =
-    useState<Checkpoint>("tool_result");
   const [flowInstance, setFlowInstance] = useState<
-    ReactFlowInstance<CanvasNode, GuardrailFlowEdge> | undefined
+    ReactFlowInstance<GuardrailFlowNode, GuardrailFlowEdge> | undefined
   >();
   const [graphError, setGraphError] = useState<string | null>(null);
   const [status, setStatus] = useState<string>(
@@ -113,7 +107,7 @@ export function GuardrailEditor({
       : "Draft loaded. Changes are local until you save.",
   );
   const [publishedVersion, setPublishedVersion] = useState<number | null>(
-    readOnly ? detail.versionNumber : null,
+    readOnly ? detail.versionNumber : latestPublishedVersion,
   );
   const [isChoosingTemplate, setIsChoosingTemplate] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -135,50 +129,91 @@ export function GuardrailEditor({
     () => graphFingerprint(wireGraph) !== graphFingerprint(baseline),
     [baseline, wireGraph],
   );
+  const activeCheckpoint: Checkpoint | null =
+    activeTab === "overview" ? null : activeTab;
+  const checkpointGraph = useMemo(
+    () =>
+      activeCheckpoint
+        ? graphForCheckpoint(graph, activeCheckpoint)
+        : { nodes: [], edges: [] },
+    [activeCheckpoint, graph],
+  );
   const selectedNode =
-    graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
+    checkpointGraph.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const isBusy = saveMutation.isPending || publishMutation.isPending;
 
   useDirtyNavigationGuard(dirty && !readOnly);
 
+  useEffect(() => {
+    if (!activeCheckpoint || !flowInstance) return;
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const frame = requestAnimationFrame(() => {
+      void flowInstance.fitView({
+        padding: 0.18,
+        duration: reduceMotion ? 0 : 220,
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeCheckpoint, flowInstance]);
+
+  useEffect(() => {
+    if (!pendingFocusNodeId || !flowInstance) return;
+    if (
+      !checkpointGraph.nodes.some((node) => node.id === pendingFocusNodeId)
+    ) {
+      return;
+    }
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const frame = requestAnimationFrame(() => {
+      void flowInstance.fitView({
+        nodes: [{ id: pendingFocusNodeId }],
+        padding: 1.6,
+        duration: reduceMotion ? 0 : 240,
+      });
+      setPendingFocusNodeId(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [checkpointGraph.nodes, flowInstance, pendingFocusNodeId]);
+
   const selectAndFocusNode = useCallback(
     (nodeId: string) => {
+      const checkpoint = checkpointForNode(graph, nodeId);
+      if (!checkpoint) return;
+      setActiveTab(checkpoint);
       setSelectedNodeId(nodeId);
-      const reduceMotion = window.matchMedia(
-        "(prefers-reduced-motion: reduce)",
-      ).matches;
-      requestAnimationFrame(() => {
-        void flowInstance?.fitView({
-          nodes: [{ id: nodeId }],
-          padding: 1.6,
-          duration: reduceMotion ? 0 : 240,
-        });
-      });
+      setPendingFocusNodeId(nodeId);
     },
-    [flowInstance],
+    [graph],
   );
 
-  const onNodeClick: NodeMouseHandler<CanvasNode> = useCallback(
-    (_event, node) => {
-      if (node.type === "guardrail") setSelectedNodeId(node.id);
-    },
+  const onNodeClick: NodeMouseHandler<GuardrailFlowNode> = useCallback(
+    (_event, node) => setSelectedNodeId(node.id),
     [],
   );
 
+  function changeTab(tab: EditorTab) {
+    setActiveTab(tab);
+    setSelectedNodeId(
+      tab === "overview"
+        ? null
+        : graphForCheckpoint(graph, tab).nodes[0]?.id ?? null,
+    );
+  }
+
+  function openCheckpoint(checkpoint: Checkpoint) {
+    changeTab(checkpoint);
+    setTabFocusRequest((request) => request + 1);
+  }
+
   function addNode(type: GuardrailNodeType) {
-    const checkpoint =
-      type === "side_effect" || type === "provenance"
-        ? "tool_call"
-        : catalogCheckpoint;
+    if (!activeCheckpoint) return;
     const id = `${type.replaceAll("_", "-")}-${randomId().slice(0, 8)}`;
-    const laneOrder = graph.nodes.filter(
-      (node) => node.data.checkpoint === checkpoint,
-    ).length;
-    const domainNode = {
-      id,
-      type,
-      config: nodeCatalogByType[type].defaultConfig(checkpoint),
-    };
+    const domainNode = createCatalogNode(type, activeCheckpoint, id);
+    const position = nextNodePosition(checkpointGraph);
 
     setGraph((current) => ({
       ...current,
@@ -187,38 +222,42 @@ export function GuardrailEditor({
         {
           id,
           type: "guardrail",
-          position: {
-            x: checkpointMeta[checkpoint].x + 30,
-            y: 124 + laneOrder * 146,
-          },
-          data: { checkpoint, domainNode },
+          position,
+          data: { checkpoint: activeCheckpoint, domainNode },
         },
       ],
     }));
     setSelectedNodeId(id);
+    setPendingFocusNodeId(id);
     setGraphError(null);
-    setStatus(`${nodeCatalogByType[type].label} added to lane ${checkpointMeta[checkpoint].index}.`);
+    setStatus(
+      `${nodeCatalogByType[type].label} added to ${checkpointMeta[activeCheckpoint].index} ${checkpointMeta[activeCheckpoint].label}.`,
+    );
   }
 
   function applyTemplate(template: GuardrailTemplate) {
     if (
       graph.nodes.length > 0 &&
       !window.confirm(
-        "현재 캔버스의 노드와 연결을 선택한 템플릿으로 바꾸시겠습니까? 저장 전에는 되돌릴 수 없습니다.",
+        "현재 그래프의 노드와 연결을 선택한 템플릿으로 바꾸시겠습니까? 저장 전에는 되돌릴 수 없습니다.",
       )
     ) {
       return;
     }
 
     const nextGraph = toEditorGraph(template.graph);
+    const firstNode = nextGraph.nodes[0] ?? null;
     setGraph(nextGraph);
-    setSelectedNodeId(nextGraph.nodes[0]?.id ?? null);
+    setSelectedNodeId(firstNode?.id ?? null);
     setGraphError(null);
-    setStatus(`${template.name} 템플릿을 불러왔습니다. 저장 전 내용을 확인하세요.`);
+    setStatus(
+      `${template.name} 템플릿을 불러왔습니다. 저장 전 내용을 확인하세요.`,
+    );
     setIsChoosingTemplate(false);
-    requestAnimationFrame(() => {
-      void flowInstance?.fitView({ padding: 0.08, duration: 240 });
-    });
+    if (firstNode) {
+      setActiveTab(firstNode.data.checkpoint);
+      setPendingFocusNodeId(firstNode.id);
+    }
   }
 
   function updateNodeConfig(nodeId: string, config: Record<string, unknown>) {
@@ -236,29 +275,6 @@ export function GuardrailEditor({
             }
           : node,
       ),
-    }));
-    setGraphError(null);
-  }
-
-  function updateNodeCheckpoint(nodeId: string, checkpoint: Checkpoint) {
-    setGraph((current) => ({
-      ...current,
-      nodes: current.nodes.map((node) => {
-        if (node.id !== nodeId) return node;
-        return {
-          ...node,
-          position: { ...node.position, x: checkpointMeta[checkpoint].x + 30 },
-          data: {
-            ...node.data,
-            checkpoint,
-            domainNode: {
-              ...node.data.domainNode,
-              config: { ...node.data.domainNode.config, checkpoint },
-            },
-            validationMessage: undefined,
-          },
-        };
-      }),
     }));
     setGraphError(null);
   }
@@ -314,17 +330,11 @@ export function GuardrailEditor({
     }
   }
 
-  function onNodesChange(changes: NodeChange<CanvasNode>[]) {
+  function onNodesChange(changes: NodeChange<GuardrailFlowNode>[]) {
     if (readOnly) return;
-    const domainChanges = changes.filter(
-      (change) =>
-        change.type === "add"
-          ? change.item.type === "guardrail"
-          : !change.id.startsWith("lane-"),
-    ) as NodeChange<GuardrailFlowNode>[];
     setGraph((current) => ({
       ...current,
-      nodes: applyNodeChanges(domainChanges, current.nodes),
+      nodes: applyNodeChanges(changes, current.nodes),
     }));
   }
 
@@ -336,35 +346,17 @@ export function GuardrailEditor({
     }));
   }
 
-  const onNodeDragStop: OnNodeDrag<CanvasNode> = (_event, canvasNode) => {
-    if (canvasNode.type !== "guardrail") return;
-    const node = canvasNode as GuardrailFlowNode;
-    const checkpoint = closestCheckpoint(node.position.x);
-    const type = node.data.domainNode.type;
-    const lockedCheckpoint =
-      type === "side_effect" || type === "provenance" ? "tool_call" : checkpoint;
-
+  const onNodeDragStop: OnNodeDrag<GuardrailFlowNode> = (
+    _event,
+    canvasNode,
+  ) => {
     setGraph((current) => ({
       ...current,
-      nodes: current.nodes.map((candidate) => {
-        if (candidate.id !== node.id) return candidate;
-        const config =
-          type === "extract" || type === "taint"
-            ? { ...candidate.data.domainNode.config, checkpoint: lockedCheckpoint }
-            : candidate.data.domainNode.config;
-        return {
-          ...candidate,
-          position: {
-            x: checkpointMeta[lockedCheckpoint].x + 30,
-            y: Math.max(124, node.position.y),
-          },
-          data: {
-            ...candidate.data,
-            checkpoint: lockedCheckpoint,
-            domainNode: { ...candidate.data.domainNode, config },
-          },
-        };
-      }),
+      nodes: current.nodes.map((node) =>
+        node.id === canvasNode.id
+          ? { ...node, position: canvasNode.position }
+          : node,
+      ),
     }));
   };
 
@@ -438,7 +430,9 @@ export function GuardrailEditor({
             ? details.nodeId
             : null;
       const cycleNodes = Array.isArray(details?.nodes)
-        ? details.nodes.filter((node): node is string => typeof node === "string")
+        ? details.nodes.filter(
+            (node): node is string => typeof node === "string",
+          )
         : [];
       const affectedNodes = directNodeId ? [directNodeId] : cycleNodes;
       const reason =
@@ -485,23 +479,20 @@ export function GuardrailEditor({
 
   const firedNodeIds = new Set(testHighlight.fired);
   const upstreamNodeIds = new Set(testHighlight.upstream);
-  const canvasNodes = [
-    ...laneNodes,
-    ...graph.nodes.map((node) => ({
-      ...node,
-      data: {
-        ...node.data,
-        testHighlight: firedNodeIds.has(node.id)
-          ? ("fired" as const)
-          : upstreamNodeIds.has(node.id)
-            ? ("upstream" as const)
-            : undefined,
-      },
-      selected: node.id === selectedNodeId,
-      draggable: !readOnly,
-      connectable: !readOnly,
-    })),
-  ];
+  const canvasNodes = checkpointGraph.nodes.map((node) => ({
+    ...node,
+    data: {
+      ...node.data,
+      testHighlight: firedNodeIds.has(node.id)
+        ? ("fired" as const)
+        : upstreamNodeIds.has(node.id)
+          ? ("upstream" as const)
+          : undefined,
+    },
+    selected: node.id === selectedNodeId,
+    draggable: !readOnly,
+    connectable: !readOnly,
+  }));
 
   return (
     <section className={styles.editorPage} aria-labelledby="guardrail-name">
@@ -511,87 +502,26 @@ export function GuardrailEditor({
             ←
           </Link>
           <div>
-            <p>{readOnly ? `Published version ${detail.versionNumber}` : "Draft policy graph"}</p>
+            <p>{readOnly ? "Published policy graph" : "Draft policy graph"}</p>
             <h1 id="guardrail-name">{detail.name}</h1>
           </div>
-          <span className={readOnly ? styles.versionBadge : styles.draftBadge}>
-            {readOnly ? `v${detail.versionNumber}` : dirty ? "Unsaved draft" : "Draft saved"}
-          </span>
-        </div>
-
-        <div className={styles.editorActions}>
-          {!readOnly ? (
-            <button
-              className={styles.secondaryAction}
-              type="button"
-              disabled={isBusy}
-              onClick={() => setIsTesting(true)}
-            >
-              Test draft
-            </button>
-          ) : null}
-          {!readOnly ? (
-            <button
-              className={styles.secondaryAction}
-              type="button"
-              disabled={isBusy}
-              onClick={() => setIsChoosingTemplate(true)}
-            >
-              ＋ 템플릿에서 시작
-            </button>
-          ) : null}
-          {publishedVersion !== null && !readOnly ? (
-            <Link
-              className={styles.secondaryAction}
-              href={`/guardrails/${encodeURIComponent(detail.name)}/versions/${publishedVersion}`}
-            >
-              View v{publishedVersion}
-            </Link>
-          ) : null}
-          {readOnly ? (
-            <Link
-              className={styles.primaryAction}
-              href={`/guardrails/${encodeURIComponent(detail.name)}`}
-            >
-              Return to draft
-            </Link>
-          ) : (
-            <>
-              <button
-                className={styles.secondaryAction}
-                type="button"
-                disabled={isBusy || !dirty}
-                onClick={() => void saveDraft()}
-              >
-                {saveMutation.isPending ? "Saving…" : "Save draft"}
-              </button>
-              <button
-                className={styles.primaryAction}
-                type="button"
-                disabled={isBusy}
-                onClick={() => void publishDraft()}
-              >
-                {publishMutation.isPending
-                  ? "Publishing…"
-                  : dirty
-                    ? "Save & publish"
-                    : "Publish"}
-              </button>
-            </>
-          )}
         </div>
       </header>
 
-      <div className={styles.policySummary}>
-        <span>정책 요약</span>
-        <p>{describeGuardrailGraph(wireGraph)}</p>
-      </div>
+      <EditorTabs
+        activeTab={activeTab}
+        focusRequest={tabFocusRequest}
+        onChange={changeTab}
+      />
 
       <div className={styles.editorStatus} aria-live="polite">
-        <span className={graphError ? styles.errorDot : styles.statusDot} aria-hidden="true" />
+        <span
+          className={graphError ? styles.errorDot : styles.statusDot}
+          aria-hidden="true"
+        />
         <p>{status}</p>
         <small>
-          Lane placement is inferred from connected sources after reload; free layout is session-only.
+          Free layout is session-only; the saved policy remains one ordered graph.
         </small>
       </div>
 
@@ -599,7 +529,11 @@ export function GuardrailEditor({
         <div className={styles.graphError} role="alert">
           <strong>Graph needs attention</strong>
           <span>{graphError}</span>
-          <button type="button" onClick={() => setGraphError(null)} aria-label="Dismiss graph error">
+          <button
+            type="button"
+            onClick={() => setGraphError(null)}
+            aria-label="Dismiss graph error"
+          >
             ×
           </button>
         </div>
@@ -613,7 +547,10 @@ export function GuardrailEditor({
           onSaveDraft={async () => (await saveDraft()) !== null}
           onAuthorizationError={onAuthorizationError}
           onGatewayError={(error) =>
-            handleGatewayError(error, "실제 호출 테스트를 완료하지 못했습니다.")
+            handleGatewayError(
+              error,
+              "실제 호출 테스트를 완료하지 못했습니다.",
+            )
           }
           onResult={handleTestResult}
           onClear={clearTestHighlight}
@@ -621,108 +558,160 @@ export function GuardrailEditor({
         />
       ) : null}
 
-      <div className={styles.editorWorkspace}>
-        <div className={styles.authoringSurface}>
-          {!readOnly ? (
-            <div className={styles.nodeCatalog} aria-label="Node catalog">
-              <label>
-                <span>Add to checkpoint</span>
-                <select
-                  value={catalogCheckpoint}
-                  onChange={(event) => setCatalogCheckpoint(event.target.value as Checkpoint)}
+      <div
+        id="guardrail-tab-panel"
+        role="tabpanel"
+        aria-labelledby={`guardrail-tab-${activeTab}`}
+        tabIndex={0}
+        className={styles.tabPanel}
+      >
+        {activeTab === "overview" ? (
+          <GuardrailOverview
+            name={detail.name}
+            graph={graph}
+            wireGraph={wireGraph}
+            readOnly={readOnly}
+            versionNumber={detail.versionNumber}
+            publishedVersion={publishedVersion}
+            dirty={dirty}
+            isBusy={isBusy}
+            isSaving={saveMutation.isPending}
+            isPublishing={publishMutation.isPending}
+            onOpenCheckpoint={openCheckpoint}
+            onSave={() => void saveDraft()}
+            onPublish={() => void publishDraft()}
+            onTest={() => setIsTesting(true)}
+            onChooseTemplate={() => setIsChoosingTemplate(true)}
+          />
+        ) : (
+          <div className={styles.editorWorkspace}>
+            <div className={styles.authoringSurface}>
+              <div className={styles.checkpointContext}>
+                <span>{checkpointMeta[activeTab].index}</span>
+                <div>
+                  <p>{checkpointMeta[activeTab].shortLabel}</p>
+                  <h2>{checkpointMeta[activeTab].label}</h2>
+                  <small>{checkpointMeta[activeTab].description}</small>
+                </div>
+                <strong>
+                  {checkpointGraph.nodes.length} node
+                  {checkpointGraph.nodes.length === 1 ? "" : "s"}
+                </strong>
+              </div>
+
+              {!readOnly ? (
+                <div
+                  className={styles.nodeCatalog}
+                  aria-label={`${checkpointMeta[activeTab].label} node catalog`}
                 >
-                  {checkpoints.map((checkpoint) => (
-                    <option key={checkpoint} value={checkpoint}>
-                      {checkpointMeta[checkpoint].index} {checkpointMeta[checkpoint].label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div>
-                {nodeCatalog.map((item) => (
-                  <button
-                    key={item.type}
-                    className={
-                      item.category === "Action control" ? styles.actionCatalogItem : undefined
+                  <div>
+                    {catalogForCheckpoint(activeTab).map((item) => (
+                      <button
+                        key={item.type}
+                        className={
+                          item.category === "Action control"
+                            ? styles.actionCatalogItem
+                            : undefined
+                        }
+                        type="button"
+                        onClick={() => addNode(item.type)}
+                        title={item.description}
+                      >
+                        <span>{item.label}</span>
+                        <small>{item.category}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div
+                className={styles.canvas}
+                aria-label={`${checkpointMeta[activeTab].label} checkpoint graph editor`}
+              >
+                <ReactFlow<GuardrailFlowNode, GuardrailFlowEdge>
+                  nodes={canvasNodes}
+                  edges={checkpointGraph.edges}
+                  nodeTypes={flowNodeTypes}
+                  onInit={setFlowInstance}
+                  onNodeClick={onNodeClick}
+                  onPaneClick={() => setSelectedNodeId(null)}
+                  onNodesChange={onNodesChange}
+                  onEdgesChange={onEdgesChange}
+                  onNodeDragStop={onNodeDragStop}
+                  onConnect={onConnect}
+                  isValidConnection={(connection) =>
+                    Boolean(
+                      connection.source &&
+                        connection.target &&
+                        !connectionError(
+                          graph,
+                          connection.source,
+                          connection.target,
+                        ),
+                    )
+                  }
+                  nodesDraggable={!readOnly}
+                  nodesConnectable={!readOnly}
+                  edgesReconnectable={false}
+                  deleteKeyCode={null}
+                  minZoom={0.35}
+                  maxZoom={1.65}
+                  fitView
+                  fitViewOptions={{ padding: 0.18 }}
+                  translateExtent={[
+                    [-600, -600],
+                    [6_000, 6_000],
+                  ]}
+                  aria-label={`${checkpointMeta[activeTab].index} ${checkpointMeta[activeTab].label} guardrail graph`}
+                >
+                  <Background
+                    variant={BackgroundVariant.Dots}
+                    gap={24}
+                    size={1}
+                  />
+                  <Controls showInteractive={!readOnly} />
+                  <MiniMap
+                    pannable
+                    zoomable
+                    nodeColor={(node) =>
+                      node.data?.testHighlight === "fired"
+                        ? "#d99b24"
+                        : node.data?.testHighlight === "upstream"
+                          ? "var(--brand-light)"
+                          : node.data?.validationMessage
+                            ? "var(--danger)"
+                            : "var(--brand)"
                     }
-                    type="button"
-                    onClick={() => addNode(item.type)}
-                    title={item.description}
-                  >
-                    <span>{item.label}</span>
-                    <small>{item.category}</small>
-                  </button>
-                ))}
+                    maskColor="color-mix(in srgb, var(--surface) 70%, transparent)"
+                  />
+                </ReactFlow>
+                {checkpointGraph.nodes.length === 0 ? (
+                  <div className={styles.emptyCanvas} aria-hidden="true">
+                    <span>{checkpointMeta[activeTab].index}</span>
+                    <strong>No nodes at this checkpoint</strong>
+                    <p>
+                      {readOnly
+                        ? "This published graph does not inspect this point."
+                        : "Choose a valid node type from the catalog to begin."}
+                    </p>
+                  </div>
+                ) : null}
               </div>
             </div>
-          ) : null}
 
-          <div className={styles.canvas} aria-label="Guardrail checkpoint graph editor">
-            <ReactFlow<CanvasNode, GuardrailFlowEdge>
-              nodes={canvasNodes}
-              edges={graph.edges}
-              nodeTypes={nodeTypes}
-              onInit={setFlowInstance}
-              onNodeClick={onNodeClick}
-              onPaneClick={() => setSelectedNodeId(null)}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onNodeDragStop={onNodeDragStop}
-              onConnect={onConnect}
-              isValidConnection={(connection) =>
-                Boolean(
-                  connection.source &&
-                    connection.target &&
-                    !connectionError(graph, connection.source, connection.target),
-                )
-              }
-              nodesDraggable={!readOnly}
-              nodesConnectable={!readOnly}
-              edgesReconnectable={false}
-              deleteKeyCode={null}
-              minZoom={0.45}
-              maxZoom={1.35}
-              fitView
-              fitViewOptions={{ padding: 0.04 }}
-              translateExtent={[
-                [-120, -120],
-                [1_440, 1_060],
-              ]}
-              aria-label="Guardrail graph with input, tool result, tool call, and output lanes"
-            >
-              <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
-              <Controls showInteractive={!readOnly} />
-              <MiniMap
-                pannable
-                zoomable
-                nodeColor={(node) =>
-                  node.type === "checkpointLane"
-                    ? "transparent"
-                    : node.data?.testHighlight === "fired"
-                      ? "#d99b24"
-                      : node.data?.testHighlight === "upstream"
-                        ? "var(--brand-light)"
-                    : node.data?.validationMessage
-                      ? "var(--danger)"
-                      : "var(--brand)"
-                }
-                maskColor="color-mix(in srgb, var(--surface) 70%, transparent)"
-              />
-            </ReactFlow>
+            <NodeInspector
+              graph={checkpointGraph}
+              selectedNode={selectedNode}
+              readOnly={readOnly}
+              onSelect={selectAndFocusNode}
+              onConfigChange={updateNodeConfig}
+              onDelete={deleteNode}
+              onConnect={connectNodes}
+              onRemoveEdge={removeEdge}
+            />
           </div>
-        </div>
-
-        <NodeInspector
-          graph={graph}
-          selectedNode={selectedNode}
-          readOnly={readOnly}
-          onSelect={selectAndFocusNode}
-          onConfigChange={updateNodeConfig}
-          onCheckpointChange={updateNodeCheckpoint}
-          onDelete={deleteNode}
-          onConnect={connectNodes}
-          onRemoveEdge={removeEdge}
-        />
+        )}
       </div>
 
       {isChoosingTemplate ? (
@@ -735,13 +724,12 @@ export function GuardrailEditor({
   );
 }
 
-function closestCheckpoint(x: number): Checkpoint {
-  return checkpoints.reduce((closest, checkpoint) =>
-    Math.abs(checkpointMeta[checkpoint].x - x) <
-    Math.abs(checkpointMeta[closest].x - x)
-      ? checkpoint
-      : closest,
-  );
+function nextNodePosition(graph: EditorGraph): { x: number; y: number } {
+  const index = graph.nodes.length;
+  return {
+    x: 80 + Math.floor(index / 4) * 310,
+    y: 80 + (index % 4) * 160,
+  };
 }
 
 function useDirtyNavigationGuard(enabled: boolean) {

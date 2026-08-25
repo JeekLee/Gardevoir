@@ -37,7 +37,7 @@ export function TemplatePicker({
         <div>
           <p>Scenario templates</p>
           <h2 id="template-picker-title">템플릿에서 시작</h2>
-          <span>운영 시나리오를 고르면 검증된 그래프를 레인에 자동 배치합니다.</span>
+          <span>운영 시나리오를 고르면 검증된 그래프를 체크포인트 탭에 자동 배치합니다.</span>
         </div>
         <button type="button" onClick={onClose} aria-label="템플릿 선택 닫기">
           ×

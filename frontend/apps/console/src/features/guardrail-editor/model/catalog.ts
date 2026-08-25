@@ -11,7 +11,6 @@ export const checkpointMeta: Record<
     label: string;
     shortLabel: string;
     description: string;
-    x: number;
   }
 > = {
   input: {
@@ -19,28 +18,24 @@ export const checkpointMeta: Record<
     label: "Input",
     shortLabel: "User message",
     description: "Intent enters",
-    x: 0,
   },
   tool_result: {
     index: "②",
     label: "Tool result",
     shortLabel: "Untrusted data",
     description: "External data enters",
-    x: 340,
   },
   tool_call: {
     index: "④",
     label: "Tool call",
     shortLabel: "Agent action",
     description: "Side effects leave",
-    x: 680,
   },
   output: {
     index: "③",
     label: "Output",
     shortLabel: "Model response",
     description: "Response returns",
-    x: 1020,
   },
 };
 
@@ -125,6 +120,46 @@ export const nodeCatalog: NodeCatalogItem[] = [
 export const nodeCatalogByType = Object.fromEntries(
   nodeCatalog.map((item) => [item.type, item]),
 ) as Record<GuardrailNodeType, NodeCatalogItem>;
+
+const catalogTypesByCheckpoint: Record<
+  Checkpoint,
+  readonly GuardrailNodeType[]
+> = {
+  input: ["extract", "regex", "length", "transform", "verdict"],
+  tool_result: [
+    "extract",
+    "regex",
+    "length",
+    "transform",
+    "verdict",
+    "taint",
+  ],
+  tool_call: ["taint", "side_effect", "provenance", "all", "verdict"],
+  output: ["extract", "regex", "length", "transform", "verdict"],
+};
+
+export function catalogForCheckpoint(
+  checkpoint: Checkpoint,
+): NodeCatalogItem[] {
+  return catalogTypesByCheckpoint[checkpoint].map(
+    (type) => nodeCatalogByType[type],
+  );
+}
+
+export function createCatalogNode(
+  type: GuardrailNodeType,
+  checkpoint: Checkpoint,
+  id: string,
+): GuardrailNode {
+  if (!catalogTypesByCheckpoint[checkpoint].includes(type)) {
+    throw new Error(`${type} is not available at ${checkpoint}`);
+  }
+  return {
+    id,
+    type,
+    config: nodeCatalogByType[type].defaultConfig(checkpoint),
+  };
+}
 
 export function nodeSummary(node: GuardrailNode): string {
   switch (node.type) {

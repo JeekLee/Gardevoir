@@ -7,6 +7,7 @@ import { useCallback, useEffect } from "react";
 
 import {
   guardrailDraftOptions,
+  guardrailListOptions,
   guardrailVersionOptions,
   type GuardrailDetail,
 } from "@/src/entities/guardrail";
@@ -45,12 +46,17 @@ function DraftWorkspace({
   name: string;
 }) {
   const query = useQuery(guardrailDraftOptions(accessToken, name));
+  const listQuery = useQuery(guardrailListOptions(accessToken));
+  const latestPublishedVersion =
+    listQuery.data?.items.find((guardrail) => guardrail.name === name)
+      ?.latestVersionNumber ?? null;
   return (
     <EditorQueryBoundary
       accessToken={accessToken}
       name={name}
       query={query}
       readOnly={false}
+      latestPublishedVersion={latestPublishedVersion}
     />
   );
 }
@@ -73,6 +79,7 @@ function VersionWorkspace({
       name={name}
       query={query}
       readOnly
+      latestPublishedVersion={versionNumber}
     />
   );
 }
@@ -82,11 +89,13 @@ function EditorQueryBoundary({
   name,
   query,
   readOnly,
+  latestPublishedVersion,
 }: {
   accessToken: string;
   name: string;
   query: UseQueryResult<GuardrailDetail, Error>;
   readOnly: boolean;
+  latestPublishedVersion: number | null;
 }) {
   const router = useRouter();
   const { endSession } = useSession();
@@ -157,6 +166,7 @@ function EditorQueryBoundary({
       detail={query.data}
       accessToken={accessToken}
       readOnly={readOnly}
+      latestPublishedVersion={latestPublishedVersion}
       onAuthorizationError={handleAuthorizationError}
     />
   );
