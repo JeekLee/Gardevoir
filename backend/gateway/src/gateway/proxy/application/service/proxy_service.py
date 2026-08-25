@@ -112,8 +112,10 @@ class ProxyStream:
 
 @dataclass(frozen=True, slots=True)
 class GuardrailTestCompletion:
-    response: object
-    masked_response: dict | None
+    raw_response: object
+    applied_response: object
+    blocked_before_upstream: bool
+    blocked_after_upstream: bool
     input: Inspection
     tool_result: Inspection
     output: Inspection
@@ -354,18 +356,18 @@ class ProxyService:
         """Run a compiled plan through the real non-streaming upstream flow."""
         completion = await self._complete_with_plan(
             plan=plan,
-            mode=Mode.DRY_RUN,
+            mode=Mode.ENFORCE,
             payload=payload,
         )
         verdicts = completion.verdicts
-        masked_response = (
-            self._inspector.mask_preview(plan, completion.response, verdicts.output.checks_fired)
-            if self._inspector is not None and isinstance(completion.response, dict)
-            else None
-        )
+        blocked = verdicts.blocked_before_upstream or verdicts.blocked_after_upstream
         return GuardrailTestCompletion(
-            response=completion.response,
-            masked_response=masked_response,
+            raw_response=(
+                _decode(completion.upstream.body) if completion.upstream is not None else None
+            ),
+            applied_response=None if blocked else completion.response,
+            blocked_before_upstream=verdicts.blocked_before_upstream,
+            blocked_after_upstream=verdicts.blocked_after_upstream,
             input=verdicts.input,
             tool_result=verdicts.tool_result,
             output=verdicts.output,

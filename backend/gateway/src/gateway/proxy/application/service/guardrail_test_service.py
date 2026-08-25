@@ -18,7 +18,6 @@ from gateway.proxy.application.result.guardrail_test_result import (
     GuardrailTestResult,
     TestCheckpointResult,
     TestCheckpoints,
-    TestModelResponse,
 )
 from gateway.proxy.application.service.proxy_service import ProxyService
 
@@ -62,26 +61,23 @@ class GuardrailTestService:
         checkpoints = TestCheckpoints(
             input=_checkpoint(completion.input, verdicts),
             tool_result=_checkpoint(completion.tool_result, verdicts),
-            output=_checkpoint(
-                completion.output,
-                verdicts,
-                masked=completion.masked_response is not None,
-            ),
+            output=_checkpoint(completion.output, verdicts),
             tool_call=_checkpoint(completion.tool_call, verdicts),
         )
+        blocked_at, blocked_reason = _blocked(checkpoints)
+        blocked = blocked_at is not None
         return GuardrailTestResult(
             guardrail=detail.name,
             version=detail.version,
             model=cmd.model,
             checkpoints=checkpoints,
-            overall_would_have=_overall(checkpoints),
-            model_response=TestModelResponse(
-                content=_content(completion.response),
-                tool_calls=_tool_calls(completion.response),
-                masked_preview=_content(completion.masked_response)
-                if completion.masked_response is not None
-                else None,
-            ),
+            overall_action=_overall(checkpoints),
+            blocked=blocked,
+            blocked_at=blocked_at,
+            blocked_reason=blocked_reason,
+            raw_content=_content(completion.raw_response),
+            applied_content="" if blocked else _content(completion.applied_response),
+            tool_calls=_tool_calls(completion.raw_response),
             latency_ms=completion.latency_ms,
         )
 
@@ -102,40 +98,50 @@ def _verdicts(guardrail: Guardrail) -> dict[str, tuple[str, VerdictAction]]:
 def _checkpoint(
     inspection: Inspection,
     verdicts: dict[str, tuple[str, VerdictAction]],
-    *,
-    masked: bool = False,
 ) -> TestCheckpointResult:
     fired = {
         node_id: verdicts.get(node_id, (node_id, VerdictAction.ALLOW))
         for node_id in inspection.checks_fired
     }
-    pending = set(inspection.pending_model)
     return TestCheckpointResult(
         ran=inspection.ran,
-        would_have=max(
-            (action for node_id, (_, action) in fired.items() if node_id not in pending),
-            key=_SEVERITY.get,
-            default=None,
+        action=(
+            VerdictAction.BLOCK
+            if inspection.blocked
+            else VerdictAction.MASK
+            if inspection.masked
+            else VerdictAction.ALLOW
         ),
         checks_fired=[code for code, _ in fired.values()],
-        masked=masked,
+        masked=inspection.masked,
         evidence=list(inspection.evidence),
         tier=inspection.tier,
     )
 
 
 def _overall(checkpoints: TestCheckpoints) -> VerdictAction:
-    actions = [
-        checkpoint.would_have
-        for checkpoint in (
-            checkpoints.input,
-            checkpoints.tool_result,
-            checkpoints.output,
-            checkpoints.tool_call,
-        )
-        if checkpoint.would_have is not None
-    ]
-    return max(actions, key=_SEVERITY.get, default=VerdictAction.ALLOW)
+    return max(
+        (
+            checkpoints.input.action,
+            checkpoints.tool_result.action,
+            checkpoints.output.action,
+            checkpoints.tool_call.action,
+        ),
+        key=_SEVERITY.get,
+    )
+
+
+def _blocked(checkpoints: TestCheckpoints) -> tuple[str | None, str | None]:
+    ordered = (
+        ("input", checkpoints.input),
+        ("toolResult", checkpoints.tool_result),
+        ("output", checkpoints.output),
+        ("toolCall", checkpoints.tool_call),
+    )
+    for name, checkpoint in ordered:
+        if checkpoint.action is VerdictAction.BLOCK:
+            return name, checkpoint.checks_fired[0] if checkpoint.checks_fired else None
+    return None, None
 
 
 def _message(response: object) -> dict:

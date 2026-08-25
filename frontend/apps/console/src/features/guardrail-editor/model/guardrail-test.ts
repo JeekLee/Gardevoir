@@ -11,12 +11,18 @@ export type GuardrailTestEvidence = {
 
 export type GuardrailTestCheckpoint = {
   ran: boolean;
-  wouldHave: GuardrailAction | null;
+  action: GuardrailAction;
   checksFired: string[];
   masked: boolean;
   evidence: GuardrailTestEvidence[];
   tier: string;
 };
+
+export type GuardrailTestCheckpointName =
+  | "input"
+  | "toolResult"
+  | "output"
+  | "toolCall";
 
 export type GuardrailTestResult = {
   guardrail: string;
@@ -28,13 +34,14 @@ export type GuardrailTestResult = {
     output: GuardrailTestCheckpoint;
     toolCall: GuardrailTestCheckpoint;
   };
-  overallWouldHave: GuardrailAction;
-  modelResponse: {
-    content: string;
-    toolCalls: Record<string, unknown>[];
-    maskedPreview: string | null;
-  };
-  auditId: string | null;
+  overallAction: GuardrailAction;
+  blocked: boolean;
+  blockedAt: GuardrailTestCheckpointName | null;
+  blockedReason: string | null;
+  rawContent: string;
+  appliedContent: string;
+  toolCalls: Record<string, unknown>[];
+  auditId: null;
   latencyMs: number;
 };
 
@@ -54,15 +61,16 @@ export function parseGuardrailTestResult(value: unknown): GuardrailTestResult {
     typeof value.guardrail !== "string" ||
     typeof value.version !== "string" ||
     typeof value.model !== "string" ||
-    !isGuardrailAction(value.overallWouldHave) ||
+    !isGuardrailAction(value.overallAction) ||
     !isRecord(value.checkpoints) ||
-    !isRecord(value.modelResponse) ||
-    typeof value.modelResponse.content !== "string" ||
-    !Array.isArray(value.modelResponse.toolCalls) ||
-    !value.modelResponse.toolCalls.every(isRecord) ||
-    (value.modelResponse.maskedPreview !== null &&
-      typeof value.modelResponse.maskedPreview !== "string") ||
-    (value.auditId !== null && typeof value.auditId !== "string") ||
+    typeof value.blocked !== "boolean" ||
+    (value.blockedAt !== null && !isCheckpointName(value.blockedAt)) ||
+    (value.blockedReason !== null && typeof value.blockedReason !== "string") ||
+    typeof value.rawContent !== "string" ||
+    typeof value.appliedContent !== "string" ||
+    !Array.isArray(value.toolCalls) ||
+    !value.toolCalls.every(isRecord) ||
+    value.auditId !== null ||
     typeof value.latencyMs !== "number"
   ) {
     throw new Error("Invalid guardrail test response");
@@ -78,13 +86,14 @@ export function parseGuardrailTestResult(value: unknown): GuardrailTestResult {
       output: parseCheckpoint(value.checkpoints.output),
       toolCall: parseCheckpoint(value.checkpoints.toolCall),
     },
-    overallWouldHave: value.overallWouldHave,
-    modelResponse: {
-      content: value.modelResponse.content,
-      toolCalls: value.modelResponse.toolCalls,
-      maskedPreview: value.modelResponse.maskedPreview,
-    },
-    auditId: value.auditId,
+    overallAction: value.overallAction,
+    blocked: value.blocked,
+    blockedAt: value.blockedAt,
+    blockedReason: value.blockedReason,
+    rawContent: value.rawContent,
+    appliedContent: value.appliedContent,
+    toolCalls: value.toolCalls,
+    auditId: null,
     latencyMs: value.latencyMs,
   };
 }
@@ -152,7 +161,7 @@ function parseCheckpoint(value: unknown): GuardrailTestCheckpoint {
   if (
     !isRecord(value) ||
     typeof value.ran !== "boolean" ||
-    (value.wouldHave !== null && !isGuardrailAction(value.wouldHave)) ||
+    !isGuardrailAction(value.action) ||
     !isStringArray(value.checksFired) ||
     typeof value.masked !== "boolean" ||
     !Array.isArray(value.evidence) ||
@@ -162,7 +171,7 @@ function parseCheckpoint(value: unknown): GuardrailTestCheckpoint {
   }
   return {
     ran: value.ran,
-    wouldHave: value.wouldHave,
+    action: value.action,
     checksFired: value.checksFired,
     masked: value.masked,
     evidence: value.evidence.map(parseEvidence),
@@ -183,6 +192,17 @@ function parseEvidence(value: unknown): GuardrailTestEvidence {
 
 function isGuardrailAction(value: unknown): value is GuardrailAction {
   return value === "block" || value === "mask" || value === "allow";
+}
+
+function isCheckpointName(
+  value: unknown,
+): value is GuardrailTestCheckpointName {
+  return (
+    value === "input" ||
+    value === "toolResult" ||
+    value === "output" ||
+    value === "toolCall"
+  );
 }
 
 function isStringArray(value: unknown): value is string[] {

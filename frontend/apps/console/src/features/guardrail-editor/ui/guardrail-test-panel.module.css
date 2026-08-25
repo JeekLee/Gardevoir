@@ -23,7 +23,7 @@
 .form label > span,
 .form small,
 .resultSummary span,
-.modelResponse span,
+.responseResults span,
 .firedChecks > span,
 .evidence > span {
   color: var(--muted);
@@ -241,8 +241,8 @@
 
 .firedChecks,
 .evidence,
-.modelResponse,
-.modelResponse > div {
+.responseResults,
+.responseResults > div {
   display: grid;
   gap: 0.35rem;
 }
@@ -275,18 +275,18 @@
   gap: 0.35rem;
 }
 
-.modelResponse {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.responseResults {
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
 }
 
-.modelResponse > div {
+.responseResults > div {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   padding: 0.75rem;
 }
 
-.modelResponse pre {
+.responseResults pre {
   color: var(--text);
   font-family: var(--font-mono);
   font-size: 0.65rem;
@@ -298,9 +298,22 @@
   word-break: break-word;
 }
 
-.modelResponse .maskedPreview {
-  background: color-mix(in srgb, #d99b24 8%, var(--surface));
-  border-color: color-mix(in srgb, #d99b24 30%, var(--border));
+.responseResults .appliedResult {
+  background: color-mix(in srgb, var(--brand-soft) 48%, var(--surface));
+  border-color: color-mix(in srgb, var(--brand) 34%, var(--border));
+}
+
+.responseResults .blockedResult {
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
+}
+
+.responseResults .rawResult {
+  background: var(--surface-subtle);
+}
+
+.responseResults .toolCalls {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 1120px) {
@@ -312,7 +325,7 @@
 @media (max-width: 700px) {
   .form,
   .checkpoints,
-  .modelResponse { grid-template-columns: 1fr; }
+  .responseResults { grid-template-columns: 1fr; }
   .resultSummary { align-items: start; flex-direction: column; }
   .resultSummary dl { flex-wrap: wrap; }
 }

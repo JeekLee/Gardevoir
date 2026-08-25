@@ -108,9 +108,11 @@ export function GuardrailTestPanel({
     <section className={styles.panel} aria-labelledby="guardrail-test-title">
       <header>
         <div>
-          <p>Draft dry-run</p>
+          <p>Draft enforce</p>
           <h2 id="guardrail-test-title">실제 업스트림 호출 테스트</h2>
-          <span>저장된 draft를 즉석 컴파일해 네 체크포인트를 모두 검사합니다.</span>
+          <span>
+            저장된 draft를 즉석 컴파일해 네 체크포인트의 실제 적용 결과를 확인합니다.
+          </span>
         </div>
         <button type="button" onClick={close} aria-label="테스트 패널 닫기">
           ×
@@ -193,9 +195,9 @@ function TestResult({ result }: { result: GuardrailTestResult }) {
     <div className={styles.result} aria-live="polite">
       <div className={styles.resultSummary}>
         <div>
-          <span>Overall would-have</span>
-          <strong className={styles[result.overallWouldHave]}>
-            {result.overallWouldHave}
+          <span>Overall action</span>
+          <strong className={styles[result.overallAction]}>
+            {result.overallAction}
           </strong>
         </div>
         <dl>
@@ -227,21 +229,25 @@ function TestResult({ result }: { result: GuardrailTestResult }) {
         ))}
       </div>
 
-      <div className={styles.modelResponse}>
-        <div>
-          <span>실제 모델 응답</span>
-          <pre>{result.modelResponse.content || "(텍스트 응답 없음)"}</pre>
+      <div className={styles.responseResults}>
+        <div
+          className={`${styles.appliedResult} ${result.blocked ? styles.blockedResult : ""}`}
+        >
+          <span>실제 적용 결과</span>
+          <pre>
+            {result.blocked
+              ? `🚫 차단됨 — ${result.blockedAt ?? "unknown"} (${result.blockedReason ?? "사유 없음"})`
+              : result.appliedContent || "(텍스트 응답 없음)"}
+          </pre>
         </div>
-        {result.modelResponse.toolCalls.length > 0 ? (
-          <div>
+        <div className={styles.rawResult}>
+          <span>원본 모델 응답</span>
+          <pre>{rawContent(result)}</pre>
+        </div>
+        {result.toolCalls.length > 0 ? (
+          <div className={styles.toolCalls}>
             <span>Tool calls</span>
-            <pre>{JSON.stringify(result.modelResponse.toolCalls, null, 2)}</pre>
-          </div>
-        ) : null}
-        {result.modelResponse.maskedPreview !== null ? (
-          <div className={styles.maskedPreview}>
-            <span>마스킹 예정 미리보기</span>
-            <pre>{result.modelResponse.maskedPreview}</pre>
+            <pre>{JSON.stringify(result.toolCalls, null, 2)}</pre>
           </div>
         ) : null}
       </div>
@@ -263,7 +269,9 @@ function CheckpointCard({
       <header>
         <span>{index}</span>
         <strong>{label}</strong>
-        <b>{checkpoint.ran ? checkpoint.wouldHave ?? "allow" : "not run"}</b>
+        <b className={styles[checkpoint.action]}>
+          {checkpoint.ran ? checkpoint.action : "not run"}
+        </b>
       </header>
       <dl>
         <div>
@@ -304,6 +312,16 @@ function CheckpointCard({
       ) : null}
     </article>
   );
+}
+
+function rawContent(result: GuardrailTestResult): string {
+  if (
+    result.blocked &&
+    (result.blockedAt === "input" || result.blockedAt === "toolResult")
+  ) {
+    return "(업스트림 미호출)";
+  }
+  return result.rawContent || "(텍스트 응답 없음)";
 }
 
 function normalizeError(error: unknown): ConsoleApiError {

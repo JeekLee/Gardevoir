@@ -479,7 +479,7 @@ export function GuardrailEditor({
     setStatus(
       highlights.fired.length > 0
         ? `${highlights.fired.length}개 verdict 노드가 실제 호출 테스트에서 발동했습니다.`
-        : `실제 호출 테스트 완료: would-have ${result.overallWouldHave}.`,
+        : `실제 호출 테스트 완료: ${result.overallAction}.`,
     );
   }
 

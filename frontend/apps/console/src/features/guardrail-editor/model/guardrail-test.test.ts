@@ -10,36 +10,70 @@ import {
 } from "./guardrail-test";
 
 describe("guardrail test result", () => {
-  it("실제 호출 결과의 체크포인트와 마스킹 미리보기를 파싱한다", () => {
+  it("실제 적용 결과와 원본 모델 응답을 파싱한다", () => {
     const result = parseGuardrailTestResult({
       guardrail: "default",
       version: "draft",
       model: "local-model",
       checkpoints: {
-        input: checkpoint({ wouldHave: "block", checksFired: ["input-secret"] }),
+        input: checkpoint({ checksFired: ["input-secret"] }),
         toolResult: checkpoint({ ran: false }),
-        output: checkpoint({ wouldHave: "mask", masked: true }),
+        output: checkpoint({ action: "mask", masked: true }),
         toolCall: checkpoint({
           evidence: [{ tool: "send_email", arguments: ["to"] }],
         }),
       },
-      overallWouldHave: "block",
-      modelResponse: {
-        content: "123-45-6789",
-        toolCalls: [],
-        maskedPreview: "[개인정보 삭제됨]",
-      },
+      overallAction: "mask",
+      blocked: false,
+      blockedAt: null,
+      blockedReason: null,
+      rawContent: "주민번호는 900101-1234567입니다.",
+      appliedContent: "주민번호는 [개인정보 삭제됨]입니다.",
+      toolCalls: [],
       auditId: null,
       latencyMs: 42.25,
     });
 
-    expect(result.overallWouldHave).toBe("block");
+    expect(result.overallAction).toBe("mask");
     expect(result.checkpoints.input.checksFired).toEqual(["input-secret"]);
+    expect(result.checkpoints.output.action).toBe("mask");
     expect(result.checkpoints.toolCall.evidence[0]).toEqual({
       tool: "send_email",
       arguments: ["to"],
     });
-    expect(result.modelResponse.maskedPreview).toBe("[개인정보 삭제됨]");
+    expect(result.rawContent).toContain("900101-1234567");
+    expect(result.appliedContent).toContain("[개인정보 삭제됨]");
+  });
+
+  it("업스트림 호출 전 차단 결과를 파싱한다", () => {
+    const result = parseGuardrailTestResult({
+      guardrail: "block-input",
+      version: "draft",
+      model: "local-model",
+      checkpoints: {
+        input: checkpoint({
+          action: "block",
+          checksFired: ["blocked-input"],
+        }),
+        toolResult: checkpoint({ ran: false, tier: "" }),
+        output: checkpoint({ ran: false, tier: "" }),
+        toolCall: checkpoint({ ran: false, tier: "" }),
+      },
+      overallAction: "block",
+      blocked: true,
+      blockedAt: "input",
+      blockedReason: "blocked-input",
+      rawContent: "",
+      appliedContent: "",
+      toolCalls: [],
+      auditId: null,
+      latencyMs: 0.25,
+    });
+
+    expect(result.blocked).toBe(true);
+    expect(result.blockedAt).toBe("input");
+    expect(result.blockedReason).toBe("blocked-input");
+    expect(result.appliedContent).toBe("");
   });
 
   it("프로바이더 순서를 유지하며 중복 모델을 한 번만 노출한다", () => {
@@ -87,7 +121,7 @@ describe("guardrail test result", () => {
 function checkpoint(overrides: Record<string, unknown> = {}) {
   return {
     ran: true,
-    wouldHave: null,
+    action: "allow",
     checksFired: [],
     masked: false,
     evidence: [],

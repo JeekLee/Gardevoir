@@ -6,7 +6,7 @@ from shared_kernel.api import CamelModel
 
 class TestCheckpointResult(CamelModel):
     ran: bool
-    would_have: VerdictAction | None
+    action: VerdictAction
     checks_fired: list[str]
     masked: bool
     evidence: list[dict]
@@ -20,18 +20,17 @@ class TestCheckpoints(CamelModel):
     tool_call: TestCheckpointResult
 
 
-class TestModelResponse(CamelModel):
-    content: str
-    tool_calls: list[dict]
-    masked_preview: str | None
-
-
 class GuardrailTestResult(CamelModel):
     guardrail: str
     version: str
     model: str
     checkpoints: TestCheckpoints
-    overall_would_have: VerdictAction
-    model_response: TestModelResponse
+    overall_action: VerdictAction
+    blocked: bool
+    blocked_at: str | None
+    blocked_reason: str | None
+    raw_content: str
+    applied_content: str
+    tool_calls: list[dict]
     audit_id: None = None
     latency_ms: float
