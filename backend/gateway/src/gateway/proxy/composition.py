@@ -1,8 +1,12 @@
 """Proxy 의 요청 수명 배선. 조립 루트는 app.py 다."""
 
+from collections.abc import AsyncIterator
+
 from fastapi import Request
 
+from gateway.guardrail.definition.infrastructure.dao.guardrail_dao import SqlAlchemyGuardrailDao
 from gateway.guardrail.inspection.application.service.inspector import Inspector
+from gateway.proxy.application.service.guardrail_test_service import GuardrailTestService
 from gateway.proxy.application.service.proxy_service import ProxyService
 
 
@@ -17,3 +21,13 @@ def provide_proxy_service(request: Request) -> ProxyService:
         holdback_chars=request.app.state.settings.stream_holdback_chars,
         window_chars=request.app.state.settings.stream_window_chars,
     )
+
+
+async def provide_guardrail_test_service(
+    request: Request,
+) -> AsyncIterator[GuardrailTestService]:
+    async with request.app.state.session_factory() as session:
+        yield GuardrailTestService(
+            guardrail_dao=SqlAlchemyGuardrailDao(session),
+            proxy_service=provide_proxy_service(request),
+        )

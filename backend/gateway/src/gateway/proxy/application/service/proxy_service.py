@@ -41,7 +41,7 @@ from gateway.guardrail.inspection.application.service.inspector import (
 )
 from gateway.guardrail.plan.domain.models.execution_plan import ExecutionPlan
 from gateway.proxy.application.authenticated_request import AuthenticatedRequest
-from gateway.proxy.application.port.llm_upstream import LlmUpstream
+from gateway.proxy.application.port.llm_upstream import LlmUpstream, UpstreamResult
 from gateway.proxy.application.port.upstream_resolver import UpstreamResolver
 from gateway.proxy.application.streaming.relay import StreamRelay
 from gateway.proxy.contract import (
@@ -108,6 +108,17 @@ class ProxyStream:
 
     def aiter(self) -> AsyncIterator[bytes]:
         return self._chunks
+
+
+@dataclass(frozen=True, slots=True)
+class GuardrailTestCompletion:
+    response: object
+    masked_response: dict | None
+    input: Inspection
+    tool_result: Inspection
+    output: Inspection
+    tool_call: Inspection
+    latency_ms: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +249,15 @@ class _Verdicts:
         return self.tool_call.evidence
 
 
+@dataclass(frozen=True, slots=True)
+class _InspectedCompletion:
+    response: object
+    upstream: UpstreamResult | None
+    verdicts: _Verdicts
+    added_latency_ms: float
+    total_latency_ms: float
+
+
 class ProxyService:
     def __init__(
         self,
@@ -260,11 +280,10 @@ class ProxyService:
         self, *, auth: AuthenticatedRequest, mode: Mode, payload: bytes, request_id: str
     ) -> ProxyResult:
         audit_id = new_event_id()
-        started = time.perf_counter()
-
-        plan = self._plan_for(auth)
-        decoded = _decode(payload)
-        verdicts = self._inspect_before_upstream(plan, decoded, mode)
+        completion = await self._complete_with_plan(
+            plan=self._plan_for(auth), mode=mode, payload=payload
+        )
+        verdicts = completion.verdicts
 
         if verdicts.blocked_before_upstream:
             # 차단할 요청에 토큰을 쓸 이유가 없고, 오염된 데이터를 모델에 먹이지
@@ -274,28 +293,13 @@ class ProxyService:
                 audit_id=audit_id,
                 request_id=request_id,
                 verdicts=verdicts,
-                latency_ms=self._added_latency_ms(started, 0.0),
+                latency_ms=completion.added_latency_ms,
             )
 
-        upstream = await self._upstream_resolver.resolve(_model_of(decoded))
-        result = await self._upstream.complete(
-            base_url=upstream.base_url,
-            api_key=upstream.api_key,
-            path=UPSTREAM_PATH,
-            payload=payload,
-        )
-
-        body = _decode(result.body)
-        if isinstance(body, dict) and self._inspector is not None:
-            verdicts = replace(
-                verdicts,
-                output=self._inspector.output(plan, body, mode=mode, tainted=verdicts.tainted),
-                tool_call=self._inspector.tool_call(
-                    plan, body, decoded, mode=mode, tainted=verdicts.tainted
-                ),
-            )
-
-        latency_ms = self._added_latency_ms(started, result.elapsed_s)
+        result = completion.upstream
+        assert result is not None
+        body = completion.response
+        latency_ms = completion.added_latency_ms
         extension = self._extension(auth, audit_id, verdicts)
 
         if verdicts.blocked_after_upstream:
@@ -344,6 +348,29 @@ class ProxyService:
             headers=self._headers(auth, audit_id, latency_ms, verdicts),
             body=orjson.dumps(payload_out),
             audit_id=audit_id,
+        )
+
+    async def test(self, *, plan: ExecutionPlan, payload: bytes) -> GuardrailTestCompletion:
+        """Run a compiled plan through the real non-streaming upstream flow."""
+        completion = await self._complete_with_plan(
+            plan=plan,
+            mode=Mode.DRY_RUN,
+            payload=payload,
+        )
+        verdicts = completion.verdicts
+        masked_response = (
+            self._inspector.mask_preview(plan, completion.response, verdicts.output.checks_fired)
+            if self._inspector is not None and isinstance(completion.response, dict)
+            else None
+        )
+        return GuardrailTestCompletion(
+            response=completion.response,
+            masked_response=masked_response,
+            input=verdicts.input,
+            tool_result=verdicts.tool_result,
+            output=verdicts.output,
+            tool_call=verdicts.tool_call,
+            latency_ms=completion.total_latency_ms,
         )
 
     @asynccontextmanager
@@ -486,6 +513,47 @@ class ProxyService:
             input=first,
             tool_result=self._inspector.tool_result(plan, decoded, mode=mode, tainted=tainted),
             tainted=tainted,
+        )
+
+    async def _complete_with_plan(
+        self, *, plan: ExecutionPlan | None, mode: Mode, payload: bytes
+    ) -> _InspectedCompletion:
+        started = time.perf_counter()
+        decoded = _decode(payload)
+        verdicts = self._inspect_before_upstream(plan, decoded, mode)
+        if verdicts.blocked_before_upstream:
+            latency_ms = self._added_latency_ms(started, 0.0)
+            return _InspectedCompletion(
+                response=None,
+                upstream=None,
+                verdicts=verdicts,
+                added_latency_ms=latency_ms,
+                total_latency_ms=latency_ms,
+            )
+
+        upstream = await self._upstream_resolver.resolve(_model_of(decoded))
+        result = await self._upstream.complete(
+            base_url=upstream.base_url,
+            api_key=upstream.api_key,
+            path=UPSTREAM_PATH,
+            payload=payload,
+        )
+        body = _decode(result.body)
+        if isinstance(body, dict) and self._inspector is not None:
+            verdicts = replace(
+                verdicts,
+                output=self._inspector.output(plan, body, mode=mode, tainted=verdicts.tainted),
+                tool_call=self._inspector.tool_call(
+                    plan, body, decoded, mode=mode, tainted=verdicts.tainted
+                ),
+            )
+
+        return _InspectedCompletion(
+            response=body,
+            upstream=result,
+            verdicts=verdicts,
+            added_latency_ms=self._added_latency_ms(started, result.elapsed_s),
+            total_latency_ms=(time.perf_counter() - started) * 1000,
         )
 
     async def _blocked_input(
@@ -648,6 +716,7 @@ __all__ = [
     "JSON_MEDIA_TYPE",
     "SSE_MEDIA_TYPE",
     "UPSTREAM_PATH",
+    "GuardrailTestCompletion",
     "ProxyResult",
     "ProxyService",
     "ProxyStream",

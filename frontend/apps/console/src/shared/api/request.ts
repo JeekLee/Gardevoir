@@ -6,6 +6,7 @@ type RequestBase = {
   body?: unknown;
   accessToken?: string;
   signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 type JsonRequest<T> = RequestBase & {
@@ -54,7 +55,7 @@ export async function apiRequest<T>(
     headers.set("Authorization", `Bearer ${options.accessToken}`);
   }
 
-  const timeout = createTimeoutSignal(options.signal);
+  const timeout = createTimeoutSignal(options.signal, options.timeoutMs);
 
   let response: Response;
   try {
@@ -153,7 +154,7 @@ function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function createTimeoutSignal(source?: AbortSignal) {
+function createTimeoutSignal(source?: AbortSignal, timeoutMs = 15_000) {
   const controller = new AbortController();
   let expired = false;
   const abortFromSource = () => controller.abort(source?.reason);
@@ -167,7 +168,7 @@ function createTimeoutSignal(source?: AbortSignal) {
   const timeoutId = setTimeout(() => {
     expired = true;
     controller.abort();
-  }, 15_000);
+  }, timeoutMs);
 
   return {
     signal: controller.signal,

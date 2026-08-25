@@ -4,9 +4,10 @@
 v38 로 검사하면 판정이 앞뒤가 안 맞고 나중에 재현이 불가능해진다 (§6).
 """
 
+import copy
 import logging
 
-from gateway.guardrail.domain.models.guardrail import VerdictAction
+from gateway.guardrail.domain.models.guardrail import Decision, VerdictAction
 from gateway.guardrail.domain.models.mode import Mode
 from gateway.guardrail.inspection.application.outcome import (
     MASK_PLACEHOLDER,
@@ -28,7 +29,12 @@ from gateway.guardrail.inspection.application.text import (
 )
 from gateway.guardrail.plan.application.service.registry import PlanRegistry
 from gateway.guardrail.plan.domain.executor import Subject, execute
-from gateway.guardrail.plan.domain.models.execution_plan import ExecutionPlan, Program, Provenance
+from gateway.guardrail.plan.domain.models.execution_plan import (
+    ExecutionPlan,
+    Program,
+    Provenance,
+    Verdict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +209,31 @@ class Inspector:
             pending_model=tuple(pending),
             masked=masked,
         )
+
+    def mask_preview(
+        self, plan: ExecutionPlan, body: dict, checks_fired: tuple[str, ...]
+    ) -> dict | None:
+        """Return a masked copy for the fired output verdicts."""
+        program = plan.program_for(CHECKPOINT_OUTPUT)
+        if program is None:
+            return None
+
+        conclusive_masks = {
+            instruction.node_id
+            for instruction in program.instructions
+            if isinstance(instruction, Verdict)
+            and instruction.decision is Decision.CONCLUSIVE
+            and instruction.action is VerdictAction.MASK
+        }
+        preview_checks = tuple(code for code in checks_fired if code in conclusive_masks)
+        if not preview_checks:
+            return None
+
+        preview = copy.deepcopy(body)
+        changed = False
+        for position, _ in extract_output_texts(preview):
+            changed = self._mask_choice(program, preview, position, preview_checks) or changed
+        return preview if changed else None
 
     # -- helpers ------------------------------------------------------------
 

@@ -38,6 +38,12 @@ import { randomId } from "@/src/shared/lib";
 import { checkpointMeta, nodeCatalog, nodeCatalogByType } from "../model/catalog";
 import { connectionError } from "../model/connections";
 import {
+  firedCheckCodes,
+  testHighlights,
+  type GuardrailTestResult,
+  type TestHighlights,
+} from "../model/guardrail-test";
+import {
   graphFingerprint,
   mergeCanonicalGraph,
   toEditorGraph,
@@ -50,6 +56,7 @@ import type { GuardrailTemplate } from "../model/templates";
 import { CheckpointLane, type LaneFlowNode } from "./checkpoint-lane";
 import { GuardrailNodeCard } from "./guardrail-node";
 import styles from "./guardrail-editor.module.css";
+import { GuardrailTestPanel } from "./guardrail-test-panel";
 import { NodeInspector } from "./node-inspector";
 import { TemplatePicker } from "./template-picker";
 
@@ -109,6 +116,11 @@ export function GuardrailEditor({
     readOnly ? detail.versionNumber : null,
   );
   const [isChoosingTemplate, setIsChoosingTemplate] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testHighlight, setTestHighlight] = useState<TestHighlights>({
+    fired: [],
+    upstream: [],
+  });
 
   const saveMutation = useMutation({
     mutationFn: (wireGraph: GuardrailGraph) =>
@@ -457,12 +469,39 @@ export function GuardrailEditor({
     setStatus(fallback);
   }
 
-  const canvasNodes = [...laneNodes, ...graph.nodes.map((node) => ({
-    ...node,
-    selected: node.id === selectedNodeId,
-    draggable: !readOnly,
-    connectable: !readOnly,
-  }))];
+  function clearTestHighlight() {
+    setTestHighlight({ fired: [], upstream: [] });
+  }
+
+  function handleTestResult(result: GuardrailTestResult) {
+    const highlights = testHighlights(wireGraph, firedCheckCodes(result));
+    setTestHighlight(highlights);
+    setStatus(
+      highlights.fired.length > 0
+        ? `${highlights.fired.length}개 verdict 노드가 실제 호출 테스트에서 발동했습니다.`
+        : `실제 호출 테스트 완료: would-have ${result.overallWouldHave}.`,
+    );
+  }
+
+  const firedNodeIds = new Set(testHighlight.fired);
+  const upstreamNodeIds = new Set(testHighlight.upstream);
+  const canvasNodes = [
+    ...laneNodes,
+    ...graph.nodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        testHighlight: firedNodeIds.has(node.id)
+          ? ("fired" as const)
+          : upstreamNodeIds.has(node.id)
+            ? ("upstream" as const)
+            : undefined,
+      },
+      selected: node.id === selectedNodeId,
+      draggable: !readOnly,
+      connectable: !readOnly,
+    })),
+  ];
 
   return (
     <section className={styles.editorPage} aria-labelledby="guardrail-name">
@@ -481,6 +520,16 @@ export function GuardrailEditor({
         </div>
 
         <div className={styles.editorActions}>
+          {!readOnly ? (
+            <button
+              className={styles.secondaryAction}
+              type="button"
+              disabled={isBusy}
+              onClick={() => setIsTesting(true)}
+            >
+              Test draft
+            </button>
+          ) : null}
           {!readOnly ? (
             <button
               className={styles.secondaryAction}
@@ -554,6 +603,22 @@ export function GuardrailEditor({
             ×
           </button>
         </div>
+      ) : null}
+
+      {isTesting && !readOnly ? (
+        <GuardrailTestPanel
+          accessToken={accessToken}
+          guardrailName={detail.name}
+          dirty={dirty}
+          onSaveDraft={async () => (await saveDraft()) !== null}
+          onAuthorizationError={onAuthorizationError}
+          onGatewayError={(error) =>
+            handleGatewayError(error, "실제 호출 테스트를 완료하지 못했습니다.")
+          }
+          onResult={handleTestResult}
+          onClear={clearTestHighlight}
+          onClose={() => setIsTesting(false)}
+        />
       ) : null}
 
       <div className={styles.editorWorkspace}>
@@ -633,6 +698,10 @@ export function GuardrailEditor({
                 nodeColor={(node) =>
                   node.type === "checkpointLane"
                     ? "transparent"
+                    : node.data?.testHighlight === "fired"
+                      ? "#d99b24"
+                      : node.data?.testHighlight === "upstream"
+                        ? "var(--brand-light)"
                     : node.data?.validationMessage
                       ? "var(--danger)"
                       : "var(--brand)"

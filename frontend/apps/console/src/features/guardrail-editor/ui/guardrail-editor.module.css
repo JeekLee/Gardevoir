@@ -458,6 +458,18 @@
     0 0.75rem 1.8rem rgb(90 25 35 / 11%);
 }
 
+.firedTestNode {
+  border-color: #d99b24;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, #d99b24 17%, transparent),
+    0 0.75rem 1.8rem rgb(139 91 10 / 18%);
+}
+
+.upstreamTestNode {
+  border-color: var(--brand-light);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
 .nodeHeading {
   align-items: center;
   display: flex;
@@ -469,6 +481,17 @@
   font-family: var(--font-mono);
   font-size: 0.5rem;
   letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.testHitBadge {
+  background: color-mix(in srgb, #d99b24 16%, var(--surface));
+  border-radius: 999px;
+  color: color-mix(in srgb, #b47708 82%, var(--text));
+  font-family: var(--font-mono);
+  font-size: 0.48rem;
+  font-weight: 850;
+  padding: 0.2rem 0.34rem;
   text-transform: uppercase;
 }
 

@@ -9,6 +9,7 @@ export function GuardrailNodeCard({ data, selected }: NodeProps<GuardrailFlowNod
   const catalog = nodeCatalogByType[domainNode.type];
   const acceptsInput = incomingRange(domainNode.type).max !== 0;
   const hasError = Boolean(data.validationMessage);
+  const testHighlight = data.testHighlight;
   const actionNode =
     domainNode.type === "taint" ||
     domainNode.type === "side_effect" ||
@@ -18,9 +19,17 @@ export function GuardrailNodeCard({ data, selected }: NodeProps<GuardrailFlowNod
     <article
       className={`${styles.graphNode} ${selected ? styles.selectedNode : ""} ${
         hasError ? styles.invalidNode : ""
-      } ${actionNode ? styles.actionControlNode : ""}`}
+      } ${actionNode ? styles.actionControlNode : ""} ${
+        testHighlight === "fired"
+          ? styles.firedTestNode
+          : testHighlight === "upstream"
+            ? styles.upstreamTestNode
+            : ""
+      }`}
       aria-label={`${catalog.label} node, ${checkpointMeta[data.checkpoint].label} checkpoint${
         hasError ? `, error: ${data.validationMessage}` : ""
+      }${testHighlight === "fired" ? ", fired in latest test" : ""}${
+        testHighlight === "upstream" ? ", upstream of a fired verdict" : ""
       }`}
     >
       {acceptsInput ? (
@@ -33,6 +42,11 @@ export function GuardrailNodeCard({ data, selected }: NodeProps<GuardrailFlowNod
       ) : null}
       <div className={styles.nodeHeading}>
         <span className={styles.nodeType}>{catalog.category}</span>
+        {testHighlight ? (
+          <span className={styles.testHitBadge}>
+            {testHighlight === "fired" ? "Test hit" : "Path"}
+          </span>
+        ) : null}
         <span className={styles.nodeCheckpoint}>
           {checkpointMeta[data.checkpoint].index}
         </span>

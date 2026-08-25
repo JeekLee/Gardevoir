@@ -13,6 +13,7 @@ export type GuardrailNodeData = {
   checkpoint: Checkpoint;
   domainNode: GuardrailNode;
   validationMessage?: string;
+  testHighlight?: "fired" | "upstream";
 } & Record<string, unknown>;
 
 export type GuardrailFlowNode = Node<GuardrailNodeData, "guardrail">;

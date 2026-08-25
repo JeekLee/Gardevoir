@@ -47,7 +47,7 @@ from gateway.proxy.contract import (
 )
 from gateway.proxy.infrastructure.adapter.httpx_upstream import HttpxUpstream
 from gateway.proxy.infrastructure.adapter.provider_upstream_resolver import ProviderUpstreamResolver
-from gateway.proxy.presentation import chat_router
+from gateway.proxy.presentation import chat_router, guardrail_test_router
 from gateway.settings import GatewaySettings, get_settings
 from shared_kernel.auth import AccessTokenCodec
 from shared_kernel.clickhouse import dispose_clickhouse, get_clickhouse_client
@@ -226,5 +226,6 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
     app.include_router(user_router.router, prefix=API_PREFIX)
     app.include_router(api_key_router.router, prefix=API_PREFIX)
     app.include_router(guardrail_router.router, prefix=API_PREFIX)
+    app.include_router(guardrail_test_router.router, prefix=API_PREFIX)
     app.include_router(provider_router.router, prefix=API_PREFIX)
     return app
