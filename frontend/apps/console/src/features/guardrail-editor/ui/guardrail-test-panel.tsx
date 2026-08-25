@@ -10,6 +10,7 @@ import { streamGuardrailTest } from "../api/test-guardrail";
 import {
   providerModelOptions,
   type GuardrailTestCheckpoint,
+  type GuardrailTestPre,
   type GuardrailTestResult,
 } from "../model/guardrail-test";
 import styles from "./guardrail-test-panel.module.css";
@@ -66,6 +67,7 @@ export function GuardrailTestPanel({
   );
   const [model, setModel] = useState("");
   const [message, setMessage] = useState("가드레일이 실제 호출에서 어떻게 동작하는지 알려줘.");
+  const [pre, setPre] = useState<GuardrailTestPre | null>(null);
   const [result, setResult] = useState<GuardrailTestResult | null>(null);
   const [streamedContent, setStreamedContent] = useState("");
   const [hasStarted, setHasStarted] = useState(false);
@@ -78,6 +80,7 @@ export function GuardrailTestPanel({
       model: string;
       message: string;
       signal: AbortSignal;
+      onPre: (pre: GuardrailTestPre) => void;
       onDelta: (content: string) => void;
     }) => streamGuardrailTest(accessToken, guardrailName, input),
   });
@@ -90,6 +93,7 @@ export function GuardrailTestPanel({
     if (!selectedModel || !message.trim()) return;
 
     setError(null);
+    setPre(null);
     setResult(null);
     setStreamedContent("");
     setHasStarted(false);
@@ -111,6 +115,7 @@ export function GuardrailTestPanel({
         model: selectedModel,
         message: message.trim(),
         signal: controller.signal,
+        onPre: setPre,
         onDelta: (content) =>
           setStreamedContent((current) => current + content),
       });
@@ -254,6 +259,7 @@ export function GuardrailTestPanel({
 
       {hasStarted ? (
         <TestFlow
+          pre={pre}
           result={result}
           streamedContent={streamedContent}
           state={streamState}
@@ -264,10 +270,12 @@ export function GuardrailTestPanel({
 }
 
 function TestFlow({
+  pre,
   result,
   streamedContent,
   state,
 }: {
+  pre: GuardrailTestPre | null;
   result: GuardrailTestResult | null;
   streamedContent: string;
   state: StreamState;
@@ -289,11 +297,23 @@ function TestFlow({
 
       <div className={styles.checkpoints} aria-label="체크포인트 테스트 결과">
         {checkpointSections.map((section) => {
-          const inactiveReason = knownInactiveReason(section.key, result);
+          const checkpoint =
+            result?.checkpoints[section.key] ??
+            (section.key === "input"
+              ? pre?.input
+              : section.key === "toolResult"
+                ? pre?.toolResult
+                : null) ??
+            null;
+          const inactiveReason = knownInactiveReason(
+            section.key,
+            checkpoint,
+            result,
+          );
           return (
             <CheckpointSection
               key={section.key}
-              checkpoint={result?.checkpoints[section.key] ?? null}
+              checkpoint={checkpoint}
               checkpointKey={section.key}
               index={section.index}
               label={section.label}
@@ -638,15 +658,21 @@ function inactiveMessage(
 
 function knownInactiveReason(
   checkpointKey: keyof GuardrailTestResult["checkpoints"],
+  checkpoint: GuardrailTestCheckpoint | null,
   result: GuardrailTestResult | null,
 ): string | null {
   if (
     checkpointKey === "toolResult" &&
-    (result === null || !result.checkpoints.toolResult.rawText)
+    checkpoint !== null &&
+    !checkpoint.rawText
   ) {
     return "미발동 (입력 없음)";
   }
-  if (checkpointKey === "toolCall" && (result?.toolCalls.length ?? 0) === 0) {
+  if (
+    checkpointKey === "toolCall" &&
+    result !== null &&
+    result.toolCalls.length === 0
+  ) {
     return "미발동 (도구 없음)";
   }
   return null;

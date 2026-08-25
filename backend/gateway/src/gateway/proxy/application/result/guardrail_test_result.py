@@ -22,6 +22,11 @@ class TestCheckpoints(CamelModel):
     tool_call: TestCheckpointResult
 
 
+class GuardrailTestPre(CamelModel):
+    input: TestCheckpointResult
+    tool_result: TestCheckpointResult
+
+
 class GuardrailTestResult(CamelModel):
     guardrail: str
     version: str

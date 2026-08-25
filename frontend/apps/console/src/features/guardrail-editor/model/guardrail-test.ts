@@ -48,7 +48,13 @@ export type GuardrailTestResult = {
   unmaskable?: number;
 };
 
+export type GuardrailTestPre = Pick<
+  GuardrailTestResult["checkpoints"],
+  "input" | "toolResult"
+>;
+
 export type GuardrailTestStreamEvent =
+  | { type: "pre"; pre: GuardrailTestPre }
   | { type: "delta"; content: string }
   | { type: "result"; result: GuardrailTestResult };
 
@@ -108,6 +114,16 @@ export function parseGuardrailTestResult(value: unknown): GuardrailTestResult {
     latencyMs: value.latencyMs,
     unmaskable:
       typeof value.unmaskable === "number" ? value.unmaskable : undefined,
+  };
+}
+
+function parseGuardrailTestPre(value: unknown): GuardrailTestPre {
+  if (!isRecord(value)) {
+    throw new Error("Invalid guardrail test pre event");
+  }
+  return {
+    input: parseCheckpoint(value.input),
+    toolResult: parseCheckpoint(value.toolResult),
   };
 }
 
@@ -266,6 +282,9 @@ function parseStreamBlock(block: string): GuardrailTestStreamEvent | null {
 
   if (eventName === "result") {
     return { type: "result", result: parseGuardrailTestResult(value) };
+  }
+  if (eventName === "pre") {
+    return { type: "pre", pre: parseGuardrailTestPre(value) };
   }
 
   if (!isRecord(value) || !Array.isArray(value.choices)) return null;

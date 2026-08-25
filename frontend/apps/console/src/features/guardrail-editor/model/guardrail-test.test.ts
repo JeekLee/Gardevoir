@@ -66,7 +66,7 @@ describe("guardrail test result", () => {
     expect(result.unmaskable).toBe(1);
   });
 
-  it("분할된 OpenAI SSE delta와 종료 결과를 순서대로 파싱한다", () => {
+  it("업스트림 이전 결과와 OpenAI SSE delta, 종료 결과를 순서대로 파싱한다", () => {
     const parser = new GuardrailTestStreamParser();
     const encoder = new TextEncoder();
     const result = {
@@ -90,8 +90,19 @@ describe("guardrail test result", () => {
       latencyMs: 31.5,
       unmaskable: 0,
     };
+    const pre = {
+      input: checkpoint({
+        action: "mask",
+        checksFired: ["input-secret"],
+        masked: true,
+        rawText: "주민번호는 900101-1234567입니다.",
+        appliedText: "주민번호는 [개인정보 삭제됨]입니다.",
+      }),
+      toolResult: checkpoint({ ran: false, tier: "" }),
+    };
     const wire = encoder.encode(
-      'data: {"choices":[{"delta":{"content":"[개인정보 삭제됨]"}}]}' +
+      `event: pre\ndata: ${JSON.stringify(pre)}\n\n` +
+        'data: {"choices":[{"delta":{"content":"[개인정보 삭제됨]"}}]}' +
         `\r\n\r\ndata: [DONE]\n\nevent: result\ndata: ${JSON.stringify(result)}\n\n`,
     );
     const splitInsideKorean = wire.findIndex((byte) => byte >= 0x80) + 1;
@@ -103,12 +114,21 @@ describe("guardrail test result", () => {
     const events = source.flatMap((chunk) => parser.push(chunk));
     events.push(...parser.finish());
 
-    expect(events).toHaveLength(2);
-    expect(events[0]).toEqual({
+    expect(events).toHaveLength(3);
+    expect(events[0]).toMatchObject({
+      type: "pre",
+      pre: {
+        input: {
+          action: "mask",
+          appliedText: "주민번호는 [개인정보 삭제됨]입니다.",
+        },
+      },
+    });
+    expect(events[1]).toEqual({
       type: "delta",
       content: "[개인정보 삭제됨]",
     });
-    expect(events[1]).toMatchObject({
+    expect(events[2]).toMatchObject({
       type: "result",
       result: { overallAction: "mask", unmaskable: 0 },
     });

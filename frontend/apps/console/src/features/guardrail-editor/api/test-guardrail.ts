@@ -2,7 +2,7 @@ import { apiStream, ConsoleApiError } from "@/src/shared/api";
 
 import {
   GuardrailTestStreamParser,
-  parseGuardrailTestResult,
+  type GuardrailTestPre,
   type GuardrailTestResult,
   type GuardrailTestStreamEvent,
 } from "../model/guardrail-test";
@@ -14,19 +14,29 @@ export async function streamGuardrailTest(
     model: string;
     message: string;
     signal: AbortSignal;
+    onPre: (pre: GuardrailTestPre) => void;
     onDelta: (content: string) => void;
   },
 ): Promise<GuardrailTestResult> {
   const parser = new GuardrailTestStreamParser();
   let result: GuardrailTestResult | null = null;
+  let receivedPre = false;
+  let receivedDelta = false;
   const consume = (events: GuardrailTestStreamEvent[]) => {
     for (const event of events) {
-      if (event.type === "delta") {
+      if (event.type === "pre") {
+        if (receivedPre || receivedDelta || result !== null) {
+          throw unexpectedStream();
+        }
+        receivedPre = true;
+        input.onPre(event.pre);
+      } else if (event.type === "delta") {
+        if (!receivedPre || result !== null) throw unexpectedStream();
+        receivedDelta = true;
         input.onDelta(event.content);
-      } else if (result === null) {
-        result = parseGuardrailTestResult(event.result);
       } else {
-        throw unexpectedStream();
+        if (!receivedPre || result !== null) throw unexpectedStream();
+        result = event.result;
       }
     }
   };
@@ -52,7 +62,7 @@ export async function streamGuardrailTest(
     throw unexpectedStream();
   }
 
-  if (result === null) throw unexpectedStream();
+  if (!receivedPre || result === null) throw unexpectedStream();
   return result;
 }
 

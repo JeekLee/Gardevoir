@@ -152,15 +152,27 @@ class GuardrailTestStreamingCompletion:
     unmaskable: int
 
 
+@dataclass(frozen=True, slots=True)
+class GuardrailTestStreamingPre:
+    input: Inspection
+    tool_result: Inspection
+    input_text: GuardrailTestText
+    tool_result_text: GuardrailTestText
+
+
 @dataclass(slots=True)
 class GuardrailTestProxyStream:
     status_code: int
     media_type: str
     _chunks: AsyncIterator[bytes] = field(repr=False)
+    _pre: GuardrailTestStreamingPre = field(repr=False)
     _completion: GuardrailTestStreamingCompletion | None = field(default=None, repr=False)
 
     def aiter(self) -> AsyncIterator[bytes]:
         return self._chunks
+
+    def pre(self) -> GuardrailTestStreamingPre:
+        return self._pre
 
     def result(self) -> GuardrailTestStreamingCompletion:
         if self._completion is None:
@@ -471,6 +483,12 @@ class ProxyService:
             raw=raw_tool_result_text,
             applied=extract_tool_result_text(decoded),
         )
+        pre = GuardrailTestStreamingPre(
+            input=verdicts.input,
+            tool_result=verdicts.tool_result,
+            input_text=input_text,
+            tool_result_text=tool_result_text,
+        )
 
         if verdicts.blocked_before_upstream:
 
@@ -482,6 +500,7 @@ class ProxyService:
                 status_code=200,
                 media_type=SSE_MEDIA_TYPE,
                 _chunks=empty(),
+                _pre=pre,
                 _completion=GuardrailTestStreamingCompletion(
                     applied_content="",
                     tool_calls=[],
@@ -512,6 +531,7 @@ class ProxyService:
                     status_code=upstream_stream.status_code,
                     media_type=upstream_stream.headers.get("content-type", JSON_MEDIA_TYPE),
                     _chunks=upstream_stream.aiter(),
+                    _pre=pre,
                 )
                 return
 
@@ -555,6 +575,7 @@ class ProxyService:
                 status_code=upstream_stream.status_code,
                 media_type=SSE_MEDIA_TYPE,
                 _chunks=chunks(),
+                _pre=pre,
             )
             yield stream
 
@@ -946,6 +967,7 @@ __all__ = [
     "GuardrailTestCompletion",
     "GuardrailTestProxyStream",
     "GuardrailTestStreamingCompletion",
+    "GuardrailTestStreamingPre",
     "ProxyResult",
     "ProxyService",
     "ProxyStream",

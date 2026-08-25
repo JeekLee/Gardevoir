@@ -41,6 +41,9 @@ async def stream_guardrail_test(
 
     async def chunks():
         try:
+            if stream.status_code < 400:
+                pre = stream.pre().model_dump(mode="json", by_alias=True)
+                yield b"event: pre\ndata: " + orjson.dumps(pre) + b"\n\n"
             async for chunk in stream.aiter():
                 yield chunk
             if stream.status_code < 400:

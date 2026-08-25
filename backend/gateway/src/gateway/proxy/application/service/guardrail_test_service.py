@@ -21,6 +21,7 @@ from gateway.guardrail.plan.application.compiler import compile_guardrail
 from gateway.guardrail.plan.domain.models.execution_plan import ExecutionPlan
 from gateway.proxy.application.command.guardrail_test_command import TestGuardrail
 from gateway.proxy.application.result.guardrail_test_result import (
+    GuardrailTestPre,
     GuardrailTestResult,
     TestCheckpointResult,
     TestCheckpoints,
@@ -28,6 +29,7 @@ from gateway.proxy.application.result.guardrail_test_result import (
 from gateway.proxy.application.service.proxy_service import (
     GuardrailTestProxyStream,
     GuardrailTestStreamingCompletion,
+    GuardrailTestStreamingPre,
     ProxyService,
 )
 
@@ -43,10 +45,14 @@ class GuardrailTestStream:
     status_code: int
     media_type: str
     _chunks: AsyncIterator[bytes] = field(repr=False)
+    _pre: GuardrailTestPre = field(repr=False)
     _result: Callable[[], GuardrailTestResult] = field(repr=False)
 
     def aiter(self) -> AsyncIterator[bytes]:
         return self._chunks
+
+    def pre(self) -> GuardrailTestPre:
+        return self._pre
 
     def result(self) -> GuardrailTestResult:
         return self._result()
@@ -102,6 +108,7 @@ class GuardrailTestService:
                 status_code=proxy_stream.status_code,
                 media_type=proxy_stream.media_type,
                 _chunks=proxy_stream.aiter(),
+                _pre=_stream_pre(guardrail=guardrail, pre=proxy_stream.pre()),
                 _result=lambda: _stream_result(
                     detail=detail,
                     guardrail=guardrail,
@@ -131,6 +138,24 @@ class GuardrailTestService:
         )
         guardrail.validate()
         return detail, guardrail, compile_guardrail(guardrail)
+
+
+def _stream_pre(*, guardrail: Guardrail, pre: GuardrailTestStreamingPre) -> GuardrailTestPre:
+    verdicts = _verdicts(guardrail)
+    return GuardrailTestPre(
+        input=_checkpoint(
+            pre.input,
+            verdicts,
+            raw_text=pre.input_text.raw,
+            applied_text=pre.input_text.applied,
+        ),
+        tool_result=_checkpoint(
+            pre.tool_result,
+            verdicts,
+            raw_text=pre.tool_result_text.raw,
+            applied_text=pre.tool_result_text.applied,
+        ),
+    )
 
 
 def _stream_result(
