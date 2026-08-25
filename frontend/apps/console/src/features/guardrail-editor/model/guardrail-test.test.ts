@@ -11,7 +11,7 @@ import {
 } from "./guardrail-test";
 
 describe("guardrail test result", () => {
-  it("실제 적용 결과와 원본 모델 응답을 파싱한다", () => {
+  it("체크포인트별 요청 원본·적용 텍스트와 모델 응답을 파싱한다", () => {
     const result = parseGuardrailTestResult({
       guardrail: "default",
       version: "draft",
@@ -21,8 +21,16 @@ describe("guardrail test result", () => {
           action: "mask",
           checksFired: ["input-secret"],
           masked: true,
+          rawText: "주민번호는 900101-1234567입니다.",
+          appliedText: "주민번호는 [개인정보 삭제됨]입니다.",
         }),
-        toolResult: checkpoint({ ran: false }),
+        toolResult: checkpoint({
+          action: "mask",
+          checksFired: ["tool-secret"],
+          masked: true,
+          rawText: "조회 결과 801209-1234567",
+          appliedText: "조회 결과 [개인정보 삭제됨]",
+        }),
         output: checkpoint({ action: "mask", masked: true }),
         toolCall: checkpoint({
           evidence: [{ tool: "send_email", arguments: ["to"] }],
@@ -44,6 +52,10 @@ describe("guardrail test result", () => {
     expect(result.checkpoints.input.checksFired).toEqual(["input-secret"]);
     expect(result.checkpoints.input.action).toBe("mask");
     expect(result.checkpoints.input.masked).toBe(true);
+    expect(result.checkpoints.input.rawText).toContain("900101-1234567");
+    expect(result.checkpoints.input.appliedText).toContain("[개인정보 삭제됨]");
+    expect(result.checkpoints.toolResult.rawText).toContain("801209-1234567");
+    expect(result.checkpoints.toolResult.appliedText).toContain("[개인정보 삭제됨]");
     expect(result.checkpoints.output.action).toBe("mask");
     expect(result.checkpoints.toolCall.evidence[0]).toEqual({
       tool: "send_email",
@@ -183,6 +195,8 @@ function checkpoint(overrides: Record<string, unknown> = {}) {
     masked: false,
     evidence: [],
     tier: "rules",
+    rawText: null,
+    appliedText: null,
     ...overrides,
   };
 }

@@ -39,6 +39,10 @@ from gateway.guardrail.inspection.application.service.inspector import (
     CHECKPOINT_TOOL_RESULT,
     Inspector,
 )
+from gateway.guardrail.inspection.application.text import (
+    extract_input_text,
+    extract_tool_result_text,
+)
 from gateway.guardrail.plan.domain.models.execution_plan import ExecutionPlan
 from gateway.proxy.application.authenticated_request import AuthenticatedRequest
 from gateway.proxy.application.port.llm_upstream import LlmUpstream, UpstreamResult
@@ -112,6 +116,12 @@ class ProxyStream:
 
 
 @dataclass(frozen=True, slots=True)
+class GuardrailTestText:
+    raw: str
+    applied: str
+
+
+@dataclass(frozen=True, slots=True)
 class GuardrailTestCompletion:
     raw_response: object
     applied_response: object
@@ -121,6 +131,8 @@ class GuardrailTestCompletion:
     tool_result: Inspection
     output: Inspection
     tool_call: Inspection
+    input_text: GuardrailTestText
+    tool_result_text: GuardrailTestText
     latency_ms: float
 
 
@@ -134,6 +146,8 @@ class GuardrailTestStreamingCompletion:
     tool_result: Inspection
     output: Inspection
     tool_call: Inspection
+    input_text: GuardrailTestText
+    tool_result_text: GuardrailTestText
     latency_ms: float
     unmaskable: int
 
@@ -411,11 +425,14 @@ class ProxyService:
             audit_id=audit_id,
         )
 
-    async def test(self, *, plan: ExecutionPlan, payload: bytes) -> GuardrailTestCompletion:
+    async def test(
+        self, *, plan: ExecutionPlan, mode: Mode, payload: bytes
+    ) -> GuardrailTestCompletion:
         """Run a compiled plan through the real non-streaming upstream flow."""
+        input_text, tool_result_text = self._test_request_texts(plan, mode, payload)
         completion = await self._complete_with_plan(
             plan=plan,
-            mode=Mode.ENFORCE,
+            mode=mode,
             payload=payload,
         )
         verdicts = completion.verdicts
@@ -431,17 +448,29 @@ class ProxyService:
             tool_result=verdicts.tool_result,
             output=verdicts.output,
             tool_call=verdicts.tool_call,
+            input_text=input_text,
+            tool_result_text=tool_result_text,
             latency_ms=completion.total_latency_ms,
         )
 
     @asynccontextmanager
     async def test_stream(
-        self, *, plan: ExecutionPlan, payload: bytes
+        self, *, plan: ExecutionPlan, mode: Mode, payload: bytes
     ) -> AsyncIterator[GuardrailTestProxyStream]:
         """Run a compiled plan through the streaming relay without auditing."""
         started = time.perf_counter()
         decoded = _decode(payload)
-        verdicts = self._inspect_before_upstream(plan, decoded, Mode.ENFORCE)
+        raw_input_text = extract_input_text(decoded)
+        raw_tool_result_text = extract_tool_result_text(decoded)
+        verdicts = self._inspect_before_upstream(plan, decoded, mode)
+        input_text = GuardrailTestText(
+            raw=raw_input_text,
+            applied=extract_input_text(decoded),
+        )
+        tool_result_text = GuardrailTestText(
+            raw=raw_tool_result_text,
+            applied=extract_tool_result_text(decoded),
+        )
 
         if verdicts.blocked_before_upstream:
 
@@ -462,6 +491,8 @@ class ProxyService:
                     tool_result=verdicts.tool_result,
                     output=verdicts.output,
                     tool_call=verdicts.tool_call,
+                    input_text=input_text,
+                    tool_result_text=tool_result_text,
                     latency_ms=(time.perf_counter() - started) * 1000,
                     unmaskable=0,
                 ),
@@ -487,7 +518,7 @@ class ProxyService:
             relay = StreamRelay(
                 inspector=self._inspector,
                 plan=plan,
-                mode=Mode.ENFORCE,
+                mode=mode,
                 tainted=verdicts.tainted,
                 payload=decoded,
                 holdback_chars=self._holdback_chars,
@@ -514,6 +545,8 @@ class ProxyService:
                     tool_result=verdicts.tool_result,
                     output=verdicts.output,
                     tool_call=verdicts.tool_call,
+                    input_text=input_text,
+                    tool_result_text=tool_result_text,
                     latency_ms=(time.perf_counter() - started) * 1000,
                     unmaskable=relay.outcome.unmaskable,
                 )
@@ -666,6 +699,21 @@ class ProxyService:
             input=first,
             tool_result=self._inspector.tool_result(plan, decoded, mode=mode, tainted=tainted),
             tainted=tainted,
+        )
+
+    def _test_request_texts(
+        self, plan: ExecutionPlan, mode: Mode, payload: bytes
+    ) -> tuple[GuardrailTestText, GuardrailTestText]:
+        decoded = _decode(payload)
+        raw_input_text = extract_input_text(decoded)
+        raw_tool_result_text = extract_tool_result_text(decoded)
+        self._inspect_before_upstream(plan, decoded, mode)
+        return (
+            GuardrailTestText(raw=raw_input_text, applied=extract_input_text(decoded)),
+            GuardrailTestText(
+                raw=raw_tool_result_text,
+                applied=extract_tool_result_text(decoded),
+            ),
         )
 
     async def _complete_with_plan(

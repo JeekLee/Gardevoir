@@ -434,6 +434,10 @@ function CheckpointSection({
         <PendingCheckpoint inactiveReason={inactiveReason} state={state} />
       )}
 
+      {(checkpointKey === "input" || checkpointKey === "toolResult") && checkpoint ? (
+        <RequestText checkpoint={checkpoint} />
+      ) : null}
+
       {checkpointKey === "output" ? (
         <OutputContent
           content={appliedContent ?? ""}
@@ -574,6 +578,56 @@ function OutputContent({
   );
 }
 
+function RequestText({ checkpoint }: { checkpoint: GuardrailTestCheckpoint }) {
+  const { rawText, appliedText } = checkpoint;
+  if (!rawText) return null;
+
+  const changedText = appliedText !== null && appliedText !== rawText ? appliedText : null;
+  return (
+    <div className={styles.requestText}>
+      <header>
+        <span>검사 요청 텍스트</span>
+        <small className={changedText ? styles.maskedStatus : styles.unmaskedStatus}>
+          {changedText ? "마스킹 적용" : "마스킹 없음"}
+        </small>
+      </header>
+      <div className={changedText ? styles.textComparison : styles.singleText}>
+        <section className={styles.textBlock}>
+          <span>원본</span>
+          <pre>{rawText}</pre>
+        </section>
+        {changedText ? (
+          <>
+            <span className={styles.applyArrow} aria-hidden="true">
+              →
+            </span>
+            <section className={`${styles.textBlock} ${styles.appliedText}`}>
+              <span>적용 (마스킹)</span>
+              <pre>
+                <MaskedAppliedText content={changedText} />
+              </pre>
+            </section>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+const maskPlaceholder = "[개인정보 삭제됨]";
+
+function MaskedAppliedText({ content }: { content: string }) {
+  const parts = content.split(maskPlaceholder);
+  return parts.map((part, index) => (
+    <span key={`${index}-${part}`}>
+      {part}
+      {index < parts.length - 1 ? (
+        <mark className={styles.maskHighlight}>{maskPlaceholder}</mark>
+      ) : null}
+    </span>
+  ));
+}
+
 function inactiveMessage(
   checkpointKey: keyof GuardrailTestResult["checkpoints"],
 ): string {
@@ -586,7 +640,12 @@ function knownInactiveReason(
   checkpointKey: keyof GuardrailTestResult["checkpoints"],
   result: GuardrailTestResult | null,
 ): string | null {
-  if (checkpointKey === "toolResult") return "미발동 (입력 없음)";
+  if (
+    checkpointKey === "toolResult" &&
+    (result === null || !result.checkpoints.toolResult.rawText)
+  ) {
+    return "미발동 (입력 없음)";
+  }
   if (checkpointKey === "toolCall" && (result?.toolCalls.length ?? 0) === 0) {
     return "미발동 (도구 없음)";
   }

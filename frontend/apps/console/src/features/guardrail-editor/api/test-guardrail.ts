@@ -41,6 +41,7 @@ export async function streamGuardrailTest(
         model: input.model,
         messages: [{ role: "user", content: input.message }],
         version: "draft",
+        mode: "enforce",
       },
       onChunk: (chunk) => consume(parser.push(chunk)),
       timeoutMs: 120_000,

@@ -28,6 +28,8 @@
 .resultSummary span,
 .streamingSummary span,
 .outputContent span,
+.requestText > header > span,
+.textBlock > span,
 .toolCalls > span,
 .firedChecks > span,
 .evidence > span {
@@ -419,6 +421,96 @@
   padding: 0.75rem;
 }
 
+.requestText {
+  background: color-mix(in srgb, var(--brand-soft) 48%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--brand) 34%, var(--border));
+  border-radius: 0.65rem;
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.75rem;
+}
+
+.requestText > header {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.requestText > header > small {
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  margin-left: auto;
+  padding: 0.28rem 0.45rem;
+}
+
+.maskedStatus {
+  background: color-mix(in srgb, #d99b24 18%, var(--surface));
+  color: color-mix(in srgb, #9c6500 88%, var(--text));
+}
+
+.unmaskedStatus {
+  background: var(--surface-subtle);
+  color: var(--muted);
+}
+
+.textComparison {
+  align-items: stretch;
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  min-width: 0;
+}
+
+.singleText {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.textBlock {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  display: grid;
+  gap: 0.38rem;
+  min-width: 0;
+  padding: 0.65rem;
+}
+
+.textBlock pre {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  line-height: 1.55;
+  margin: 0;
+  max-height: 12rem;
+  min-height: 2.5rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.appliedText {
+  border-color: color-mix(in srgb, #d99b24 45%, var(--border));
+}
+
+.applyArrow {
+  align-self: center;
+  color: color-mix(in srgb, #b47708 82%, var(--text));
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 850;
+}
+
+.maskHighlight {
+  background: color-mix(in srgb, #f3c768 58%, var(--surface));
+  border-radius: 0.2rem;
+  color: color-mix(in srgb, #774b00 90%, var(--text));
+  font-weight: 850;
+  padding: 0.08rem 0.16rem;
+}
+
 .outputContent > header {
   align-items: center;
   display: flex;
@@ -540,6 +632,15 @@
 
   .checkpointDetails {
     grid-template-columns: 1fr;
+  }
+
+  .textComparison {
+    grid-template-columns: 1fr;
+  }
+
+  .applyArrow {
+    justify-self: center;
+    transform: rotate(90deg);
   }
 
   .checkpointDetails > *,

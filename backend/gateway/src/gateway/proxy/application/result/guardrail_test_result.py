@@ -11,6 +11,8 @@ class TestCheckpointResult(CamelModel):
     masked: bool
     evidence: list[dict]
     tier: str
+    raw_text: str | None
+    applied_text: str | None
 
 
 class TestCheckpoints(CamelModel):

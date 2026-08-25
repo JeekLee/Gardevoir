@@ -16,6 +16,8 @@ export type GuardrailTestCheckpoint = {
   masked: boolean;
   evidence: GuardrailTestEvidence[];
   tier: string;
+  rawText: string | null;
+  appliedText: string | null;
 };
 
 export type GuardrailTestCheckpointName =
@@ -210,7 +212,9 @@ function parseCheckpoint(value: unknown): GuardrailTestCheckpoint {
     !isStringArray(value.checksFired) ||
     typeof value.masked !== "boolean" ||
     !Array.isArray(value.evidence) ||
-    typeof value.tier !== "string"
+    typeof value.tier !== "string" ||
+    !isNullableString(value.rawText) ||
+    !isNullableString(value.appliedText)
   ) {
     throw new Error("Invalid guardrail test checkpoint");
   }
@@ -221,6 +225,8 @@ function parseCheckpoint(value: unknown): GuardrailTestCheckpoint {
     masked: value.masked,
     evidence: value.evidence.map(parseEvidence),
     tier: value.tier,
+    rawText: value.rawText,
+    appliedText: value.appliedText,
   };
 }
 
@@ -292,6 +298,10 @@ function isCheckpointName(
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

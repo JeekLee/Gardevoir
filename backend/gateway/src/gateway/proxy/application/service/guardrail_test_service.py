@@ -61,6 +61,7 @@ class GuardrailTestService:
         detail, guardrail, plan = await self._prepare(name, cmd.version)
         completion = await self._proxy_service.test(
             plan=plan,
+            mode=cmd.mode,
             payload=orjson.dumps({"model": cmd.model, "messages": cmd.messages, "stream": False}),
         )
 
@@ -71,6 +72,10 @@ class GuardrailTestService:
             model=cmd.model,
             input_inspection=completion.input,
             tool_result_inspection=completion.tool_result,
+            input_raw_text=completion.input_text.raw,
+            input_applied_text=completion.input_text.applied,
+            tool_result_raw_text=completion.tool_result_text.raw,
+            tool_result_applied_text=completion.tool_result_text.applied,
             output_inspection=completion.output,
             tool_call_inspection=completion.tool_call,
             raw_content=_content(completion.raw_response),
@@ -81,7 +86,7 @@ class GuardrailTestService:
 
     @asynccontextmanager
     async def stream(self, name: str, cmd: TestGuardrail) -> AsyncIterator[GuardrailTestStream]:
-        """Compile before opening SSE, then relay the draft through enforce mode."""
+        """Compile before opening SSE, then relay the draft through the requested mode."""
         detail, guardrail, plan = await self._prepare(name, cmd.version)
         payload = orjson.dumps(
             {
@@ -90,7 +95,7 @@ class GuardrailTestService:
                 "stream": True,
             }
         )
-        cm = self._proxy_service.test_stream(plan=plan, payload=payload)
+        cm = self._proxy_service.test_stream(plan=plan, mode=cmd.mode, payload=payload)
         proxy_stream = await cm.__aenter__()
         try:
             yield GuardrailTestStream(
@@ -142,6 +147,10 @@ def _stream_result(
         model=model,
         input_inspection=completion.input,
         tool_result_inspection=completion.tool_result,
+        input_raw_text=completion.input_text.raw,
+        input_applied_text=completion.input_text.applied,
+        tool_result_raw_text=completion.tool_result_text.raw,
+        tool_result_applied_text=completion.tool_result_text.applied,
         output_inspection=completion.output,
         tool_call_inspection=completion.tool_call,
         raw_content="",
@@ -159,6 +168,10 @@ def _result(
     model: str,
     input_inspection: Inspection,
     tool_result_inspection: Inspection,
+    input_raw_text: str,
+    input_applied_text: str,
+    tool_result_raw_text: str,
+    tool_result_applied_text: str,
     output_inspection: Inspection,
     tool_call_inspection: Inspection,
     raw_content: str,
@@ -169,10 +182,20 @@ def _result(
 ) -> GuardrailTestResult:
     verdicts = _verdicts(guardrail)
     checkpoints = TestCheckpoints(
-        input=_checkpoint(input_inspection, verdicts),
-        tool_result=_checkpoint(tool_result_inspection, verdicts),
-        output=_checkpoint(output_inspection, verdicts),
-        tool_call=_checkpoint(tool_call_inspection, verdicts),
+        input=_checkpoint(
+            input_inspection,
+            verdicts,
+            raw_text=input_raw_text,
+            applied_text=input_applied_text,
+        ),
+        tool_result=_checkpoint(
+            tool_result_inspection,
+            verdicts,
+            raw_text=tool_result_raw_text,
+            applied_text=tool_result_applied_text,
+        ),
+        output=_checkpoint(output_inspection, verdicts, raw_text=None, applied_text=None),
+        tool_call=_checkpoint(tool_call_inspection, verdicts, raw_text=None, applied_text=None),
     )
     blocked_at, blocked_reason = _blocked(checkpoints)
     return GuardrailTestResult(
@@ -208,6 +231,9 @@ def _verdicts(guardrail: Guardrail) -> dict[str, tuple[str, VerdictAction]]:
 def _checkpoint(
     inspection: Inspection,
     verdicts: dict[str, tuple[str, VerdictAction]],
+    *,
+    raw_text: str | None,
+    applied_text: str | None,
 ) -> TestCheckpointResult:
     fired = {
         node_id: verdicts.get(node_id, (node_id, VerdictAction.ALLOW))
@@ -226,6 +252,8 @@ def _checkpoint(
         masked=inspection.masked,
         evidence=list(inspection.evidence),
         tier=inspection.tier,
+        raw_text=raw_text,
+        applied_text=applied_text,
     )
 
 
