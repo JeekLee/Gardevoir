@@ -33,6 +33,7 @@ import {
   type GuardrailNodeType,
 } from "@/src/entities/guardrail";
 import { ConsoleApiError } from "@/src/shared/api";
+import { randomId } from "@/src/shared/lib";
 
 import { checkpointMeta, nodeCatalog, nodeCatalogByType } from "../model/catalog";
 import { connectionError } from "../model/connections";
@@ -157,7 +158,7 @@ export function GuardrailEditor({
       type === "side_effect" || type === "provenance"
         ? "tool_call"
         : catalogCheckpoint;
-    const id = `${type.replaceAll("_", "-")}-${crypto.randomUUID().slice(0, 8)}`;
+    const id = `${type.replaceAll("_", "-")}-${randomId().slice(0, 8)}`;
     const laneOrder = graph.nodes.filter(
       (node) => node.data.checkpoint === checkpoint,
     ).length;
@@ -283,7 +284,7 @@ export function GuardrailEditor({
       edges: [
         ...current.edges,
         {
-          id: `edge-${crypto.randomUUID()}`,
+          id: `edge-${randomId()}`,
           source: sourceId,
           target: targetId,
           type: "smoothstep",
