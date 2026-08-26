@@ -23,7 +23,7 @@ export function ConfirmDialog({
   confirmLabel: string;
   cancelLabel: string;
   isSubmitting?: boolean;
-  error?: string | null;
+  error?: ReactNode;
   onConfirm: () => void;
   onClose: () => void;
 }) {

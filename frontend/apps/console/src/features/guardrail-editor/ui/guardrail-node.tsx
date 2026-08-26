@@ -26,10 +26,10 @@ export function GuardrailNodeCard({ data, selected }: NodeProps<GuardrailFlowNod
             ? styles.upstreamTestNode
             : ""
       }`}
-      aria-label={`${catalog.label} node, ${checkpointMeta[data.checkpoint].label} checkpoint${
-        hasError ? `, error: ${data.validationMessage}` : ""
-      }${testHighlight === "fired" ? ", fired in latest test" : ""}${
-        testHighlight === "upstream" ? ", upstream of a fired verdict" : ""
+      aria-label={`${catalog.label} 노드, ${checkpointMeta[data.checkpoint].label} 검사 지점${
+        hasError ? `, 오류: ${data.validationMessage}` : ""
+      }${testHighlight === "fired" ? ", 최근 테스트에서 발동" : ""}${
+        testHighlight === "upstream" ? ", 발동한 판정의 상위 경로" : ""
       }`}
     >
       {acceptsInput ? (
@@ -37,14 +37,14 @@ export function GuardrailNodeCard({ data, selected }: NodeProps<GuardrailFlowNod
           className={styles.targetHandle}
           type="target"
           position={Position.Left}
-          aria-label={`Connect input to ${catalog.label}`}
+          aria-label={`${catalog.label}에 입력 연결`}
         />
       ) : null}
       <div className={styles.nodeHeading}>
         <span className={styles.nodeType}>{catalog.category}</span>
         {testHighlight ? (
           <span className={styles.testHitBadge}>
-            {testHighlight === "fired" ? "Test hit" : "Path"}
+            {testHighlight === "fired" ? "테스트 발동" : "검사 경로"}
           </span>
         ) : null}
         <span className={styles.nodeCheckpoint}>
@@ -59,7 +59,7 @@ export function GuardrailNodeCard({ data, selected }: NodeProps<GuardrailFlowNod
           className={styles.sourceHandle}
           type="source"
           position={Position.Right}
-          aria-label={`Connect output from ${catalog.label}`}
+          aria-label={`${catalog.label}에서 출력 연결`}
         />
       ) : null}
     </article>

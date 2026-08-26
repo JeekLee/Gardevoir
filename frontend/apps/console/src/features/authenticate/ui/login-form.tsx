@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 
 import { useSession } from "@/src/entities/session";
-import { ConsoleApiError } from "@/src/shared/api";
+import { ConsoleApiError, consoleErrorMessage } from "@/src/shared/api";
 
 import { login } from "../api/login";
 import styles from "./login-form.module.css";
@@ -12,8 +12,8 @@ import styles from "./login-form.module.css";
 type LoginReason = "expired" | "forbidden" | null;
 
 const reasonMessages: Record<Exclude<LoginReason, null>, string> = {
-  expired: "Your session ended. Sign in to continue.",
-  forbidden: "Administrator access is required for provider management.",
+  expired: "세션이 만료되었습니다. 계속하려면 다시 로그인하세요.",
+  forbidden: "콘솔을 관리하려면 관리자 권한이 필요합니다.",
 };
 
 export function LoginForm({
@@ -56,11 +56,11 @@ export function LoginForm({
       router.replace(returnTo ?? "/providers");
     } catch (caught) {
       if (caught instanceof ConsoleApiError && caught.code === "USER-001") {
-        setError("Email or password is incorrect.");
+        setError("이메일 또는 비밀번호가 올바르지 않습니다.");
       } else if (caught instanceof ConsoleApiError) {
-        setError(caught.message);
+        setError(consoleErrorMessage(caught));
       } else {
-        setError("Sign-in could not be completed. Try again.");
+        setError("로그인하지 못했습니다. 입력 내용을 확인한 뒤 다시 시도하세요.");
       }
     } finally {
       setIsSubmitting(false);
@@ -70,9 +70,9 @@ export function LoginForm({
   return (
     <form className={styles.form} onSubmit={handleSubmit}>
       <div className={styles.heading}>
-        <p className={styles.kicker}>Console access</p>
-        <h2>Welcome back</h2>
-        <p>Use your administrator account to manage model routes.</p>
+        <p className={styles.kicker}>콘솔 접근</p>
+        <h2>관리자 로그인</h2>
+        <p>관리자 계정으로 모델 경로와 가드레일을 관리하세요.</p>
       </div>
 
       {error ? (
@@ -83,7 +83,7 @@ export function LoginForm({
       ) : null}
 
       <label className={styles.field}>
-        <span>Email</span>
+        <span>이메일</span>
         <input
           type="email"
           name="email"
@@ -95,12 +95,12 @@ export function LoginForm({
       </label>
 
       <label className={styles.field}>
-        <span>Password</span>
+        <span>비밀번호</span>
         <input
           type="password"
           name="password"
           autoComplete="current-password"
-          placeholder="Enter your password"
+          placeholder="비밀번호 입력"
           required
         />
       </label>
@@ -109,11 +109,11 @@ export function LoginForm({
         {isSubmitting ? (
           <>
             <span className={styles.spinner} aria-hidden="true" />
-            Opening console
+            콘솔을 여는 중…
           </>
         ) : (
           <>
-            Sign in
+            로그인
             <span aria-hidden="true">→</span>
           </>
         )}

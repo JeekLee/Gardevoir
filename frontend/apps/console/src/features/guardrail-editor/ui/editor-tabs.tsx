@@ -42,7 +42,7 @@ export function EditorTabs({
       <div
         className={styles.editorTabs}
         role="tablist"
-        aria-label="Guardrail editor views"
+        aria-label="가드레일 편집기 보기"
       >
         {editorTabs.map((tab) => (
           <button
@@ -75,7 +75,7 @@ export function EditorTabs({
         ))}
       </div>
       <p className={styles.tabOrderNote}>
-        번호는 체크포인트 ID이며, 탭 순서는 실제 요청 실행 순서입니다.
+        번호는 검사 지점 ID이며, 탭 순서는 실제 요청 실행 순서입니다.
       </p>
     </div>
   );

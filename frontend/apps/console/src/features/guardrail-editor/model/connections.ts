@@ -6,32 +6,32 @@ export function connectionError(
   sourceId: string,
   targetId: string,
 ): string | null {
-  if (sourceId === targetId) return "A node cannot connect to itself.";
+  if (sourceId === targetId) return "노드는 자기 자신과 연결할 수 없습니다.";
   if (
     graph.edges.some(
       (edge) => edge.source === sourceId && edge.target === targetId,
     )
   ) {
-    return "This connection already exists.";
+    return "이미 같은 연결이 있습니다.";
   }
 
   const source = graph.nodes.find((node) => node.id === sourceId);
   const target = graph.nodes.find((node) => node.id === targetId);
-  if (!source || !target) return "Choose two existing nodes.";
+  if (!source || !target) return "존재하는 노드 두 개를 선택하세요.";
   if (!canEmit(source.data.domainNode.type)) {
-    return "Verdict nodes end a policy path.";
+    return "판정 노드는 정책 경로의 마지막에만 둘 수 있습니다.";
   }
 
   const { max } = incomingRange(target.data.domainNode.type);
   const incomingCount = graph.edges.filter(
     (edge) => edge.target === targetId,
   ).length;
-  if (max === 0) return "This source node does not accept inputs.";
+  if (max === 0) return "이 소스 노드는 입력을 받을 수 없습니다.";
   if (max !== null && incomingCount >= max) {
-    return "This node already has its maximum number of inputs.";
+    return "이 노드는 허용된 입력 연결 수를 모두 사용했습니다.";
   }
   if (reaches(graph, targetId, sourceId)) {
-    return "This connection would create a cycle.";
+    return "이 연결을 추가하면 그래프에 순환이 생깁니다.";
   }
   return null;
 }

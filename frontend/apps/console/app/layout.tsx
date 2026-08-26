@@ -10,15 +10,15 @@ import { AppProviders } from "@/src/_app/ui";
 
 export const metadata: Metadata = {
   title: {
-    default: "Gardevoir console",
+    default: "Gardevoir 콘솔",
     template: "%s · Gardevoir",
   },
-  description: "Control the model routes protected by Gardevoir.",
+  description: "Gardevoir가 보호하는 모델 경로를 관리합니다.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="ko">
       <body>
         <AppProviders>{children}</AppProviders>
       </body>

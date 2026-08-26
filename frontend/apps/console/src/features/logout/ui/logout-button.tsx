@@ -42,7 +42,7 @@ export function LogoutButton() {
       onClick={() => void logout()}
       disabled={isSubmitting}
     >
-      {isSubmitting ? "Signing out…" : "Sign out"}
+      {isSubmitting ? "로그아웃하는 중…" : "로그아웃"}
     </button>
   );
 }

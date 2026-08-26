@@ -4,3 +4,7 @@ export {
   ConsoleApiError,
   setSessionRecovery,
 } from "./request";
+export {
+  consoleErrorMessage,
+  consoleErrorReference,
+} from "./error-message";

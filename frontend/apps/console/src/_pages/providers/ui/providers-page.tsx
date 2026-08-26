@@ -8,7 +8,11 @@ import {
   useProviders,
 } from "@/src/entities/provider";
 import { useSession } from "@/src/entities/session";
-import { ConsoleApiError } from "@/src/shared/api";
+import {
+  ConsoleApiError,
+  consoleErrorMessage,
+  consoleErrorReference,
+} from "@/src/shared/api";
 
 import { ConfirmDelete } from "./confirm-delete";
 import { ProviderEditor } from "./provider-editor";
@@ -64,16 +68,16 @@ function ProviderWorkspace({
     setEditor(undefined);
     setNotice(
       wasEditing
-        ? `${provider.name} was updated.`
-        : `${provider.name} is ready to route requests.`,
+        ? `${provider.name} 프로바이더를 수정했습니다.`
+        : `${provider.name} 프로바이더로 요청을 전달할 수 있습니다.`,
     );
     await reload();
   }
 
   async function afterDeleted() {
-    const name = deleting?.name ?? "Provider";
+    const name = deleting?.name ?? "프로바이더";
     setDeleting(null);
-    setNotice(`${name} was deleted.`);
+    setNotice(`${name} 프로바이더를 삭제했습니다.`);
     await reload();
   }
 
@@ -81,11 +85,10 @@ function ProviderWorkspace({
     <section className={styles.page} aria-labelledby="providers-title">
       <div className={styles.pageHeader}>
         <div className={styles.headingBlock}>
-          <p className={styles.eyebrow}>Upstream routing</p>
-          <h1 id="providers-title">Model gateways</h1>
+          <p className={styles.eyebrow}>업스트림 라우팅</p>
+          <h1 id="providers-title">프로바이더</h1>
           <p>
-            Register the OpenAI-compatible endpoints that protected requests may
-            pass through.
+            보호된 요청을 전달할 OpenAI 호환 엔드포인트와 모델을 등록하세요.
           </p>
         </div>
         <button
@@ -97,7 +100,7 @@ function ProviderWorkspace({
           }}
         >
           <span aria-hidden="true">＋</span>
-          Add provider
+          프로바이더 추가
         </button>
       </div>
 
@@ -105,11 +108,11 @@ function ProviderWorkspace({
         <div className={styles.routeStatus}>
           <span className={styles.liveDot} aria-hidden="true" />
           <span>
-            <strong>{data?.total ?? 0}</strong> provider{data?.total === 1 ? "" : "s"}
+            프로바이더 <strong>{data?.total ?? 0}</strong>개
           </span>
         </div>
         <p>
-          Signed in as <strong>{operatorName}</strong>
+          로그인 사용자 <strong>{operatorName}</strong>
         </p>
       </div>
 
@@ -117,7 +120,7 @@ function ProviderWorkspace({
         <div className={styles.notice} role="status">
           <span aria-hidden="true">✓</span>
           {notice}
-          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification">
+          <button type="button" onClick={() => setNotice(null)} aria-label="알림 닫기">
             ×
           </button>
         </div>
@@ -197,17 +200,17 @@ function ProviderCard({
 
       <div className={styles.cardHeader}>
         <div>
-          <p>Provider</p>
+          <p>프로바이더</p>
           <h2>{provider.name}</h2>
         </div>
         <span className={styles.activeBadge}>
           <span aria-hidden="true" />
-          {provider.hasApiKey ? "Key connected" : "Keyless route"}
+          {provider.hasApiKey ? "API 키 연결됨" : "API 키 없음"}
         </span>
       </div>
 
       <div className={styles.routePath}>
-        <span>Gateway</span>
+        <span>게이트웨이</span>
         <span className={styles.routeLine} aria-hidden="true">
           <i />
         </span>
@@ -215,7 +218,7 @@ function ProviderCard({
       </div>
 
       <div className={styles.models}>
-        <p>{provider.models.length === 1 ? "Model" : "Models"}</p>
+        <p>모델 {provider.models.length}개</p>
         <div>
           {provider.models.map((model) => (
             <code key={model}>{model}</code>
@@ -225,14 +228,14 @@ function ProviderCard({
 
       <footer className={styles.cardFooter}>
         <p>
-          Updated <time dateTime={provider.updatedAt}>{formatDate(provider.updatedAt)}</time>
+          수정 <time dateTime={provider.updatedAt}>{formatDate(provider.updatedAt)}</time>
         </p>
         <div className={styles.cardActions}>
           <button type="button" onClick={onEdit}>
-            Edit
+            수정
           </button>
           <button className={styles.deleteAction} type="button" onClick={onDelete}>
-            Delete
+            삭제
           </button>
         </div>
       </footer>
@@ -246,14 +249,14 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       <div className={styles.emptyGate} aria-hidden="true">
         <span />
       </div>
-      <p className={styles.eyebrow}>No routes yet</p>
-      <h2>Add your first provider</h2>
+      <p className={styles.eyebrow}>아직 업스트림 경로가 없습니다</p>
+      <h2>첫 프로바이더를 추가하세요</h2>
       <p>
-        Connect an OpenAI-compatible endpoint, then assign the models it should
-        serve.
+        OpenAI 호환 엔드포인트를 연결하고 해당 프로바이더가 제공할 모델을
+        지정하세요.
       </p>
       <button className={styles.primaryButton} type="button" onClick={onAdd}>
-        Add provider
+        프로바이더 추가
       </button>
     </div>
   );
@@ -270,17 +273,17 @@ function ErrorState({
     <div className={styles.errorState} role="alert">
       <span aria-hidden="true">!</span>
       <div>
-        <p className={styles.dangerEyebrow}>Route unavailable</p>
-        <h2>Providers could not be loaded</h2>
+        <p className={styles.dangerEyebrow}>업스트림 경로를 사용할 수 없음</p>
+        <h2>프로바이더를 불러오지 못했습니다</h2>
         <p>
           {error.httpStatus === 0
-            ? "Check that the gateway is running and this console origin is allowed."
-            : error.message}
+            ? "게이트웨이가 실행 중이고 이 콘솔 오리진이 허용됐는지 확인하세요."
+            : consoleErrorMessage(error)}
         </p>
-        {error.requestId ? <code>Reference {error.requestId}</code> : null}
+        <code>{consoleErrorReference(error)}</code>
       </div>
       <button className={styles.secondaryButton} type="button" onClick={onRetry}>
-        Try again
+        다시 시도
       </button>
     </div>
   );
@@ -288,7 +291,7 @@ function ErrorState({
 
 function ProviderSkeleton() {
   return (
-    <div className={styles.providerGrid} aria-label="Loading providers">
+    <div className={styles.providerGrid} aria-label="프로바이더 불러오는 중">
       {[0, 1].map((index) => (
         <div className={`${styles.gateCard} ${styles.skeleton}`} key={index}>
           <span />
@@ -304,9 +307,9 @@ function ProviderSkeleton() {
 function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "recently";
+    return "최근";
   }
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat("ko-KR", {
     dateStyle: "medium",
   }).format(date);
 }

@@ -13,7 +13,11 @@ import {
   type GuardrailSummary,
 } from "@/src/entities/guardrail";
 import { useSession } from "@/src/entities/session";
-import { ConsoleApiError } from "@/src/shared/api";
+import {
+  ConsoleApiError,
+  consoleErrorMessage,
+  consoleErrorReference,
+} from "@/src/shared/api";
 
 import { CreateGuardrailDialog } from "./create-guardrail-dialog";
 import styles from "./guardrails-page.module.css";
@@ -74,11 +78,11 @@ function GuardrailWorkspace({
     <section className={styles.page} aria-labelledby="guardrails-title">
       <div className={styles.pageHeader}>
         <div className={styles.headingBlock}>
-          <p className={styles.eyebrow}>Policy control plane</p>
-          <h1 id="guardrails-title">Guardrails</h1>
+          <p className={styles.eyebrow}>정책 통제 영역</p>
+          <h1 id="guardrails-title">가드레일</h1>
           <p>
-            Author one graph across input, tool contamination, agent actions, and
-            output. Publish only when the gateway accepts the complete draft.
+            입력부터 툴 오염, 에이전트 액션, 출력까지 하나의 그래프로
+            설계하세요. 게이트웨이가 전체 초안을 검증한 뒤에만 발행합니다.
           </p>
         </div>
         <button
@@ -87,33 +91,32 @@ function GuardrailWorkspace({
           onClick={() => setIsCreating(true)}
         >
           <span aria-hidden="true">＋</span>
-          New guardrail
+          새 가드레일
         </button>
       </div>
 
       <div className={styles.checkpointGuide}>
-        <div className={styles.checkpointRail} aria-label="Inspection sequence">
-          <Checkpoint number="①" label="Input" detail="User message" />
+        <div className={styles.checkpointRail} aria-label="검사 순서">
+          <Checkpoint number="①" label="입력" detail="사용자 메시지" />
           <span aria-hidden="true" />
-          <Checkpoint number="②" label="Tool result" detail="Untrusted data" action />
+          <Checkpoint number="②" label="툴 결과" detail="신뢰하지 않는 데이터" action />
           <span aria-hidden="true" />
-          <Checkpoint number="④" label="Tool call" detail="Agent action" action />
+          <Checkpoint number="④" label="툴 호출" detail="에이전트 액션" action />
           <span aria-hidden="true" />
-          <Checkpoint number="③" label="Output" detail="Model response" />
+          <Checkpoint number="③" label="출력" detail="모델 응답" />
         </div>
-        <p>번호는 체크포인트 ID이며, 레인은 실제 요청 실행 순서입니다.</p>
+        <p>번호는 검사 지점 ID이며, 레인은 실제 요청 실행 순서입니다.</p>
       </div>
 
       <div className={styles.statusBar}>
         <div className={styles.routeStatus}>
           <span className={styles.liveDot} aria-hidden="true" />
           <span>
-            <strong>{data?.total ?? 0}</strong> guardrail
-            {data?.total === 1 ? "" : "s"}
+            가드레일 <strong>{data?.total ?? 0}</strong>개
           </span>
         </div>
         <p>
-          Signed in as <strong>{operatorName}</strong>
+          로그인 사용자 <strong>{operatorName}</strong>
         </p>
       </div>
 
@@ -185,17 +188,17 @@ function GuardrailCard({
       </span>
       <div className={styles.cardHeader}>
         <div>
-          <p>Policy graph</p>
+          <p>정책 그래프</p>
           <h2>{guardrail.name}</h2>
         </div>
-        <div className={styles.badges} aria-label="Guardrail status">
-          {guardrail.hasDraft ? <span className={styles.draftBadge}>Draft</span> : null}
+        <div className={styles.badges} aria-label="가드레일 상태">
+          {guardrail.hasDraft ? <span className={styles.draftBadge}>초안</span> : null}
           {guardrail.latestVersionNumber !== null ? (
             <span className={styles.publishedBadge}>
-              Published v{guardrail.latestVersionNumber}
+              발행 v{guardrail.latestVersionNumber}
             </span>
           ) : (
-            <span className={styles.unpublishedBadge}>Not published</span>
+            <span className={styles.unpublishedBadge}>미발행</span>
           )}
         </div>
       </div>
@@ -218,7 +221,7 @@ function GuardrailCard({
                   key={action}
                   className={`${styles.actionChip} ${actionClassName(action)}`}
                 >
-                  {action}
+                  {actionLabel(action)}
                 </span>
               ))
             ) : (
@@ -227,13 +230,13 @@ function GuardrailCard({
           </div>
         </div>
         <div className={styles.policyScale}>
-          체크 {guardrail.checkCount} · verdict {guardrail.verdictCount}
+          검사 {guardrail.checkCount}개 · 판정 {guardrail.verdictCount}개
         </div>
       </div>
 
       <footer className={styles.cardFooter}>
         <p>
-          Updated <time dateTime={guardrail.updatedAt}>{formatDate(guardrail.updatedAt)}</time>
+          수정 <time dateTime={guardrail.updatedAt}>{formatDate(guardrail.updatedAt)}</time>
         </p>
         <div className={styles.cardActions}>
           {guardrail.latestVersionNumber !== null ? (
@@ -243,14 +246,14 @@ function GuardrailCard({
                 guardrail.latestVersionNumber
               }`}
             >
-              View v{guardrail.latestVersionNumber}
+              v{guardrail.latestVersionNumber} 보기
             </Link>
           ) : null}
           <Link
             className={styles.primaryLink}
             href={`/guardrails/${encodeURIComponent(guardrail.name)}`}
           >
-            Open draft
+            초안 열기
           </Link>
         </div>
       </footer>
@@ -262,10 +265,10 @@ const checkpointCardCopy: Record<
   Checkpoint,
   { index: "①" | "②" | "④" | "③"; label: string }
 > = {
-  input: { index: "①", label: "Input" },
-  tool_result: { index: "②", label: "Tool result" },
-  tool_call: { index: "④", label: "Tool call" },
-  output: { index: "③", label: "Output" },
+  input: { index: "①", label: "입력" },
+  tool_result: { index: "②", label: "툴 결과" },
+  tool_call: { index: "④", label: "툴 호출" },
+  output: { index: "③", label: "출력" },
 };
 
 function CheckpointPath({ checkpoints }: { checkpoints: Checkpoint[] }) {
@@ -297,20 +300,31 @@ function actionClassName(action: GuardrailAction): string {
   }
 }
 
+function actionLabel(action: GuardrailAction): string {
+  switch (action) {
+    case "block":
+      return "차단";
+    case "mask":
+      return "마스킹";
+    case "allow":
+      return "허용";
+  }
+}
+
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className={styles.emptyState}>
       <div className={styles.emptyFlow} aria-hidden="true">
         <span>①</span><i /><span>②</span><i /><span>④</span><i /><span>③</span>
       </div>
-      <p className={styles.eyebrow}>No policy graphs yet</p>
-      <h2>Control what agents read and do</h2>
+      <p className={styles.eyebrow}>아직 정책 그래프가 없습니다</p>
+      <h2>에이전트가 읽고 실행할 범위를 통제하세요</h2>
       <p>
-        Start with a draft, connect checks across the four checkpoint lanes, then
-        publish an immutable version.
+        초안을 만들고 네 검사 지점에 검사를 연결한 뒤 변경할 수 없는
+        발행본을 만드세요.
       </p>
       <button className={styles.primaryButton} type="button" onClick={onCreate}>
-        Create first guardrail
+        첫 가드레일 만들기
       </button>
     </div>
   );
@@ -327,19 +341,21 @@ function ErrorState({
     <div className={styles.errorState} role="alert">
       <span aria-hidden="true">!</span>
       <div>
-        <p className={styles.dangerEyebrow}>Policy index unavailable</p>
-        <h2>Guardrails could not be loaded</h2>
+        <p className={styles.dangerEyebrow}>가드레일 목록을 사용할 수 없음</p>
+        <h2>가드레일을 불러오지 못했습니다</h2>
         <p>
           {error instanceof ConsoleApiError && error.httpStatus === 0
-            ? "Check that the gateway is running and reachable from this console."
-            : error.message}
+            ? "게이트웨이가 실행 중이고 이 콘솔에서 연결할 수 있는지 확인하세요."
+            : error instanceof ConsoleApiError
+              ? consoleErrorMessage(error)
+              : "가드레일 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요."}
         </p>
-        {error instanceof ConsoleApiError && error.requestId ? (
-          <code>Reference {error.requestId}</code>
+        {error instanceof ConsoleApiError ? (
+          <code>{consoleErrorReference(error)}</code>
         ) : null}
       </div>
       <button className={styles.secondaryButton} type="button" onClick={onRetry}>
-        Try again
+        다시 시도
       </button>
     </div>
   );
@@ -347,7 +363,7 @@ function ErrorState({
 
 function GuardrailSkeleton() {
   return (
-    <div className={styles.guardrailGrid} aria-label="Loading guardrails">
+    <div className={styles.guardrailGrid} aria-label="가드레일 불러오는 중">
       {[0, 1].map((index) => (
         <div className={`${styles.guardrailCard} ${styles.skeleton}`} key={index}>
           <span /><span /><span />
@@ -359,6 +375,6 @@ function GuardrailSkeleton() {
 
 function formatDate(value: string): string {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "recently";
-  return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(date);
+  if (Number.isNaN(date.getTime())) return "최근";
+  return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium" }).format(date);
 }

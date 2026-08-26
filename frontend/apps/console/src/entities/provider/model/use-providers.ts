@@ -54,7 +54,7 @@ export function useProviders(
             : new ConsoleApiError({
                 httpStatus: 0,
                 code: "CONSOLE-005",
-                message: "The provider list could not be loaded.",
+                message: "프로바이더 목록을 불러오지 못했습니다.",
               }),
         isLoading: false,
       });
@@ -101,6 +101,6 @@ function normalizeError(error: unknown): ConsoleApiError {
     : new ConsoleApiError({
         httpStatus: 0,
         code: "CONSOLE-005",
-        message: "The provider list could not be loaded.",
+        message: "프로바이더 목록을 불러오지 못했습니다.",
       });
 }

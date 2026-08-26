@@ -33,16 +33,16 @@ export function NodeInspector({
   onRemoveEdge: (edgeId: string) => void;
 }) {
   return (
-    <aside className={styles.inspector} aria-label="Node inspector">
+    <aside className={styles.inspector} aria-label="노드 인스펙터">
       <div className={styles.inspectorHeader}>
-        <p>Graph inspector</p>
-        <strong>{graph.nodes.length} nodes</strong>
+        <p>그래프 인스펙터</p>
+        <strong>노드 {graph.nodes.length}개</strong>
       </div>
 
       <div className={styles.nodeRoster}>
-        <p>Node list</p>
+        <p>노드 목록</p>
         {graph.nodes.length === 0 ? (
-          <span>Add a node from the catalog to begin.</span>
+          <span>카탈로그에서 노드를 추가해 시작하세요.</span>
         ) : (
           <div>
             {graph.nodes.map((node) => (
@@ -61,7 +61,7 @@ export function NodeInspector({
                   {nodeCatalogByType[node.data.domainNode.type].label}
                 </strong>
                 {node.data.validationMessage ? (
-                  <i aria-label="Validation error">!</i>
+                  <i aria-label="검증 오류">!</i>
                 ) : null}
               </button>
             ))}
@@ -83,10 +83,10 @@ export function NodeInspector({
       ) : (
         <div className={styles.inspectorEmpty}>
           <span aria-hidden="true">↖</span>
-          <h2>Select a node</h2>
+          <h2>노드를 선택하세요</h2>
           <p>
-            Configure nodes and connections here. Every operation remains
-            available without precision dragging.
+            여기서 노드와 연결을 설정하세요. 정밀하게 드래그하지 않아도 모든
+            작업을 수행할 수 있습니다.
           </p>
         </div>
       )}
@@ -145,13 +145,13 @@ function SelectedNodeInspector({
 
       {node.data.validationMessage ? (
         <div className={styles.nodeError} role="alert">
-          <strong>Gateway validation</strong>
+          <strong>게이트웨이 검증</strong>
           <span>{node.data.validationMessage}</span>
         </div>
       ) : null}
 
       <fieldset disabled={readOnly} className={styles.configFields}>
-        <legend>Configuration</legend>
+        <legend>설정</legend>
         <ConfigFields
           node={domainNode}
           checkpoint={node.data.checkpoint}
@@ -165,10 +165,10 @@ function SelectedNodeInspector({
         aria-labelledby={`connections-${node.id}`}
       >
         <div className={styles.sectionTitle}>
-          <h3 id={`connections-${node.id}`}>Connections</h3>
+          <h3 id={`connections-${node.id}`}>연결</h3>
           <span>
-            {incoming.length} input{incoming.length === 1 ? "" : "s"}
-            {range.max === null ? ` · min ${range.min}` : ` · expected ${range.min}`}
+            입력 {incoming.length}개
+            {range.max === null ? ` · 최소 ${range.min}개` : ` · 필요 ${range.min}개`}
           </span>
         </div>
 
@@ -177,7 +177,7 @@ function SelectedNodeInspector({
             {incoming.map((edge) => (
               <EdgeItem
                 key={edge.id}
-                label={`From ${edge.source}`}
+                label={`시작 ${edge.source}`}
                 edgeId={edge.id}
                 readOnly={readOnly}
                 onRemove={onRemoveEdge}
@@ -186,7 +186,7 @@ function SelectedNodeInspector({
             {outgoing.map((edge) => (
               <EdgeItem
                 key={edge.id}
-                label={`To ${edge.target}`}
+                label={`도착 ${edge.target}`}
                 edgeId={edge.id}
                 readOnly={readOnly}
                 onRemove={onRemoveEdge}
@@ -194,18 +194,18 @@ function SelectedNodeInspector({
             ))}
           </ul>
         ) : (
-          <p className={styles.noConnections}>No connections yet.</p>
+          <p className={styles.noConnections}>아직 연결이 없습니다.</p>
         )}
 
         {!readOnly && availableTargets.length > 0 ? (
           <div className={styles.connectionForm}>
             <label>
-              <span>Connect output to</span>
+              <span>출력 연결 대상</span>
               <select
                 value={targetId}
                 onChange={(event) => setTargetId(event.target.value)}
               >
-                <option value="">Choose a node</option>
+                <option value="">노드 선택</option>
                 {availableTargets.map((target) => (
                   <option key={target.id} value={target.id}>
                     {nodeCatalogByType[target.data.domainNode.type].label} ·{" "}
@@ -223,7 +223,7 @@ function SelectedNodeInspector({
                 setTargetId("");
               }}
             >
-              Add connection
+              연결 추가
             </button>
           </div>
         ) : null}
@@ -235,7 +235,7 @@ function SelectedNodeInspector({
           type="button"
           onClick={() => onDelete(node.id)}
         >
-          Delete node
+          노드 삭제
         </button>
       ) : null}
     </div>
@@ -260,7 +260,7 @@ function ConfigFields({
     case "regex":
       return (
         <label>
-          <span>RE2 pattern</span>
+          <span>RE2 패턴</span>
           <textarea
             value={stringValue(node.config.pattern)}
             onChange={(event) => setConfig("pattern", event.target.value)}
@@ -268,13 +268,13 @@ function ConfigFields({
             spellCheck={false}
             placeholder="(?i)secret"
           />
-          <small>Pattern syntax is validated by the gateway when you save.</small>
+          <small>저장할 때 게이트웨이가 패턴 문법을 검증합니다.</small>
         </label>
       );
     case "length":
       return (
         <NumberField
-          label="Maximum characters"
+          label="최대 글자 수"
           value={numberValue(node.config.max_chars, 1_000)}
           onChange={(value) => setConfig("max_chars", value)}
         />
@@ -282,13 +282,13 @@ function ConfigFields({
     case "transform":
       return (
         <label>
-          <span>Operation</span>
+          <span>변환 방식</span>
           <select
             value={stringValue(node.config.op) || "lower"}
             onChange={(event) => setConfig("op", event.target.value)}
           >
-            <option value="lower">Lowercase</option>
-            <option value="strip">Strip whitespace</option>
+            <option value="lower">소문자로 변환</option>
+            <option value="strip">앞뒤 공백 제거</option>
           </select>
         </label>
       );
@@ -296,29 +296,29 @@ function ConfigFields({
       return (
         <>
           <label>
-            <span>Action</span>
+            <span>판정</span>
             <select
               value={stringValue(node.config.action) || "block"}
               onChange={(event) => setConfig("action", event.target.value)}
             >
-              <option value="block">Block</option>
-              <option value="mask">Mask</option>
-              <option value="allow">Allow</option>
+              <option value="block">차단</option>
+              <option value="mask">마스킹</option>
+              <option value="allow">허용</option>
             </select>
           </label>
           <label>
-            <span>Decision role</span>
+            <span>판정 역할</span>
             <select
               value={stringValue(node.config.decision) || "conclusive"}
               onChange={(event) => setConfig("decision", event.target.value)}
             >
-              <option value="conclusive">Conclusive</option>
-              <option value="hint">Hint</option>
-              <option value="model_only">Model only</option>
+              <option value="conclusive">결론형</option>
+              <option value="hint">힌트형</option>
+              <option value="model_only">모델형</option>
             </select>
           </label>
           <label>
-            <span>Policy code</span>
+            <span>정책 코드</span>
             <input
               value={stringValue(node.config.code)}
               onChange={(event) => setConfig("code", event.target.value)}
@@ -328,13 +328,13 @@ function ConfigFields({
         </>
       );
     case "all":
-      return <p className={styles.noConfig}>This node has no configuration.</p>;
+      return <p className={styles.noConfig}>이 노드는 설정할 항목이 없습니다.</p>;
     case "side_effect":
       return (
         <>
           <FixedCheckpoint checkpoint={checkpoint} />
           <label>
-            <span>Read-only tools</span>
+            <span>읽기 전용 툴</span>
             <textarea
               value={stringList(node.config.read_only).join("\n")}
               onChange={(event) =>
@@ -345,7 +345,8 @@ function ConfigFields({
               placeholder={"read_file\nweb_search"}
             />
             <small>
-              One tool per line. Unlisted tools are treated as side-effecting.
+              한 줄에 툴 하나를 입력하세요. 목록에 없는 툴은 부작용이 있는
+              것으로 처리합니다.
             </small>
           </label>
         </>
@@ -355,7 +356,7 @@ function ConfigFields({
         <>
           <FixedCheckpoint checkpoint={checkpoint} />
           <label>
-            <span>Minimum argument length</span>
+            <span>최소 인수 길이</span>
             <input
               type="number"
               min={1}
@@ -370,7 +371,7 @@ function ConfigFields({
               }}
               placeholder="8"
             />
-            <small>Leave blank to use the gateway default of 8.</small>
+            <small>비워 두면 게이트웨이 기본값인 8자를 사용합니다.</small>
           </label>
         </>
       );
@@ -380,12 +381,12 @@ function ConfigFields({
 function FixedCheckpoint({ checkpoint }: { checkpoint: Checkpoint }) {
   return (
     <label>
-      <span>Checkpoint</span>
+      <span>검사 지점</span>
       <input
         value={`${checkpointMeta[checkpoint].index} ${checkpointMeta[checkpoint].label}`}
         readOnly
       />
-      <small>체크포인트는 현재 탭에 고정됩니다.</small>
+      <small>검사 지점은 현재 탭에 고정됩니다.</small>
     </label>
   );
 }
@@ -431,7 +432,7 @@ function EdgeItem({
         <button
           type="button"
           onClick={() => onRemove(edgeId)}
-          aria-label={`Remove ${label}`}
+          aria-label={`연결 삭제: ${label}`}
         >
           ×
         </button>

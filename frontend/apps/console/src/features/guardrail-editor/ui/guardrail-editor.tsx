@@ -11,6 +11,7 @@ import {
   Controls,
   MiniMap,
   ReactFlow,
+  type AriaLabelConfig,
   type Connection,
   type EdgeChange,
   type NodeChange,
@@ -30,7 +31,11 @@ import {
   type GuardrailGraph,
   type GuardrailNodeType,
 } from "@/src/entities/guardrail";
-import { ConsoleApiError } from "@/src/shared/api";
+import {
+  ConsoleApiError,
+  consoleErrorMessage,
+  consoleErrorReference,
+} from "@/src/shared/api";
 import { randomId } from "@/src/shared/lib";
 import { ConfirmDialog } from "@/src/shared/ui/confirm-dialog";
 
@@ -79,6 +84,28 @@ const flowNodeTypes = {
   guardrail: GuardrailNodeCard,
 };
 
+const flowAriaLabelConfig: Partial<AriaLabelConfig> = {
+  "node.a11yDescription.default":
+    "엔터 또는 스페이스 키로 노드를 선택합니다. 삭제 키로 삭제하고 이스케이프 키로 취소합니다.",
+  "node.a11yDescription.keyboardDisabled":
+    "엔터 또는 스페이스 키로 노드를 선택합니다. 방향키로 이동하고 삭제 키로 삭제하거나 이스케이프 키로 취소합니다.",
+  "node.a11yDescription.ariaLiveMessage": ({ direction, x, y }) => {
+    const directionLabel =
+      { left: "왼쪽", right: "오른쪽", up: "위", down: "아래" }[direction] ??
+      direction;
+    return `선택한 노드를 ${directionLabel}(으)로 이동했습니다. 새 위치: 가로 ${x}, 세로 ${y}`;
+  },
+  "edge.a11yDescription.default":
+    "엔터 또는 스페이스 키로 연결선을 선택합니다. 삭제 키로 삭제하고 이스케이프 키로 취소합니다.",
+  "controls.ariaLabel": "그래프 보기 제어",
+  "controls.zoomIn.ariaLabel": "확대",
+  "controls.zoomOut.ariaLabel": "축소",
+  "controls.fitView.ariaLabel": "화면에 맞추기",
+  "controls.interactive.ariaLabel": "그래프 상호작용 전환",
+  "minimap.ariaLabel": "미니맵",
+  "handle.ariaLabel": "연결점",
+};
+
 type VisibleGraphError = {
   message: string;
   reference?: string;
@@ -125,10 +152,10 @@ export function GuardrailEditor({
   );
   const [status, setStatus] = useState<string>(
     readOnly
-      ? `Published version ${detail.versionNumber} is read-only.`
+      ? `발행 버전 ${detail.versionNumber}은 읽기 전용입니다.`
       : recoveredDraft
-        ? "Unsaved draft restored after sign-in. Save when you are ready."
-        : "Draft loaded. Changes are local until you save.",
+        ? "로그인 후 저장하지 않은 초안을 복원했습니다. 내용을 확인한 뒤 저장하세요."
+        : "초안을 불러왔습니다. 저장하기 전 변경 내용은 현재 편집 세션에만 유지됩니다.",
   );
   const [publishedVersion, setPublishedVersion] = useState<number | null>(
     readOnly ? detail.versionNumber : latestPublishedVersion,
@@ -263,7 +290,7 @@ export function GuardrailEditor({
     setPendingFocusNodeId(id);
     setGraphError(null);
     setStatus(
-      `${nodeCatalogByType[type].label} added to ${checkpointMeta[activeCheckpoint].index} ${checkpointMeta[activeCheckpoint].label}.`,
+      `${nodeCatalogByType[type].label} 노드를 ${checkpointMeta[activeCheckpoint].index} ${checkpointMeta[activeCheckpoint].label} 검사 지점에 추가했습니다.`,
     );
   }
 
@@ -331,14 +358,14 @@ export function GuardrailEditor({
     }));
     setSelectedNodeId(null);
     setPendingDestructiveAction(null);
-    setStatus(`${nodeId} deleted.`);
+    setStatus(`${nodeId} 노드를 삭제했습니다.`);
   }
 
   function connectNodes(sourceId: string, targetId: string) {
     const reason = connectionError(graph, sourceId, targetId);
     if (reason) {
       setConnectionRejection(reason);
-      setStatus(`Connection rejected: ${reason}`);
+      setStatus(`연결할 수 없습니다. ${reason}`);
       return;
     }
     setGraph((current) => ({
@@ -350,13 +377,15 @@ export function GuardrailEditor({
           source: sourceId,
           target: targetId,
           type: "smoothstep",
+          ariaLabel: `${sourceId}에서 ${targetId}(으)로 연결`,
+          domAttributes: { "aria-roledescription": "연결선" },
         },
       ],
     }));
     setSelectedNodeId(targetId);
     setConnectionRejection(null);
     setGraphError(null);
-    setStatus(`Connected ${sourceId} to ${targetId}.`);
+    setStatus(`${sourceId}에서 ${targetId}(으)로 연결했습니다.`);
   }
 
   function onConnect(connection: Connection) {
@@ -372,7 +401,7 @@ export function GuardrailEditor({
     const reason = connectionError(graph, connection.source, connection.target);
     setConnectionRejection(reason);
     if (reason) {
-      setStatus(`Connection rejected: ${reason}`);
+      setStatus(`연결할 수 없습니다. ${reason}`);
       return false;
     }
     return true;
@@ -415,22 +444,22 @@ export function GuardrailEditor({
     }));
     setGraphError(null);
     setConnectionRejection(null);
-    setStatus("Connection removed.");
+    setStatus("연결을 삭제했습니다.");
   }
 
   async function saveDraft(): Promise<GuardrailDetail | null> {
     setGraphError(null);
-    setStatus("Saving draft…");
+    setStatus("초안을 저장하는 중…");
     try {
       const saved = await saveMutation.mutateAsync(toGuardrailGraph(graph));
       setGraph((current) => mergeCanonicalGraph(saved.graph, current));
       setBaseline(saved.graph);
       queryClient.setQueryData(guardrailKeys.draft(detail.name), saved);
       void queryClient.invalidateQueries({ queryKey: guardrailKeys.list() });
-      setStatus("Draft saved. Gateway validation passed.");
+      setStatus("초안을 저장했습니다. 게이트웨이 검증을 통과했습니다.");
       return saved;
     } catch (error) {
-      handleGatewayError(error, "Draft could not be saved.");
+      handleGatewayError(error, "초안을 저장하지 못했습니다.");
       return null;
     }
   }
@@ -442,7 +471,7 @@ export function GuardrailEditor({
     }
 
     setGraphError(null);
-    setStatus("Publishing validated draft…");
+    setStatus("검증된 초안을 발행하는 중…");
     try {
       const published = await publishMutation.mutateAsync();
       if (published.versionNumber !== null) {
@@ -454,10 +483,10 @@ export function GuardrailEditor({
       }
       void queryClient.invalidateQueries({ queryKey: guardrailKeys.list() });
       setStatus(
-        `Published version ${published.versionNumber}. The draft remains editable.`,
+        `버전 ${published.versionNumber}을 발행했습니다. 초안은 계속 편집할 수 있습니다.`,
       );
     } catch (error) {
-      handleGatewayError(error, "This draft could not be published.");
+      handleGatewayError(error, "초안을 발행하지 못했습니다.");
     }
   }
 
@@ -484,8 +513,7 @@ export function GuardrailEditor({
           )
         : [];
       const affectedNodes = directNodeId ? [directNodeId] : cycleNodes;
-      const reason =
-        typeof details?.reason === "string" ? details.reason : error.message;
+      const reason = consoleErrorMessage(error, fallback);
 
       if (affectedNodes.length > 0) {
         setGraph((current) => ({
@@ -502,10 +530,9 @@ export function GuardrailEditor({
         selectAndFocusNode(affectedNodes[0]);
       }
 
-      const requestReference = error.requestId ? ` · ${error.requestId}` : "";
       setGraphError({
         message: reason,
-        reference: `Reference ${error.code}${requestReference}`,
+        reference: consoleErrorReference(error),
       });
       setStatus(`${fallback} ${reason}`);
       return;
@@ -519,7 +546,7 @@ export function GuardrailEditor({
     if (error.httpStatus === 401 && dirty && !readOnly) {
       setAuthenticationError(error);
       setStatus(
-        "Your session expired. Unsaved changes remain in this editor until you choose how to continue.",
+        "세션이 만료되었습니다. 계속할 방법을 선택할 때까지 저장하지 않은 변경 내용을 유지합니다.",
       );
       return;
     }
@@ -541,8 +568,8 @@ export function GuardrailEditor({
     setTestHighlight(highlights);
     setStatus(
       highlights.fired.length > 0
-        ? `${highlights.fired.length}개 verdict 노드가 실제 호출 테스트에서 발동했습니다.`
-        : `실제 호출 테스트 완료: ${result.overallAction}.`,
+        ? `판정 노드 ${highlights.fired.length}개가 실제 호출 테스트에서 발동했습니다.`
+        : `실제 호출 테스트 완료: ${actionLabel(result.overallAction)}.`,
     );
   }
 
@@ -561,27 +588,28 @@ export function GuardrailEditor({
     selected: node.id === selectedNodeId,
     draggable: !readOnly,
     connectable: !readOnly,
+    domAttributes: { "aria-roledescription": "노드" },
   }));
 
   return (
     <section className={styles.editorPage} aria-labelledby="guardrail-name">
       <header className={styles.editorHeader}>
         <div className={styles.editorIdentity}>
-          <Link href="/guardrails" aria-label="Back to guardrails">
+          <Link href="/guardrails" aria-label="가드레일 목록으로 돌아가기">
             ←
           </Link>
           <div>
-            <p>{readOnly ? "Published policy graph" : "Draft policy graph"}</p>
+            <p>{readOnly ? "발행된 정책 그래프" : "초안 정책 그래프"}</p>
             <h1 id="guardrail-name">{detail.name}</h1>
           </div>
         </div>
         <div className={styles.editorActions}>
           <span className={readOnly ? styles.versionBadge : styles.draftBadge}>
             {readOnly
-              ? `Published v${detail.versionNumber}`
+              ? `발행 버전 ${detail.versionNumber}`
               : dirty
-                ? "Unsaved changes"
-                : "Draft saved"}
+                ? "저장하지 않은 변경"
+                : "초안 저장됨"}
           </span>
           {!readOnly ? (
             <button
@@ -590,7 +618,7 @@ export function GuardrailEditor({
               disabled={isBusy || !dirty}
               onClick={() => void saveDraft()}
             >
-              {saveMutation.isPending ? "Saving…" : "Save draft"}
+              {saveMutation.isPending ? "저장하는 중…" : "초안 저장"}
             </button>
           ) : null}
         </div>
@@ -609,19 +637,20 @@ export function GuardrailEditor({
         />
         <p>{status}</p>
         <small>
-          Free layout is session-only; the saved policy remains one ordered graph.
+          자유 배치는 현재 편집 세션에만 유지됩니다. 저장된 정책은 노드 순서를
+          보존하는 하나의 그래프입니다.
         </small>
       </div>
 
       {graphError ? (
         <div className={styles.graphError} role="alert">
-          <strong>Graph needs attention</strong>
+          <strong>그래프를 확인하세요</strong>
           <span>{graphError.message}</span>
           {graphError.reference ? <code>{graphError.reference}</code> : null}
           <button
             type="button"
             onClick={() => setGraphError(null)}
-            aria-label="Dismiss graph error"
+            aria-label="그래프 오류 닫기"
           >
             ×
           </button>
@@ -681,11 +710,10 @@ export function GuardrailEditor({
                   <small>{checkpointMeta[activeTab].description}</small>
                 </div>
                 <small className={styles.checkpointOrderNote}>
-                  번호는 체크포인트 ID이며, 탭 순서는 실제 요청 실행 순서입니다.
+                  번호는 검사 지점 ID이며, 탭 순서는 실제 요청 실행 순서입니다.
                 </small>
                 <strong>
-                  {checkpointGraph.nodes.length} node
-                  {checkpointGraph.nodes.length === 1 ? "" : "s"}
+                  노드 {checkpointGraph.nodes.length}개
                 </strong>
               </div>
 
@@ -693,14 +721,14 @@ export function GuardrailEditor({
                 <>
                   <div
                     className={styles.nodeCatalog}
-                    aria-label={`${checkpointMeta[activeTab].label} node catalog`}
+                    aria-label={`${checkpointMeta[activeTab].label} 노드 카탈로그`}
                   >
                     <div>
                       {catalogForCheckpoint(activeTab).map((item) => (
                         <button
                           key={item.type}
                           className={
-                            item.category === "Action control"
+                            item.category === "액션 통제"
                               ? styles.actionCatalogItem
                               : undefined
                           }
@@ -716,7 +744,7 @@ export function GuardrailEditor({
                   </div>
                   {connectionRejection ? (
                     <p className={styles.connectionRejection} role="status">
-                      Connection unavailable: {connectionRejection}
+                      연결할 수 없음: {connectionRejection}
                     </p>
                   ) : null}
                 </>
@@ -724,7 +752,7 @@ export function GuardrailEditor({
 
               <div
                 className={styles.canvas}
-                aria-label={`${checkpointMeta[activeTab].label} checkpoint graph editor`}
+                aria-label={`${checkpointMeta[activeTab].label} 검사 지점 그래프 편집기`}
               >
                 <ReactFlow<GuardrailFlowNode, GuardrailFlowEdge>
                   nodes={canvasNodes}
@@ -750,7 +778,8 @@ export function GuardrailEditor({
                     [-600, -600],
                     [6_000, 6_000],
                   ]}
-                  aria-label={`${checkpointMeta[activeTab].index} ${checkpointMeta[activeTab].label} guardrail graph`}
+                  ariaLabelConfig={flowAriaLabelConfig}
+                  aria-label={`${checkpointMeta[activeTab].index} ${checkpointMeta[activeTab].label} 가드레일 그래프`}
                 >
                   <Background
                     variant={BackgroundVariant.Dots}
@@ -776,11 +805,11 @@ export function GuardrailEditor({
                 {checkpointGraph.nodes.length === 0 ? (
                   <div className={styles.emptyCanvas} role="status">
                     <span aria-hidden="true">{checkpointMeta[activeTab].index}</span>
-                    <strong>No nodes at this checkpoint</strong>
+                    <strong>이 검사 지점에 노드가 없습니다</strong>
                     <p>
                       {readOnly
-                        ? "This published graph does not inspect this point."
-                        : "Choose a valid node type from the catalog to begin."}
+                        ? "이 발행본은 해당 검사 지점을 검사하지 않습니다."
+                        : "카탈로그에서 사용할 노드 유형을 선택해 시작하세요."}
                     </p>
                   </div>
                 ) : null}
@@ -811,16 +840,16 @@ export function GuardrailEditor({
       {pendingDestructiveAction?.kind === "node" ? (
         <ConfirmDialog
           id="delete-guardrail-node"
-          eyebrow="Remove graph node"
-          title={`Delete ${pendingDestructiveAction.label}?`}
+          eyebrow="그래프 노드 삭제"
+          title={`${pendingDestructiveAction.label} 노드를 삭제할까요?`}
           description={
             <p>
-              Node <code>{pendingDestructiveAction.nodeId}</code> and all of its
-              connections will be removed from this unsaved draft.
+              노드 <code>{pendingDestructiveAction.nodeId}</code>와 연결을 저장하지
+              않은 현재 초안에서 모두 삭제합니다.
             </p>
           }
-          cancelLabel="Keep node"
-          confirmLabel="Delete node"
+          cancelLabel="노드 유지"
+          confirmLabel="노드 삭제"
           onClose={() => setPendingDestructiveAction(null)}
           onConfirm={() =>
             confirmNodeDeletion(pendingDestructiveAction.nodeId)
@@ -831,17 +860,16 @@ export function GuardrailEditor({
       {pendingDestructiveAction?.kind === "template" ? (
         <ConfirmDialog
           id="replace-guardrail-template"
-          eyebrow="Replace draft graph"
-          title={`Use ${pendingDestructiveAction.template.name}?`}
+          eyebrow="초안 그래프 교체"
+          title={`${pendingDestructiveAction.template.name} 템플릿을 사용할까요?`}
           description={
             <p>
-              The current nodes and connections will be replaced by this template.
-              You can review the result before saving, but this replacement cannot be
-              undone in the editor.
+              현재 노드와 연결을 이 템플릿으로 교체합니다. 저장하기 전에 결과를
+              확인할 수 있지만 편집기에서 교체를 되돌릴 수는 없습니다.
             </p>
           }
-          cancelLabel="Keep current graph"
-          confirmLabel="Replace graph"
+          cancelLabel="현재 그래프 유지"
+          confirmLabel="그래프 교체"
           onClose={() => setPendingDestructiveAction(null)}
           onConfirm={() =>
             replaceWithTemplate(pendingDestructiveAction.template)
@@ -852,17 +880,16 @@ export function GuardrailEditor({
       {authenticationError ? (
         <ConfirmDialog
           id="reauthenticate-draft"
-          eyebrow="Session expired"
-          title="Your unsaved draft is still here"
+          eyebrow="세션 만료"
+          title="저장하지 않은 초안을 유지하고 있습니다"
           description={
             <p>
-              Silent session refresh failed. Stay on this screen to review the draft,
-              or sign in again and return to this guardrail with the current graph
-              restored.
+              세션을 자동으로 갱신하지 못했습니다. 이 화면에서 초안을 계속
+              확인하거나 다시 로그인해 현재 그래프를 복원한 뒤 돌아오세요.
             </p>
           }
-          cancelLabel="Stay with draft"
-          confirmLabel="Sign in and keep draft"
+          cancelLabel="초안 계속 확인"
+          confirmLabel="로그인 후 초안 복원"
           onClose={() => setAuthenticationError(null)}
           onConfirm={continueToSignIn}
         />
@@ -883,7 +910,8 @@ function useDirtyNavigationGuard(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
 
-    const message = "Leave this draft? Unsaved graph changes will be lost.";
+    const message =
+      "초안에서 나갈까요? 저장하지 않은 그래프 변경 내용이 사라집니다.";
     const beforeUnload = (event: BeforeUnloadEvent) => event.preventDefault();
     const guardLink = (event: MouseEvent) => {
       const target = event.target;
@@ -901,4 +929,10 @@ function useDirtyNavigationGuard(enabled: boolean) {
       document.removeEventListener("click", guardLink, true);
     };
   }, [enabled]);
+}
+
+function actionLabel(action: GuardrailTestResult["overallAction"]): string {
+  if (action === "block") return "차단";
+  if (action === "mask") return "마스킹";
+  return "허용";
 }

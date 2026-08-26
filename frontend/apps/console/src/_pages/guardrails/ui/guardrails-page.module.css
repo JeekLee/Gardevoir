@@ -747,9 +747,15 @@
   background: var(--danger-soft);
   border-bottom: 1px solid color-mix(in srgb, var(--danger) 24%, var(--border));
   color: var(--danger-strong);
+  display: grid;
   font-size: 0.76rem;
+  gap: 0.25rem;
   line-height: 1.45;
   padding: 0.75rem 1.75rem;
+}
+
+.formError code {
+  font-size: 0.67rem;
 }
 
 @keyframes pulse {

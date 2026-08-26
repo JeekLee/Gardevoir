@@ -94,8 +94,8 @@ async function apiRequestAttempt<T>(
       httpStatus: 0,
       code: timeout.didExpire() ? "CONSOLE-002" : "CONSOLE-001",
       message: timeout.didExpire()
-        ? "The gateway did not respond in time."
-        : "The console could not reach the gateway.",
+        ? "게이트웨이 응답 시간이 초과되었습니다."
+        : "게이트웨이에 연결할 수 없습니다.",
     });
   } finally {
     timeout.dispose();
@@ -139,7 +139,7 @@ async function apiRequestAttempt<T>(
     throw new ConsoleApiError({
       httpStatus: response.status,
       code: "CONSOLE-003",
-      message: "The gateway returned an unexpected response.",
+      message: "게이트웨이 응답 형식을 확인할 수 없습니다.",
       requestId: response.headers.get("x-request-id") ?? undefined,
     });
   }
@@ -260,7 +260,7 @@ async function toConsoleError(response: Response): Promise<ConsoleApiError> {
   return new ConsoleApiError({
     httpStatus: response.status,
     code: "CONSOLE-004",
-    message: "The gateway could not complete this request.",
+    message: "게이트웨이가 요청을 처리하지 못했습니다.",
     requestId: requestIdHeader,
   });
 }
@@ -283,7 +283,7 @@ function unexpectedResponse(response: Response): ConsoleApiError {
   return new ConsoleApiError({
     httpStatus: response.status,
     code: "CONSOLE-003",
-    message: "The gateway returned an unexpected response.",
+    message: "게이트웨이 응답 형식을 확인할 수 없습니다.",
     requestId: response.headers.get("x-request-id") ?? undefined,
   });
 }
@@ -300,8 +300,8 @@ function normalizeTransportError(
     httpStatus: 0,
     code: expired ? "CONSOLE-002" : "CONSOLE-001",
     message: expired
-      ? "The gateway did not respond in time."
-      : "The console could not reach the gateway.",
+      ? "게이트웨이 응답 시간이 초과되었습니다."
+      : "게이트웨이에 연결할 수 없습니다.",
   });
 }
 

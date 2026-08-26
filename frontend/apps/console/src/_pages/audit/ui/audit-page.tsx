@@ -25,7 +25,11 @@ import {
   type JsonValue,
 } from "@/src/entities/audit";
 import { useSession } from "@/src/entities/session";
-import { ConsoleApiError } from "@/src/shared/api";
+import {
+  ConsoleApiError,
+  consoleErrorMessage,
+  consoleErrorReference,
+} from "@/src/shared/api";
 
 import styles from "./audit-page.module.css";
 
@@ -375,7 +379,7 @@ function AuditFilterBar({
           </select>
         </label>
         <label>
-          <span>체크포인트</span>
+          <span>검사 지점</span>
           <select
             value={draft.checkpoint}
             onChange={(event) => update("checkpoint", event.target.value)}
@@ -459,7 +463,7 @@ function AuditTable({
             <th scope="col">앱</th>
             <th scope="col">가드레일</th>
             <th scope="col">액션</th>
-            <th scope="col">체크포인트</th>
+            <th scope="col">검사 지점</th>
             <th scope="col">걸린 검사</th>
             <th scope="col">지연</th>
             <th scope="col">모드</th>
@@ -607,8 +611,8 @@ function AuditDetailContent({ detail }: { detail: AuditEventDetail }) {
             label="가드레일"
             value={`${detail.guardrail || "—"} · v${detail.guardrailVersion}`}
           />
-          <DetailField label="체크포인트" value={checkpointCopy[detail.checkpoint]} />
-          <DetailField label="티어" value={detail.tierReached || "없음"} />
+          <DetailField label="검사 지점" value={checkpointCopy[detail.checkpoint]} />
+          <DetailField label="티어" value={tierLabel(detail.tierReached)} />
           <DetailField label="모드" value={modeCopy[detail.mode]} />
           <DetailField label="오염" value={detail.tainted ? "오염됨" : "깨끗함"} />
           <DetailField label="지연" value={latencyFormat(detail.latencyMs)} />
@@ -632,7 +636,7 @@ function AuditDetailContent({ detail }: { detail: AuditEventDetail }) {
       <section className={styles.detailSection}>
         <div className={styles.detailSectionHeading}>
           <h3>판정 근거</h3>
-          <span>verdicts</span>
+          <span>원본 판정 필드</span>
         </div>
         <JsonValueView value={detail.verdicts} />
       </section>
@@ -704,10 +708,12 @@ function ErrorState({
         <p>
           {error instanceof ConsoleApiError && error.httpStatus === 0
             ? "게이트웨이가 실행 중이고 콘솔 오리진이 허용됐는지 확인하세요."
-            : error.message}
+            : error instanceof ConsoleApiError
+              ? consoleErrorMessage(error)
+              : "감사 기록을 불러오지 못했습니다. 잠시 후 다시 시도하세요."}
         </p>
-        {error instanceof ConsoleApiError && error.requestId ? (
-          <code>요청 ID {error.requestId}</code>
+        {error instanceof ConsoleApiError ? (
+          <code>{consoleErrorReference(error)}</code>
         ) : null}
       </div>
       <button type="button" onClick={onRetry}>다시 시도</button>
@@ -852,11 +858,17 @@ function numberFormat(value: number): string {
   return new Intl.NumberFormat("ko-KR").format(value);
 }
 
+function tierLabel(value: string): string {
+  if (value === "rule" || value === "rules") return "규칙";
+  if (value === "model") return "모델";
+  return value ? "기타" : "없음";
+}
+
 const verdictKeyCopy: Record<string, string> = {
   would_have: "관찰 모드 예상 결과",
   masked: "마스킹 적용",
   pending_model: "모델 판정 대기",
-  inspected: "검사한 체크포인트",
+  inspected: "검사 완료 지점",
   evidence: "액션 근거",
   tool: "툴",
   arguments: "검사한 인수",
@@ -864,7 +876,7 @@ const verdictKeyCopy: Record<string, string> = {
   check: "검사",
   action: "판정",
   count: "건수",
-  checkpoint: "체크포인트",
+  checkpoint: "검사 지점",
 };
 
 function verdictKeyLabel(key: string): string {

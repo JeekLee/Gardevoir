@@ -53,6 +53,8 @@ export function toEditorGraph(
       source: edge.src,
       target: edge.dst,
       type: "smoothstep",
+      ariaLabel: `${edge.src}에서 ${edge.dst}(으)로 연결`,
+      domAttributes: { "aria-roledescription": "연결선" },
     })),
   };
 }

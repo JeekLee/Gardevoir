@@ -13,7 +13,11 @@ import {
 } from "@/src/entities/guardrail";
 import { useSession } from "@/src/entities/session";
 import { GuardrailEditor } from "@/src/features/guardrail-editor";
-import { ConsoleApiError } from "@/src/shared/api";
+import {
+  ConsoleApiError,
+  consoleErrorMessage,
+  consoleErrorReference,
+} from "@/src/shared/api";
 
 import styles from "./guardrail-editor-page.module.css";
 
@@ -129,7 +133,7 @@ function EditorQueryBoundary({
       <div className={styles.loading} aria-live="polite">
         <span aria-hidden="true" />
         <div>
-          <p>Loading policy graph</p>
+          <p>정책 그래프를 불러오는 중…</p>
           <h1>{name}</h1>
         </div>
       </div>
@@ -147,17 +151,17 @@ function EditorQueryBoundary({
       <div className={styles.errorState} role="alert">
         <span aria-hidden="true">!</span>
         <div>
-          <p>{readOnly ? "Version unavailable" : "Draft unavailable"}</p>
+          <p>{readOnly ? "발행본을 사용할 수 없음" : "초안을 사용할 수 없음"}</p>
           <h1>{name}</h1>
           <span>{errorMessage(query.error, readOnly)}</span>
-          {query.error instanceof ConsoleApiError && query.error.requestId ? (
-            <code>Reference {query.error.requestId}</code>
+          {query.error instanceof ConsoleApiError ? (
+            <code>{consoleErrorReference(query.error)}</code>
           ) : null}
         </div>
         <div className={styles.errorActions}>
-          <Link href="/guardrails">Back to guardrails</Link>
+          <Link href="/guardrails">가드레일 목록으로</Link>
           <button type="button" onClick={() => void query.refetch()}>
-            Try again
+            다시 시도
           </button>
         </div>
       </div>
@@ -178,11 +182,12 @@ function EditorQueryBoundary({
 function errorMessage(error: Error, readOnly: boolean): string {
   if (error instanceof ConsoleApiError && error.httpStatus === 404) {
     return readOnly
-      ? "This immutable version does not exist."
-      : "This guardrail no longer has an editable draft.";
+      ? "요청한 발행 버전이 없습니다. 가드레일 목록에서 현재 발행본을 확인하세요."
+      : "편집할 초안이 없습니다. 가드레일 목록을 새로고침하세요.";
   }
   if (error instanceof ConsoleApiError && error.httpStatus === 0) {
-    return "The console could not reach the gateway.";
+    return "게이트웨이에 연결할 수 없습니다. 게이트웨이 상태와 네트워크 설정을 확인하세요.";
   }
-  return error.message || "The policy graph could not be loaded.";
+  if (error instanceof ConsoleApiError) return consoleErrorMessage(error);
+  return "정책 그래프를 불러오지 못했습니다. 잠시 후 다시 시도하세요.";
 }

@@ -13,9 +13,9 @@ import type { EditorGraph } from "../model/graph-mapper";
 import styles from "./guardrail-editor.module.css";
 
 const actionLabels = {
-  block: "Block",
-  mask: "Mask",
-  allow: "Allow",
+  block: "차단",
+  mask: "마스킹",
+  allow: "허용",
 } as const;
 
 export function GuardrailOverview({
@@ -62,25 +62,25 @@ export function GuardrailOverview({
     <div className={styles.overviewGrid}>
       <section className={styles.overviewHero}>
         <div>
-          <p>Guardrail overview</p>
+          <p>가드레일 개요</p>
           <h2>한 그래프, 네 검사 지점</h2>
           <span>{describeGuardrailGraph(wireGraph)}</span>
         </div>
         <dl className={styles.overviewMetrics}>
           <div>
-            <dt>Coverage</dt>
+            <dt>검사 지점</dt>
             <dd>{covered.length}/4</dd>
           </div>
           <div>
-            <dt>Nodes</dt>
+            <dt>노드</dt>
             <dd>{graph.nodes.length}</dd>
           </div>
           <div>
-            <dt>Verdicts</dt>
+            <dt>판정</dt>
             <dd>{totalVerdicts}</dd>
           </div>
         </dl>
-        <div className={styles.overviewOutcomes} aria-label="Guardrail outcomes">
+        <div className={styles.overviewOutcomes} aria-label="가드레일 판정 결과">
           <span>결과</span>
           {actions.length > 0 ? (
             actions.map((action) => (
@@ -89,7 +89,7 @@ export function GuardrailOverview({
               </b>
             ))
           ) : (
-            <em>아직 verdict가 없습니다.</em>
+            <em>아직 판정 노드가 없습니다.</em>
           )}
         </div>
       </section>
@@ -99,13 +99,13 @@ export function GuardrailOverview({
         aria-labelledby="guardrail-state-title"
       >
         <div>
-          <p>Guardrail state</p>
+          <p>가드레일 상태</p>
           <h2 id="guardrail-state-title">
             {readOnly
-              ? `Published v${versionNumber}`
+              ? `발행 버전 ${versionNumber}`
               : dirty
-                ? "Unsaved draft"
-                : "Draft saved"}
+                ? "저장하지 않은 초안"
+                : "초안 저장됨"}
           </h2>
           <span>
             {readOnly
@@ -117,17 +117,17 @@ export function GuardrailOverview({
         </div>
 
         <div className={styles.publishedState}>
-          <span>Published</span>
+          <span>발행 상태</span>
           {readOnly && versionNumber !== null ? (
-            <strong>v{versionNumber} · Read-only</strong>
+            <strong>버전 {versionNumber} · 읽기 전용</strong>
           ) : publishedVersion !== null ? (
             <Link
               href={`/guardrails/${encodeURIComponent(name)}/versions/${publishedVersion}`}
             >
-              View v{publishedVersion} ↗
+              발행 버전 {publishedVersion} 보기 ↗
             </Link>
           ) : (
-            <strong>Not published yet</strong>
+            <strong>아직 발행되지 않음</strong>
           )}
         </div>
 
@@ -137,7 +137,7 @@ export function GuardrailOverview({
               className={styles.primaryAction}
               href={`/guardrails/${encodeURIComponent(name)}`}
             >
-              Return to draft
+              초안으로 돌아가기
             </Link>
           ) : (
             <>
@@ -147,7 +147,7 @@ export function GuardrailOverview({
                 disabled={isBusy}
                 onClick={onTest}
               >
-                Test draft
+                초안 테스트
               </button>
               <button
                 className={styles.secondaryAction}
@@ -164,10 +164,10 @@ export function GuardrailOverview({
                 onClick={onPublish}
               >
                 {isPublishing
-                  ? "Publishing…"
+                  ? "발행하는 중…"
                   : dirty
-                    ? "Save & publish"
-                    : "Publish"}
+                    ? "저장 후 발행"
+                    : "발행"}
               </button>
             </>
           )}
@@ -180,9 +180,9 @@ export function GuardrailOverview({
       >
         <div className={styles.overviewSectionTitle}>
           <div>
-            <p>Checkpoint coverage</p>
+            <p>검사 지점 구성</p>
             <h2 id="checkpoint-overview-title">검사 지점별 정책 흐름</h2>
-            <small>번호는 체크포인트 ID이며, 카드 순서는 실제 요청 실행 순서입니다.</small>
+            <small>번호는 검사 지점 ID이며, 카드 순서는 실제 요청 실행 순서입니다.</small>
           </div>
           <span>카드를 선택해 해당 풀 캔버스로 이동합니다.</span>
         </div>
@@ -194,7 +194,7 @@ export function GuardrailOverview({
                 key={summary.checkpoint}
                 type="button"
                 onClick={() => onOpenCheckpoint(summary.checkpoint)}
-                aria-label={`${meta.index} ${meta.label}, 노드 ${summary.nodeCount}개, verdict ${summary.verdictCount}개`}
+                aria-label={`${meta.index} ${meta.label}, 노드 ${summary.nodeCount}개, 판정 ${summary.verdictCount}개`}
               >
                 <span className={styles.checkpointNumber}>{meta.index}</span>
                 <div>
@@ -204,11 +204,11 @@ export function GuardrailOverview({
                 </div>
                 <dl>
                   <div>
-                    <dt>Nodes</dt>
+                    <dt>노드</dt>
                     <dd>{summary.nodeCount}</dd>
                   </div>
                   <div>
-                    <dt>Verdicts</dt>
+                    <dt>판정</dt>
                     <dd>{summary.verdictCount}</dd>
                   </div>
                 </dl>
@@ -221,7 +221,7 @@ export function GuardrailOverview({
                     ))
                   ) : (
                     <em>
-                      {summary.nodeCount > 0 ? "No verdict" : "Not configured"}
+                      {summary.nodeCount > 0 ? "판정 없음" : "미구성"}
                     </em>
                   )}
                 </div>

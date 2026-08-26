@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { GuardrailEditorPage } from "@/src/_pages/guardrail-editor";
 
 export const metadata: Metadata = {
-  title: "Guardrail draft",
+  title: "가드레일 초안",
 };
 
 export default async function Page({

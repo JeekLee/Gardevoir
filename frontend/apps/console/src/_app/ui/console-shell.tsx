@@ -37,7 +37,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
     return (
       <main className={styles.loading} aria-live="polite">
         <GardevoirMark />
-        <p>Verifying console access…</p>
+        <p>콘솔 접근 권한을 확인하는 중…</p>
       </main>
     );
   }
@@ -45,11 +45,11 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
-        <Link className={styles.brand} href="/guardrails" aria-label="Gardevoir console home">
+        <Link className={styles.brand} href="/guardrails" aria-label="Gardevoir 콘솔 홈">
           <GardevoirMark compact />
           <span>
             <strong>gardevoir</strong>
-            <small>control room</small>
+            <small>통제실</small>
           </span>
         </Link>
 
@@ -81,7 +81,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
             </span>
             <span className={styles.identityText}>
               <strong>{session.user.name}</strong>
-              <small>Administrator</small>
+              <small>관리자</small>
             </span>
           </span>
           <LogoutButton />

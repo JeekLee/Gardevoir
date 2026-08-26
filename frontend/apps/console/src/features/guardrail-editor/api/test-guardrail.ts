@@ -70,6 +70,6 @@ function unexpectedStream(): ConsoleApiError {
   return new ConsoleApiError({
     httpStatus: 200,
     code: "CONSOLE-003",
-    message: "The gateway returned an unexpected response.",
+    message: "게이트웨이 응답 형식을 확인할 수 없습니다.",
   });
 }

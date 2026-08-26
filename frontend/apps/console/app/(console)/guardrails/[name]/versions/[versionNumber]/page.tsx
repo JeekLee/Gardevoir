@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { GuardrailEditorPage } from "@/src/_pages/guardrail-editor";
 
 export const metadata: Metadata = {
-  title: "Published guardrail",
+  title: "가드레일 발행본",
 };
 
 export default async function Page({

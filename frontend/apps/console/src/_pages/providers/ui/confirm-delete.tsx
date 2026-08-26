@@ -3,7 +3,11 @@
 import { useState } from "react";
 
 import { deleteProvider, type ProviderSummary } from "@/src/entities/provider";
-import { ConsoleApiError } from "@/src/shared/api";
+import {
+  ConsoleApiError,
+  consoleErrorMessage,
+  consoleErrorReference,
+} from "@/src/shared/api";
 import { ConfirmDialog } from "@/src/shared/ui/confirm-dialog";
 
 export function ConfirmDelete({
@@ -20,10 +24,12 @@ export function ConfirmDelete({
   onAuthorizationError: (error: ConsoleApiError) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const [errorReference, setErrorReference] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function remove() {
     setError(null);
+    setErrorReference(null);
     setIsSubmitting(true);
     try {
       await deleteProvider(accessToken, provider.id);
@@ -37,10 +43,12 @@ export function ConfirmDelete({
         return;
       }
       if (caught instanceof ConsoleApiError) {
-        const reference = caught.requestId ? ` Reference ${caught.requestId}.` : "";
-        setError(`${caught.message}${reference}`);
+        setError(consoleErrorMessage(caught));
+        setErrorReference(consoleErrorReference(caught));
       } else {
-        setError("This provider could not be deleted. Try again.");
+        setError(
+          "프로바이더를 삭제하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.",
+        );
       }
     } finally {
       setIsSubmitting(false);
@@ -50,18 +58,25 @@ export function ConfirmDelete({
   return (
     <ConfirmDialog
       id="delete-provider"
-      eyebrow="Remove route"
-      title={`Delete ${provider.name}?`}
+      eyebrow="업스트림 경로 삭제"
+      title={`${provider.name} 프로바이더를 삭제할까요?`}
       description={
         <p>
-          Requests using {provider.models.length === 1 ? "its model" : "its models"} will no
-          longer have an upstream route. This action cannot be undone.
+          이 프로바이더의 모델 {provider.models.length}개를 사용하는 요청은 더 이상
+          업스트림 경로를 찾을 수 없습니다. 이 작업은 되돌릴 수 없습니다.
         </p>
       }
-      cancelLabel="Keep provider"
-      confirmLabel={isSubmitting ? "Deleting…" : "Delete provider"}
+      cancelLabel="프로바이더 유지"
+      confirmLabel={isSubmitting ? "삭제하는 중…" : "프로바이더 삭제"}
       isSubmitting={isSubmitting}
-      error={error}
+      error={
+        error ? (
+          <>
+            <span>{error}</span>
+            {errorReference ? <code>{errorReference}</code> : null}
+          </>
+        ) : null
+      }
       onClose={onClose}
       onConfirm={() => void remove()}
     />

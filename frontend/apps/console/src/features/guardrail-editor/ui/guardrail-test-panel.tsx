@@ -5,7 +5,11 @@ import Link from "next/link";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 
 import { useProviders } from "@/src/entities/provider";
-import { ConsoleApiError } from "@/src/shared/api";
+import {
+  ConsoleApiError,
+  consoleErrorMessage,
+  consoleErrorReference,
+} from "@/src/shared/api";
 
 import { streamGuardrailTest } from "../api/test-guardrail";
 import {
@@ -24,20 +28,20 @@ const checkpointSections: {
   label: string;
   timing: "immediate" | "streaming";
 }[] = [
-  { key: "input", index: "①", label: "input 적용 결과", timing: "immediate" },
+  { key: "input", index: "①", label: "입력 적용 결과", timing: "immediate" },
   {
     key: "toolResult",
     index: "②",
-    label: "tool_result 적용 결과",
+    label: "툴 결과 적용 결과",
     timing: "immediate",
   },
   {
     key: "toolCall",
     index: "④",
-    label: "tool_call 적용 결과",
+    label: "툴 호출 적용 결과",
     timing: "streaming",
   },
-  { key: "output", index: "③", label: "output 적용 결과", timing: "streaming" },
+  { key: "output", index: "③", label: "출력 적용 결과", timing: "streaming" },
 ];
 
 export function GuardrailTestPanel({
@@ -157,17 +161,17 @@ export function GuardrailTestPanel({
     <section className={styles.panel} aria-labelledby="guardrail-test-title">
       <header className={styles.panelHeader}>
         <div className={styles.headerCopy}>
-          <h2 id="guardrail-test-title">Upstream Test</h2>
+          <h2 id="guardrail-test-title">업스트림 테스트</h2>
           <span>
-            저장된 draft를 즉석 컴파일하고 입력·출력 마스킹 적용 결과를 실시간으로
+            저장된 초안을 즉석에서 컴파일하고 입력·출력 마스킹 적용 결과를 실시간으로
             확인합니다.
           </span>
         </div>
         <div className={styles.headerControls}>
           <div className={styles.testContext}>
             <div className={styles.testMode}>
-              <strong>Draft enforcement test</strong>
-              <span>저장된 초안을 enforce 모드로 검사하며 발행본에는 영향을 주지 않습니다.</span>
+              <strong>초안 강제 적용 테스트</strong>
+              <span>저장된 초안을 강제 적용 모드로 검사하며 발행본에는 영향을 주지 않습니다.</span>
             </div>
             <label className={styles.modelPicker}>
               <span>업스트림 모델</span>
@@ -225,7 +229,7 @@ export function GuardrailTestPanel({
             }
           >
             {isPreparing
-              ? "Draft 저장 중…"
+              ? "초안 저장 중…"
               : streamState === "streaming"
                 ? "응답 스트리밍 중…"
                 : dirty
@@ -246,7 +250,7 @@ export function GuardrailTestPanel({
 
       {providers.error ? (
         <div className={styles.error} role="alert">
-          <span>{providers.error.message}</span>
+          <span>{consoleErrorMessage(providers.error)}</span>
           <button type="button" onClick={() => void providers.reload()}>
             모델 다시 불러오기
           </button>
@@ -267,11 +271,8 @@ export function GuardrailTestPanel({
 
       {error ? (
         <div className={styles.error} role="alert">
-          <span>{error.message}</span>
-          <code>
-            Reference {error.code}
-            {error.requestId ? ` · ${error.requestId}` : ""}
-          </code>
+          <span>{consoleErrorMessage(error)}</span>
+          <code>{consoleErrorReference(error)}</code>
         </div>
       ) : null}
 
@@ -306,14 +307,14 @@ function TestFlow({
         <ResultSummary result={result} />
       ) : (
         <div className={styles.streamingSummary} role="status">
-          <span>Upstream response</span>
+          <span>업스트림 응답</span>
           <strong>
             {state === "streaming" ? "스트리밍 중" : "스트리밍 취소됨"}
           </strong>
         </div>
       )}
 
-      <div className={styles.checkpoints} aria-label="체크포인트 테스트 결과">
+      <div className={styles.checkpoints} aria-label="검사 지점별 테스트 결과">
         {checkpointSections.map((section) => {
           const checkpoint =
             result?.checkpoints[section.key] ??
@@ -366,23 +367,23 @@ function ResultSummary({ result }: { result: GuardrailTestResult }) {
   return (
     <div className={styles.resultSummary}>
       <div>
-        <span>Overall action</span>
+        <span>최종 판정</span>
         <strong className={styles[result.overallAction]}>
-          {result.overallAction}
+          {actionLabel(result.overallAction)}
         </strong>
       </div>
       <dl>
         <div>
-          <dt>Model</dt>
+          <dt>모델</dt>
           <dd>{result.model}</dd>
         </div>
         <div>
-          <dt>Latency</dt>
+          <dt>지연</dt>
           <dd>{result.latencyMs.toFixed(1)} ms</dd>
         </div>
         {result.auditId ? (
           <div>
-            <dt>Audit</dt>
+            <dt>감사</dt>
             <dd>{result.auditId}</dd>
           </div>
         ) : null}
@@ -432,7 +433,7 @@ function CheckpointSection({
         <span className={styles.checkpointIndex}>{index}</span>
         <div>
           <h3>{label}</h3>
-          <small>{timing === "immediate" ? "즉시 확정" : "streaming"}</small>
+          <small>{timing === "immediate" ? "즉시 확정" : "스트리밍 중 확정"}</small>
         </div>
         {checkpoint ? (
           <b
@@ -443,11 +444,11 @@ function CheckpointSection({
             }
             aria-label={
               !inactive
-                ? `적용 판정 ${checkpoint.action}`
+                ? `적용 판정 ${actionLabel(checkpoint.action)}`
                 : "적용 판정 미발동"
             }
           >
-            {!inactive ? checkpoint.action : "미발동"}
+            {!inactive ? actionLabel(checkpoint.action) : "미발동"}
           </b>
         ) : (
           <b className={inactive ? styles.inactiveBadge : styles.pendingBadge}>
@@ -487,7 +488,7 @@ function CheckpointSection({
 
       {checkpointKey === "toolCall" && (toolCalls?.length ?? 0) > 0 ? (
         <div className={styles.toolCalls}>
-          <span>Tool calls</span>
+          <span>툴 호출</span>
           <pre>{JSON.stringify(toolCalls, null, 2)}</pre>
         </div>
       ) : null}
@@ -514,20 +515,20 @@ function CheckpointDetails({
       ) : null}
       <dl>
         <div>
-          <dt>Ran</dt>
-          <dd>{inactive ? "no" : "yes"}</dd>
+          <dt>검사 실행</dt>
+          <dd>{inactive ? "아니요" : "예"}</dd>
         </div>
         <div>
-          <dt>Tier</dt>
-          <dd>{inactive ? "—" : checkpoint.tier || "—"}</dd>
+          <dt>도달 티어</dt>
+          <dd>{inactive ? "—" : tierLabel(checkpoint.tier)}</dd>
         </div>
         <div>
-          <dt>Masked</dt>
-          <dd>{!inactive && checkpoint.masked ? "yes" : "no"}</dd>
+          <dt>마스킹</dt>
+          <dd>{!inactive && checkpoint.masked ? "예" : "아니요"}</dd>
         </div>
       </dl>
       <div className={styles.firedChecks}>
-        <span>Checks fired</span>
+        <span>발동한 검사</span>
         {checkpoint.checksFired.length > 0 ? (
           <div>
             {checkpoint.checksFired.map((code, index) => (
@@ -539,12 +540,12 @@ function CheckpointDetails({
         )}
       </div>
       <div className={styles.evidence}>
-        <span>Evidence</span>
+        <span>근거</span>
         {checkpoint.evidence.length > 0 ? (
           checkpoint.evidence.map((item, index) => (
             <p key={`${item.tool}-${index}`}>
               <strong>{item.tool}</strong>
-              <code>{item.arguments.join(", ") || "arguments 없음"}</code>
+              <code>{item.arguments.join(", ") || "인수 없음"}</code>
             </p>
           ))
         ) : (
@@ -704,4 +705,16 @@ function normalizeError(error: unknown): ConsoleApiError {
         code: "CONSOLE-006",
         message: "가드레일 실제 호출 테스트를 완료하지 못했습니다.",
       });
+}
+
+function actionLabel(action: GuardrailTestCheckpoint["action"]): string {
+  if (action === "block") return "차단";
+  if (action === "mask") return "마스킹";
+  return "허용";
+}
+
+function tierLabel(tier: string): string {
+  if (tier === "rule" || tier === "rules") return "규칙";
+  if (tier === "model") return "모델";
+  return tier ? "기타" : "—";
 }
