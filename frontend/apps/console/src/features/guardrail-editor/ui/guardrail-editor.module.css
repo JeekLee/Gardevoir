@@ -498,6 +498,11 @@
   padding: 1.35rem;
 }
 
+.connectionOverview {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
 .overviewSectionTitle {
   align-items: end;
   display: flex;

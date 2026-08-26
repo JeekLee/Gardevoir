@@ -1,0 +1,225 @@
+.panel {
+  background:
+    radial-gradient(circle at 96% 0%, var(--brand-soft), transparent 28rem),
+    var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1.1rem;
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1.35rem;
+}
+
+.heading {
+  align-items: end;
+  display: flex;
+  gap: 1.5rem;
+  justify-content: space-between;
+}
+
+.heading > div {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.heading p {
+  color: var(--brand-strong);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.heading h2 {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  letter-spacing: -0.045em;
+}
+
+.heading span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.heading > code {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  color: var(--brand-deep);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  max-width: 48%;
+  overflow-wrap: anywhere;
+  padding: 0.55rem 0.7rem;
+}
+
+.controls {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.controls label,
+.fixedValue {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.controls label > span,
+.fixedValue > span {
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 800;
+}
+
+.controls select,
+.fixedValue code {
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: 0.68rem;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  min-height: 2.65rem;
+  min-width: 0;
+  padding: 0 0.7rem;
+  width: 100%;
+}
+
+.controls select {
+  cursor: pointer;
+}
+
+.controls select:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.fixedValue code {
+  align-items: center;
+  display: flex;
+  overflow-wrap: anywhere;
+}
+
+.readiness {
+  background: var(--warn-soft);
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, var(--border));
+  border-radius: 0.65rem;
+  color: color-mix(in srgb, var(--warn) 76%, var(--text));
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.6rem 0.75rem;
+}
+
+.snippet {
+  background: #101815;
+  border: 1px solid color-mix(in srgb, var(--brand) 24%, #101815);
+  border-radius: 0.85rem;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.snippet pre {
+  color: #d9eee6;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  line-height: 1.65;
+  margin: 0;
+  max-height: 19rem;
+  overflow: auto;
+  padding: 3.4rem 1rem 1rem;
+  white-space: pre;
+}
+
+.snippet button {
+  background: rgb(255 255 255 / 9%);
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 0.58rem;
+  color: #e9f7f1;
+  cursor: pointer;
+  font-size: 0.66rem;
+  font-weight: 800;
+  min-height: 2.1rem;
+  padding: 0 0.7rem;
+  position: absolute;
+  right: 0.75rem;
+  top: 0.7rem;
+  transition:
+    background 150ms ease,
+    transform 150ms ease;
+}
+
+.snippet button:hover {
+  background: rgb(255 255 255 / 15%);
+  transform: translateY(-1px);
+}
+
+.copyStatus {
+  color: var(--muted);
+  font-size: 0.65rem;
+  min-height: 1em;
+}
+
+.headerGuide {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.headerGuide > div {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 0.25rem;
+  padding-top: 0.65rem;
+}
+
+.headerGuide dt {
+  color: var(--brand-deep);
+  font-family: var(--font-mono);
+  font-size: 0.61rem;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.headerGuide dd {
+  color: var(--muted);
+  font-size: 0.67rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .heading {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .heading > code {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .controls,
+  .headerGuide {
+    grid-template-columns: 1fr;
+  }
+
+  .snippet pre {
+    font-size: 0.62rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .snippet button {
+    transition: none;
+  }
+
+  .snippet button:hover {
+    transform: none;
+  }
+}

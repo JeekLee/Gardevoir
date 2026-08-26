@@ -1,3 +1,5 @@
+import { consoleApiBase } from "@/src/shared/config";
+
 type JsonObject = Record<string, unknown>;
 
 type RequestBase = {
@@ -63,9 +65,7 @@ async function apiRequestAttempt<T>(
   options: EmptyRequest | JsonRequest<T>,
   allowSessionRecovery: boolean,
 ): Promise<void | T> {
-  const apiBase = (
-    process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:21000/v1"
-  ).replace(/\/+$/, "");
+  const apiBase = consoleApiBase();
   const headers = new Headers({ Accept: "application/json" });
   if (options.body !== undefined) {
     headers.set("Content-Type", "application/json");
@@ -153,9 +153,7 @@ async function apiStreamAttempt(
   options: StreamRequest,
   allowSessionRecovery: boolean,
 ): Promise<void> {
-  const apiBase = (
-    process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:21000/v1"
-  ).replace(/\/+$/, "");
+  const apiBase = consoleApiBase();
   const headers = new Headers({ Accept: "text/event-stream" });
   if (options.body !== undefined) {
     headers.set("Content-Type", "application/json");

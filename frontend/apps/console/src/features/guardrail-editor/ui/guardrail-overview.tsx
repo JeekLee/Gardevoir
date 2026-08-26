@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AppConnectionPanel } from "@/src/entities/api-key";
 import {
   describeGuardrailGraph,
   guardrailActions,
@@ -93,6 +94,15 @@ export function GuardrailOverview({
           )}
         </div>
       </section>
+
+      <div className={styles.connectionOverview}>
+        <AppConnectionPanel
+          initialGuardrailName={name}
+          isGuardrailReady={readOnly || publishedVersion !== null}
+          title="앱 연결"
+          description="이 가드레일 이름이 미리 입력된 curl 요청으로 실제 앱 연결 형식을 확인하세요."
+        />
+      </div>
 
       <section
         className={styles.guardrailState}

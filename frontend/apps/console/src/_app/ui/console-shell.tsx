@@ -67,6 +67,12 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
             프로바이더
           </Link>
           <Link
+            aria-current={pathname.startsWith("/api-keys") ? "page" : undefined}
+            href="/api-keys"
+          >
+            API 키
+          </Link>
+          <Link
             aria-current={pathname.startsWith("/audit") ? "page" : undefined}
             href="/audit"
           >
