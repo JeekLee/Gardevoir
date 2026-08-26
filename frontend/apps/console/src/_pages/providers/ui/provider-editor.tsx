@@ -9,12 +9,15 @@ import {
 
 import {
   createProvider,
-  type ProviderInput,
+  type CreateProviderInput,
   type ProviderSummary,
+  type UpdateProviderInput,
   updateProvider,
 } from "@/src/entities/provider";
 import { ConsoleApiError } from "@/src/shared/api";
+import { ConfirmDialog } from "@/src/shared/ui/confirm-dialog";
 
+import { providerApiKeyChange } from "../model/api-key-change";
 import styles from "./providers-page.module.css";
 
 type FieldErrors = Partial<Record<"name" | "baseUrl" | "models", string>>;
@@ -36,6 +39,8 @@ export function ProviderEditor({
   const [name, setName] = useState(provider?.name ?? "");
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "");
   const [apiKey, setApiKey] = useState("");
+  const [removeApiKey, setRemoveApiKey] = useState(false);
+  const [isConfirmingKeyRemoval, setIsConfirmingKeyRemoval] = useState(false);
   const [models, setModels] = useState<string[]>(provider?.models ?? []);
   const [modelDraft, setModelDraft] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -98,18 +103,33 @@ export function ProviderEditor({
       return;
     }
 
-    const input: ProviderInput = {
+    const commonInput = {
       name: nextName,
       baseUrl: nextBaseUrl,
-      apiKey,
       models: nextModels,
     };
+    const apiKeyChange = providerApiKeyChange({
+      isEditing: provider !== null,
+      draft: apiKey,
+      removeConfirmed: removeApiKey,
+    });
 
     setIsSubmitting(true);
     try {
-      const saved = provider
-        ? await updateProvider(accessToken, provider.id, input)
-        : await createProvider(accessToken, input);
+      let saved: ProviderSummary;
+      if (provider) {
+        const input: UpdateProviderInput = {
+          ...commonInput,
+          apiKey: apiKeyChange,
+        };
+        saved = await updateProvider(accessToken, provider.id, input);
+      } else {
+        const input: CreateProviderInput = {
+          ...commonInput,
+          apiKey: apiKeyChange ?? "",
+        };
+        saved = await createProvider(accessToken, input);
+      }
       onSaved(saved);
     } catch (caught) {
       if (
@@ -129,7 +149,7 @@ export function ProviderEditor({
     }
   }
 
-  return (
+  const editorDialog = (
     <dialog
       ref={setDialog}
       className={styles.dialog}
@@ -214,24 +234,52 @@ export function ProviderEditor({
             )}
           </label>
 
-          <label className={styles.field}>
-            <span>
+          <div className={styles.field}>
+            <label htmlFor="provider-api-key">
               API key <em>Optional</em>
-            </span>
+            </label>
             <input
+              id="provider-api-key"
               className={styles.monoInput}
               type="password"
               value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
+              onChange={(event) => {
+                setApiKey(event.target.value);
+                setRemoveApiKey(false);
+              }}
               autoComplete="new-password"
-              placeholder={provider?.hasApiKey ? "Current key is hidden" : "sk-…"}
+              disabled={removeApiKey}
+              placeholder={
+                removeApiKey
+                  ? "Key will be removed"
+                  : provider?.hasApiKey
+                    ? "Current key is hidden"
+                    : "sk-…"
+              }
             />
             <small className={styles.fieldHelp}>
-              {provider?.hasApiKey
-                ? "The current key cannot be shown. Leaving this empty removes it when saved."
-                : "Leave empty for a local or keyless model server."}
+              {removeApiKey
+                ? "The saved key will be removed when you save these changes."
+                : provider?.hasApiKey
+                  ? "The current key cannot be shown. Leave this empty to keep it, or enter a replacement."
+                  : "Leave empty for a local or keyless model server."}
             </small>
-          </label>
+            {provider?.hasApiKey ? (
+              <button
+                className={removeApiKey ? styles.undoKeyButton : styles.removeKeyButton}
+                type="button"
+                onClick={() => {
+                  if (removeApiKey) {
+                    setRemoveApiKey(false);
+                  } else {
+                    setIsConfirmingKeyRemoval(true);
+                  }
+                }}
+              >
+                {removeApiKey ? "Keep saved key" : "Remove saved key"}
+              </button>
+            ) : null}
+          </div>
 
           <div className={styles.field}>
             <span>Models</span>
@@ -287,6 +335,33 @@ export function ProviderEditor({
         </div>
       </form>
     </dialog>
+  );
+
+  return (
+    <>
+      {editorDialog}
+      {isConfirmingKeyRemoval ? (
+        <ConfirmDialog
+          id="remove-provider-key"
+          eyebrow="Remove credential"
+          title={`Remove the saved key for ${provider?.name ?? "this provider"}?`}
+          description={
+            <p>
+              Requests routed to this provider may fail unless its endpoint accepts
+              keyless access. The key is removed only after you save the provider.
+            </p>
+          }
+          cancelLabel="Keep key"
+          confirmLabel="Remove key"
+          onClose={() => setIsConfirmingKeyRemoval(false)}
+          onConfirm={() => {
+            setApiKey("");
+            setRemoveApiKey(true);
+            setIsConfirmingKeyRemoval(false);
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

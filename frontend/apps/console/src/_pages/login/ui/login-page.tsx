@@ -5,8 +5,10 @@ import styles from "./login-page.module.css";
 
 export function LoginPage({
   reason,
+  returnTo,
 }: {
   reason: "expired" | "forbidden" | null;
+  returnTo: string | null;
 }) {
   return (
     <main className={styles.page}>
@@ -43,7 +45,7 @@ export function LoginPage({
 
       <section className={styles.access} aria-label="Sign in">
         <div className={styles.card}>
-          <LoginForm reason={reason} />
+          <LoginForm reason={reason} returnTo={returnTo} />
           <p className={styles.footnote}>
             Console credentials are separate from application <code>gdv_</code>
             keys.

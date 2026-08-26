@@ -166,6 +166,9 @@ export function CreateGuardrailDialog({
             <i aria-hidden="true" />
             <span>③ Output</span>
           </div>
+          <small className={styles.checkpointPreviewNote}>
+            번호는 체크포인트 ID이며, 미리보기는 실제 요청 실행 순서입니다.
+          </small>
         </div>
 
         <div className={styles.dialogActions}>

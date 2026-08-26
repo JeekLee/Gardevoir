@@ -102,14 +102,17 @@ function EditorQueryBoundary({
 
   const handleAuthorizationError = useCallback(
     (error: ConsoleApiError) => {
+      const editorPath = readOnly
+        ? `/guardrails/${encodeURIComponent(name)}/versions/${latestPublishedVersion}`
+        : `/guardrails/${encodeURIComponent(name)}`;
       endSession();
       router.replace(
         error.httpStatus === 403
           ? "/login?reason=forbidden"
-          : "/login?reason=expired",
+          : `/login?reason=expired&returnTo=${encodeURIComponent(editorPath)}`,
       );
     },
-    [endSession, router],
+    [endSession, latestPublishedVersion, name, readOnly, router],
   );
 
   useEffect(() => {

@@ -14,7 +14,7 @@
 }
 
 .loading > span {
-  animation: pulse 1.2s ease-in-out infinite;
+  animation: loading-spin 1.2s linear infinite;
   border: 3px solid var(--brand-soft);
   border-radius: 50%;
   border-top-color: var(--brand);
@@ -106,7 +106,7 @@
   display: flex;
 }
 
-@keyframes pulse {
+@keyframes loading-spin {
   to { transform: rotate(360deg); }
 }
 

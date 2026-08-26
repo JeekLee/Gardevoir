@@ -16,7 +16,13 @@ const reasonMessages: Record<Exclude<LoginReason, null>, string> = {
   forbidden: "Administrator access is required for provider management.",
 };
 
-export function LoginForm({ reason }: { reason: LoginReason }) {
+export function LoginForm({
+  reason,
+  returnTo,
+}: {
+  reason: LoginReason;
+  returnTo: string | null;
+}) {
   const router = useRouter();
   const { session, isReady, establishSession, endSession } = useSession();
   const [error, setError] = useState<string | null>(
@@ -47,7 +53,7 @@ export function LoginForm({ reason }: { reason: LoginReason }) {
         return;
       }
       establishSession(nextSession);
-      router.replace("/providers");
+      router.replace(returnTo ?? "/providers");
     } catch (caught) {
       if (caught instanceof ConsoleApiError && caught.code === "USER-001") {
         setError("Email or password is incorrect.");

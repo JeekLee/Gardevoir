@@ -18,6 +18,8 @@
   --danger: #e23c4e;
   --danger-strong: #b92639;
   --danger-soft: rgb(226 60 78 / 9%);
+  --warn: #b47708;
+  --warn-soft: rgb(217 155 36 / 13%);
   --overlay: rgb(15 28 22 / 48%);
   --shadow: 0 1.4rem 4rem rgb(32 62 49 / 9%);
   --font-display: "Space Grotesk Variable", "Avenir Next", sans-serif;
@@ -46,6 +48,8 @@
     --danger: #f26173;
     --danger-strong: #ff8997;
     --danger-soft: rgb(242 97 115 / 11%);
+    --warn: #f0b84c;
+    --warn-soft: rgb(240 184 76 / 14%);
     --overlay: rgb(3 8 6 / 72%);
     --shadow: 0 1.4rem 4rem rgb(0 0 0 / 24%);
   }

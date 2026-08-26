@@ -49,19 +49,33 @@
   gap: 0.65rem;
 }
 
-.testContext > p {
+.testMode {
   background: var(--brand-soft);
   border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--border));
   border-radius: 999px;
   color: var(--brand-deep);
+  margin-top: 1.2rem;
+  max-width: 18rem;
+  padding: 0.5rem 0.65rem;
+}
+
+.testMode strong,
+.testMode span {
+  display: block;
+}
+
+.testMode strong {
   font-family: var(--font-mono);
   font-size: 0.62rem;
-  font-weight: 850;
-  letter-spacing: 0.08em;
-  margin-top: 1.2rem;
-  padding: 0.45rem 0.65rem;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  white-space: nowrap;
+}
+
+.testMode span {
+  color: var(--muted-strong);
+  font-size: 0.62rem;
+  line-height: 1.4;
+  margin-top: 0.2rem;
 }
 
 .modelPicker {
@@ -133,6 +147,46 @@
   font-weight: 850;
   min-height: 2.7rem;
   padding: 0 0.9rem;
+}
+
+.error code {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  opacity: 0.78;
+}
+
+.emptyModels {
+  align-items: center;
+  background: var(--surface);
+  border: 1px dashed var(--border-strong);
+  border-radius: 0.72rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 0.85rem;
+}
+
+.emptyModels > div {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.emptyModels strong {
+  font-size: 0.76rem;
+}
+
+.emptyModels span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.emptyModels a {
+  color: var(--brand-deep);
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-decoration: none;
 }
 
 .formActions {
@@ -228,13 +282,13 @@
 }
 
 .mask {
-  background: color-mix(in srgb, #d99b24 16%, var(--surface));
-  color: color-mix(in srgb, #b47708 82%, var(--text));
+  background: var(--warn-soft);
+  color: color-mix(in srgb, var(--warn) 78%, var(--text));
 }
 
 .allow {
-  background: var(--brand-soft);
-  color: var(--brand-deep);
+  background: var(--surface-subtle);
+  color: var(--muted-strong);
 }
 
 .resultSummary dl,
@@ -258,7 +312,7 @@
 .resultSummary dt,
 .checkpointDetails dt {
   color: var(--muted);
-  font-size: 0.55rem;
+  font-size: 0.6rem;
   text-transform: uppercase;
 }
 
@@ -288,9 +342,9 @@
 }
 
 .checkpointSection.firedCard {
-  border-color: color-mix(in srgb, #d99b24 58%, var(--border));
-  border-left-color: #d99b24;
-  box-shadow: 0 0 0 3px color-mix(in srgb, #d99b24 10%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 58%, var(--border));
+  border-left-color: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 10%, transparent);
 }
 
 .inactiveSection {
@@ -327,7 +381,7 @@
 .checkpointSection > header small {
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.55rem;
+  font-size: 0.6rem;
 }
 
 .checkpointSection > header > b {
@@ -393,7 +447,7 @@
   border-radius: 0.3rem;
   color: var(--muted-strong);
   font-family: var(--font-mono);
-  font-size: 0.55rem;
+  font-size: 0.6rem;
   overflow-wrap: anywhere;
   padding: 0.2rem 0.3rem;
 }
@@ -440,14 +494,14 @@
 .requestText > header > small {
   border-radius: 999px;
   font-family: var(--font-mono);
-  font-size: 0.56rem;
+  font-size: 0.6rem;
   margin-left: auto;
   padding: 0.28rem 0.45rem;
 }
 
 .maskedStatus {
-  background: color-mix(in srgb, #d99b24 18%, var(--surface));
-  color: color-mix(in srgb, #9c6500 88%, var(--text));
+  background: var(--warn-soft);
+  color: color-mix(in srgb, var(--warn) 78%, var(--text));
 }
 
 .unmaskedStatus {
@@ -492,21 +546,21 @@
 }
 
 .appliedText {
-  border-color: color-mix(in srgb, #d99b24 45%, var(--border));
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
 }
 
 .applyArrow {
   align-self: center;
-  color: color-mix(in srgb, #b47708 82%, var(--text));
+  color: color-mix(in srgb, var(--warn) 78%, var(--text));
   font-family: var(--font-mono);
   font-size: 1rem;
   font-weight: 850;
 }
 
 .maskHighlight {
-  background: color-mix(in srgb, #f3c768 58%, var(--surface));
+  background: color-mix(in srgb, var(--warn) 42%, var(--surface));
   border-radius: 0.2rem;
-  color: color-mix(in srgb, #774b00 90%, var(--text));
+  color: color-mix(in srgb, var(--warn) 72%, var(--text));
   font-weight: 850;
   padding: 0.08rem 0.16rem;
 }
@@ -521,7 +575,7 @@
 .outputContent > header small {
   color: var(--brand-deep);
   font-family: var(--font-mono);
-  font-size: 0.58rem;
+  font-size: 0.6rem;
   margin-left: auto;
 }
 
@@ -558,9 +612,9 @@
 }
 
 .unmaskableBadge {
-  background: color-mix(in srgb, #d99b24 18%, var(--surface));
+  background: var(--warn-soft);
   border-radius: 999px;
-  color: color-mix(in srgb, #9c6500 88%, var(--text));
+  color: color-mix(in srgb, var(--warn) 78%, var(--text));
   font-size: 0.62rem;
   padding: 0.35rem 0.55rem;
 }
@@ -587,6 +641,11 @@
     min-width: min(24rem, 60vw);
   }
 
+  .emptyModels {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .checkpointDetails {
     grid-template-columns: auto minmax(0, 1fr);
   }
@@ -611,7 +670,7 @@
     flex-direction: column;
   }
 
-  .testContext > p {
+  .testMode {
     align-self: start;
     margin-top: 0;
   }

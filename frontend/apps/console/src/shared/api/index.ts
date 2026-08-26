@@ -1,1 +1,6 @@
-export { apiRequest, apiStream, ConsoleApiError } from "./request";
+export {
+  apiRequest,
+  apiStream,
+  ConsoleApiError,
+  setSessionRecovery,
+} from "./request";

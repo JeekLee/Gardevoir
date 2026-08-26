@@ -91,14 +91,17 @@ function GuardrailWorkspace({
         </button>
       </div>
 
-      <div className={styles.checkpointRail} aria-label="Inspection sequence">
-        <Checkpoint number="①" label="Input" detail="User message" />
-        <span aria-hidden="true" />
-        <Checkpoint number="②" label="Tool result" detail="Untrusted data" action />
-        <span aria-hidden="true" />
-        <Checkpoint number="④" label="Tool call" detail="Agent action" action />
-        <span aria-hidden="true" />
-        <Checkpoint number="③" label="Output" detail="Model response" />
+      <div className={styles.checkpointGuide}>
+        <div className={styles.checkpointRail} aria-label="Inspection sequence">
+          <Checkpoint number="①" label="Input" detail="User message" />
+          <span aria-hidden="true" />
+          <Checkpoint number="②" label="Tool result" detail="Untrusted data" action />
+          <span aria-hidden="true" />
+          <Checkpoint number="④" label="Tool call" detail="Agent action" action />
+          <span aria-hidden="true" />
+          <Checkpoint number="③" label="Output" detail="Model response" />
+        </div>
+        <p>번호는 체크포인트 ID이며, 레인은 실제 요청 실행 순서입니다.</p>
       </div>
 
       <div className={styles.statusBar}>

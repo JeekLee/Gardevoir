@@ -4,7 +4,8 @@ export {
   updateProvider,
 } from "./api/provider-api";
 export {
-  type ProviderInput,
+  type CreateProviderInput,
+  type UpdateProviderInput,
   type ProviderPage,
   type ProviderSummary,
 } from "./model/provider";

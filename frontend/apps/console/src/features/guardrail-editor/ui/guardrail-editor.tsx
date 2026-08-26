@@ -32,6 +32,7 @@ import {
 } from "@/src/entities/guardrail";
 import { ConsoleApiError } from "@/src/shared/api";
 import { randomId } from "@/src/shared/lib";
+import { ConfirmDialog } from "@/src/shared/ui/confirm-dialog";
 
 import {
   catalogForCheckpoint,
@@ -45,6 +46,11 @@ import {
   type EditorTab,
 } from "../model/checkpoint-view";
 import { connectionError } from "../model/connections";
+import {
+  clearRecoveredDraft,
+  peekRecoveredDraft,
+  preserveRecoveredDraft,
+} from "../model/draft-recovery";
 import {
   firedCheckCodes,
   testHighlights,
@@ -73,6 +79,15 @@ const flowNodeTypes = {
   guardrail: GuardrailNodeCard,
 };
 
+type VisibleGraphError = {
+  message: string;
+  reference?: string;
+};
+
+type PendingDestructiveAction =
+  | { kind: "node"; nodeId: string; label: string }
+  | { kind: "template"; template: GuardrailTemplate };
+
 export function GuardrailEditor({
   detail,
   accessToken,
@@ -87,8 +102,12 @@ export function GuardrailEditor({
   onAuthorizationError: (error: ConsoleApiError) => void;
 }) {
   const queryClient = useQueryClient();
+  const recoveredDraft = useMemo(
+    () => (readOnly ? null : peekRecoveredDraft(detail.name)),
+    [detail.name, readOnly],
+  );
   const [graph, setGraph] = useState<EditorGraph>(() =>
-    toEditorGraph(detail.graph),
+    recoveredDraft ?? toEditorGraph(detail.graph),
   );
   const [baseline, setBaseline] = useState<GuardrailGraph>(detail.graph);
   const [activeTab, setActiveTab] = useState<EditorTab>("overview");
@@ -100,17 +119,26 @@ export function GuardrailEditor({
   const [flowInstance, setFlowInstance] = useState<
     ReactFlowInstance<GuardrailFlowNode, GuardrailFlowEdge> | undefined
   >();
-  const [graphError, setGraphError] = useState<string | null>(null);
+  const [graphError, setGraphError] = useState<VisibleGraphError | null>(null);
+  const [connectionRejection, setConnectionRejection] = useState<string | null>(
+    null,
+  );
   const [status, setStatus] = useState<string>(
     readOnly
       ? `Published version ${detail.versionNumber} is read-only.`
-      : "Draft loaded. Changes are local until you save.",
+      : recoveredDraft
+        ? "Unsaved draft restored after sign-in. Save when you are ready."
+        : "Draft loaded. Changes are local until you save.",
   );
   const [publishedVersion, setPublishedVersion] = useState<number | null>(
     readOnly ? detail.versionNumber : latestPublishedVersion,
   );
   const [isChoosingTemplate, setIsChoosingTemplate] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [pendingDestructiveAction, setPendingDestructiveAction] =
+    useState<PendingDestructiveAction | null>(null);
+  const [authenticationError, setAuthenticationError] =
+    useState<ConsoleApiError | null>(null);
   const [testHighlight, setTestHighlight] = useState<TestHighlights>({
     fired: [],
     upstream: [],
@@ -143,6 +171,10 @@ export function GuardrailEditor({
   const isBusy = saveMutation.isPending || publishMutation.isPending;
 
   useDirtyNavigationGuard(dirty && !readOnly);
+
+  useEffect(() => {
+    if (recoveredDraft) clearRecoveredDraft(detail.name);
+  }, [detail.name, recoveredDraft]);
 
   useEffect(() => {
     if (!activeCheckpoint || !flowInstance) return;
@@ -236,15 +268,15 @@ export function GuardrailEditor({
   }
 
   function applyTemplate(template: GuardrailTemplate) {
-    if (
-      graph.nodes.length > 0 &&
-      !window.confirm(
-        "현재 그래프의 노드와 연결을 선택한 템플릿으로 바꾸시겠습니까? 저장 전에는 되돌릴 수 없습니다.",
-      )
-    ) {
+    if (graph.nodes.length > 0) {
+      setPendingDestructiveAction({ kind: "template", template });
       return;
     }
 
+    replaceWithTemplate(template);
+  }
+
+  function replaceWithTemplate(template: GuardrailTemplate) {
     const nextGraph = toEditorGraph(template.graph);
     const firstNode = nextGraph.nodes[0] ?? null;
     setGraph(nextGraph);
@@ -254,6 +286,7 @@ export function GuardrailEditor({
       `${template.name} 템플릿을 불러왔습니다. 저장 전 내용을 확인하세요.`,
     );
     setIsChoosingTemplate(false);
+    setPendingDestructiveAction(null);
     if (firstNode) {
       setActiveTab(firstNode.data.checkpoint);
       setPendingFocusNodeId(firstNode.id);
@@ -282,14 +315,14 @@ export function GuardrailEditor({
   function deleteNode(nodeId: string) {
     const node = graph.nodes.find((candidate) => candidate.id === nodeId);
     if (!node) return;
-    if (
-      !window.confirm(
-        `Delete ${nodeCatalogByType[node.data.domainNode.type].label} “${nodeId}” and its connections?`,
-      )
-    ) {
-      return;
-    }
+    setPendingDestructiveAction({
+      kind: "node",
+      nodeId,
+      label: nodeCatalogByType[node.data.domainNode.type].label,
+    });
+  }
 
+  function confirmNodeDeletion(nodeId: string) {
     setGraph((current) => ({
       nodes: current.nodes.filter((candidate) => candidate.id !== nodeId),
       edges: current.edges.filter(
@@ -297,13 +330,14 @@ export function GuardrailEditor({
       ),
     }));
     setSelectedNodeId(null);
+    setPendingDestructiveAction(null);
     setStatus(`${nodeId} deleted.`);
   }
 
   function connectNodes(sourceId: string, targetId: string) {
     const reason = connectionError(graph, sourceId, targetId);
     if (reason) {
-      setGraphError(reason);
+      setConnectionRejection(reason);
       setStatus(`Connection rejected: ${reason}`);
       return;
     }
@@ -320,6 +354,7 @@ export function GuardrailEditor({
       ],
     }));
     setSelectedNodeId(targetId);
+    setConnectionRejection(null);
     setGraphError(null);
     setStatus(`Connected ${sourceId} to ${targetId}.`);
   }
@@ -328,6 +363,19 @@ export function GuardrailEditor({
     if (connection.source && connection.target) {
       connectNodes(connection.source, connection.target);
     }
+  }
+
+  function isConnectionValid(
+    connection: Connection | GuardrailFlowEdge,
+  ): boolean {
+    if (!connection.source || !connection.target) return false;
+    const reason = connectionError(graph, connection.source, connection.target);
+    setConnectionRejection(reason);
+    if (reason) {
+      setStatus(`Connection rejected: ${reason}`);
+      return false;
+    }
+    return true;
   }
 
   function onNodesChange(changes: NodeChange<GuardrailFlowNode>[]) {
@@ -366,6 +414,7 @@ export function GuardrailEditor({
       edges: current.edges.filter((edge) => edge.id !== edgeId),
     }));
     setGraphError(null);
+    setConnectionRejection(null);
     setStatus("Connection removed.");
   }
 
@@ -417,7 +466,7 @@ export function GuardrailEditor({
       error instanceof ConsoleApiError &&
       (error.httpStatus === 401 || error.httpStatus === 403)
     ) {
-      onAuthorizationError(error);
+      handleAuthorizationError(error);
       return;
     }
 
@@ -453,14 +502,34 @@ export function GuardrailEditor({
         selectAndFocusNode(affectedNodes[0]);
       }
 
-      const reference = error.requestId ? ` Reference ${error.requestId}.` : "";
-      setGraphError(`${error.code}: ${reason}${reference}`);
+      const requestReference = error.requestId ? ` · ${error.requestId}` : "";
+      setGraphError({
+        message: reason,
+        reference: `Reference ${error.code}${requestReference}`,
+      });
       setStatus(`${fallback} ${reason}`);
       return;
     }
 
-    setGraphError(fallback);
+    setGraphError({ message: fallback });
     setStatus(fallback);
+  }
+
+  function handleAuthorizationError(error: ConsoleApiError) {
+    if (error.httpStatus === 401 && dirty && !readOnly) {
+      setAuthenticationError(error);
+      setStatus(
+        "Your session expired. Unsaved changes remain in this editor until you choose how to continue.",
+      );
+      return;
+    }
+    onAuthorizationError(error);
+  }
+
+  function continueToSignIn() {
+    if (!authenticationError) return;
+    preserveRecoveredDraft(detail.name, graph);
+    onAuthorizationError(authenticationError);
   }
 
   function clearTestHighlight() {
@@ -506,6 +575,25 @@ export function GuardrailEditor({
             <h1 id="guardrail-name">{detail.name}</h1>
           </div>
         </div>
+        <div className={styles.editorActions}>
+          <span className={readOnly ? styles.versionBadge : styles.draftBadge}>
+            {readOnly
+              ? `Published v${detail.versionNumber}`
+              : dirty
+                ? "Unsaved changes"
+                : "Draft saved"}
+          </span>
+          {!readOnly ? (
+            <button
+              className={styles.primaryAction}
+              type="button"
+              disabled={isBusy || !dirty}
+              onClick={() => void saveDraft()}
+            >
+              {saveMutation.isPending ? "Saving…" : "Save draft"}
+            </button>
+          ) : null}
+        </div>
       </header>
 
       <EditorTabs
@@ -528,7 +616,8 @@ export function GuardrailEditor({
       {graphError ? (
         <div className={styles.graphError} role="alert">
           <strong>Graph needs attention</strong>
-          <span>{graphError}</span>
+          <span>{graphError.message}</span>
+          {graphError.reference ? <code>{graphError.reference}</code> : null}
           <button
             type="button"
             onClick={() => setGraphError(null)}
@@ -545,7 +634,7 @@ export function GuardrailEditor({
           guardrailName={detail.name}
           dirty={dirty}
           onSaveDraft={async () => (await saveDraft()) !== null}
-          onAuthorizationError={onAuthorizationError}
+          onAuthorizationError={handleAuthorizationError}
           onGatewayError={(error) =>
             handleGatewayError(
               error,
@@ -575,10 +664,8 @@ export function GuardrailEditor({
             publishedVersion={publishedVersion}
             dirty={dirty}
             isBusy={isBusy}
-            isSaving={saveMutation.isPending}
             isPublishing={publishMutation.isPending}
             onOpenCheckpoint={openCheckpoint}
-            onSave={() => void saveDraft()}
             onPublish={() => void publishDraft()}
             onTest={() => setIsTesting(true)}
             onChooseTemplate={() => setIsChoosingTemplate(true)}
@@ -593,6 +680,9 @@ export function GuardrailEditor({
                   <h2>{checkpointMeta[activeTab].label}</h2>
                   <small>{checkpointMeta[activeTab].description}</small>
                 </div>
+                <small className={styles.checkpointOrderNote}>
+                  번호는 체크포인트 ID이며, 탭 순서는 실제 요청 실행 순서입니다.
+                </small>
                 <strong>
                   {checkpointGraph.nodes.length} node
                   {checkpointGraph.nodes.length === 1 ? "" : "s"}
@@ -600,29 +690,36 @@ export function GuardrailEditor({
               </div>
 
               {!readOnly ? (
-                <div
-                  className={styles.nodeCatalog}
-                  aria-label={`${checkpointMeta[activeTab].label} node catalog`}
-                >
-                  <div>
-                    {catalogForCheckpoint(activeTab).map((item) => (
-                      <button
-                        key={item.type}
-                        className={
-                          item.category === "Action control"
-                            ? styles.actionCatalogItem
-                            : undefined
-                        }
-                        type="button"
-                        onClick={() => addNode(item.type)}
-                        title={item.description}
-                      >
-                        <span>{item.label}</span>
-                        <small>{item.category}</small>
-                      </button>
-                    ))}
+                <>
+                  <div
+                    className={styles.nodeCatalog}
+                    aria-label={`${checkpointMeta[activeTab].label} node catalog`}
+                  >
+                    <div>
+                      {catalogForCheckpoint(activeTab).map((item) => (
+                        <button
+                          key={item.type}
+                          className={
+                            item.category === "Action control"
+                              ? styles.actionCatalogItem
+                              : undefined
+                          }
+                          type="button"
+                          onClick={() => addNode(item.type)}
+                          title={item.description}
+                        >
+                          <span>{item.label}</span>
+                          <small>{item.category}</small>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                  {connectionRejection ? (
+                    <p className={styles.connectionRejection} role="status">
+                      Connection unavailable: {connectionRejection}
+                    </p>
+                  ) : null}
+                </>
               ) : null}
 
               <div
@@ -640,17 +737,7 @@ export function GuardrailEditor({
                   onEdgesChange={onEdgesChange}
                   onNodeDragStop={onNodeDragStop}
                   onConnect={onConnect}
-                  isValidConnection={(connection) =>
-                    Boolean(
-                      connection.source &&
-                        connection.target &&
-                        !connectionError(
-                          graph,
-                          connection.source,
-                          connection.target,
-                        ),
-                    )
-                  }
+                  isValidConnection={isConnectionValid}
                   nodesDraggable={!readOnly}
                   nodesConnectable={!readOnly}
                   edgesReconnectable={false}
@@ -676,7 +763,7 @@ export function GuardrailEditor({
                     zoomable
                     nodeColor={(node) =>
                       node.data?.testHighlight === "fired"
-                        ? "#d99b24"
+                        ? "var(--warn)"
                         : node.data?.testHighlight === "upstream"
                           ? "var(--brand-light)"
                           : node.data?.validationMessage
@@ -687,8 +774,8 @@ export function GuardrailEditor({
                   />
                 </ReactFlow>
                 {checkpointGraph.nodes.length === 0 ? (
-                  <div className={styles.emptyCanvas} aria-hidden="true">
-                    <span>{checkpointMeta[activeTab].index}</span>
+                  <div className={styles.emptyCanvas} role="status">
+                    <span aria-hidden="true">{checkpointMeta[activeTab].index}</span>
                     <strong>No nodes at this checkpoint</strong>
                     <p>
                       {readOnly
@@ -718,6 +805,66 @@ export function GuardrailEditor({
         <TemplatePicker
           onApply={applyTemplate}
           onClose={() => setIsChoosingTemplate(false)}
+        />
+      ) : null}
+
+      {pendingDestructiveAction?.kind === "node" ? (
+        <ConfirmDialog
+          id="delete-guardrail-node"
+          eyebrow="Remove graph node"
+          title={`Delete ${pendingDestructiveAction.label}?`}
+          description={
+            <p>
+              Node <code>{pendingDestructiveAction.nodeId}</code> and all of its
+              connections will be removed from this unsaved draft.
+            </p>
+          }
+          cancelLabel="Keep node"
+          confirmLabel="Delete node"
+          onClose={() => setPendingDestructiveAction(null)}
+          onConfirm={() =>
+            confirmNodeDeletion(pendingDestructiveAction.nodeId)
+          }
+        />
+      ) : null}
+
+      {pendingDestructiveAction?.kind === "template" ? (
+        <ConfirmDialog
+          id="replace-guardrail-template"
+          eyebrow="Replace draft graph"
+          title={`Use ${pendingDestructiveAction.template.name}?`}
+          description={
+            <p>
+              The current nodes and connections will be replaced by this template.
+              You can review the result before saving, but this replacement cannot be
+              undone in the editor.
+            </p>
+          }
+          cancelLabel="Keep current graph"
+          confirmLabel="Replace graph"
+          onClose={() => setPendingDestructiveAction(null)}
+          onConfirm={() =>
+            replaceWithTemplate(pendingDestructiveAction.template)
+          }
+        />
+      ) : null}
+
+      {authenticationError ? (
+        <ConfirmDialog
+          id="reauthenticate-draft"
+          eyebrow="Session expired"
+          title="Your unsaved draft is still here"
+          description={
+            <p>
+              Silent session refresh failed. Stay on this screen to review the draft,
+              or sign in again and return to this guardrail with the current graph
+              restored.
+            </p>
+          }
+          cancelLabel="Stay with draft"
+          confirmLabel="Sign in and keep draft"
+          onClose={() => setAuthenticationError(null)}
+          onConfirm={continueToSignIn}
         />
       ) : null}
     </section>

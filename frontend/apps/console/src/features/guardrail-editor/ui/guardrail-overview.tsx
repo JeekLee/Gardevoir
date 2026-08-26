@@ -27,10 +27,8 @@ export function GuardrailOverview({
   publishedVersion,
   dirty,
   isBusy,
-  isSaving,
   isPublishing,
   onOpenCheckpoint,
-  onSave,
   onPublish,
   onTest,
   onChooseTemplate,
@@ -43,10 +41,8 @@ export function GuardrailOverview({
   publishedVersion: number | null;
   dirty: boolean;
   isBusy: boolean;
-  isSaving: boolean;
   isPublishing: boolean;
   onOpenCheckpoint: (checkpoint: Checkpoint) => void;
-  onSave: () => void;
   onPublish: () => void;
   onTest: () => void;
   onChooseTemplate: () => void;
@@ -162,14 +158,6 @@ export function GuardrailOverview({
                 ＋ 템플릿에서 시작
               </button>
               <button
-                className={styles.secondaryAction}
-                type="button"
-                disabled={isBusy || !dirty}
-                onClick={onSave}
-              >
-                {isSaving ? "Saving…" : "Save draft"}
-              </button>
-              <button
                 className={styles.primaryAction}
                 type="button"
                 disabled={isBusy}
@@ -194,6 +182,7 @@ export function GuardrailOverview({
           <div>
             <p>Checkpoint coverage</p>
             <h2 id="checkpoint-overview-title">검사 지점별 정책 흐름</h2>
+            <small>번호는 체크포인트 ID이며, 카드 순서는 실제 요청 실행 순서입니다.</small>
           </div>
           <span>카드를 선택해 해당 풀 캔버스로 이동합니다.</span>
         </div>

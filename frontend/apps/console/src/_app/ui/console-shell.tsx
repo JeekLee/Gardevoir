@@ -20,14 +20,18 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
       return;
     }
     if (!session) {
-      router.replace("/login?reason=expired");
+      const returnTo =
+        pathname.startsWith("/guardrails/") && !pathname.includes("/versions/")
+          ? `&returnTo=${encodeURIComponent(pathname)}`
+          : "";
+      router.replace(`/login?reason=expired${returnTo}`);
       return;
     }
     if (session.user.role !== "admin") {
       endSession();
       router.replace("/login?reason=forbidden");
     }
-  }, [endSession, isReady, router, session]);
+  }, [endSession, isReady, pathname, router, session]);
 
   if (!isReady || !session || session.user.role !== "admin") {
     return (

@@ -3,7 +3,8 @@ import { apiRequest } from "@/src/shared/api";
 import {
   parseProvider,
   parseProviderPage,
-  type ProviderInput,
+  type CreateProviderInput,
+  type UpdateProviderInput,
 } from "../model/provider";
 
 export function listProviders(accessToken: string, signal?: AbortSignal) {
@@ -15,7 +16,7 @@ export function listProviders(accessToken: string, signal?: AbortSignal) {
   });
 }
 
-export function createProvider(accessToken: string, input: ProviderInput) {
+export function createProvider(accessToken: string, input: CreateProviderInput) {
   return apiRequest({
     path: "/providers",
     method: "POST",
@@ -28,7 +29,7 @@ export function createProvider(accessToken: string, input: ProviderInput) {
 export function updateProvider(
   accessToken: string,
   providerId: string,
-  input: ProviderInput,
+  input: UpdateProviderInput,
 ) {
   return apiRequest({
     path: `/providers/${encodeURIComponent(providerId)}`,

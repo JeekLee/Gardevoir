@@ -21,6 +21,14 @@ type StreamRequest = RequestBase & {
   onChunk: (chunk: Uint8Array) => void | Promise<void>;
 };
 
+type SessionRecovery = (expiredAccessToken: string) => Promise<string | null>;
+
+let sessionRecovery: SessionRecovery | null = null;
+
+export function setSessionRecovery(recovery: SessionRecovery | null): void {
+  sessionRecovery = recovery;
+}
+
 export class ConsoleApiError extends Error {
   readonly httpStatus: number;
   readonly code: string;
@@ -47,6 +55,13 @@ export function apiRequest(options: EmptyRequest): Promise<void>;
 export function apiRequest<T>(options: JsonRequest<T>): Promise<T>;
 export async function apiRequest<T>(
   options: EmptyRequest | JsonRequest<T>,
+): Promise<void | T> {
+  return apiRequestAttempt(options, true);
+}
+
+async function apiRequestAttempt<T>(
+  options: EmptyRequest | JsonRequest<T>,
+  allowSessionRecovery: boolean,
 ): Promise<void | T> {
   const apiBase = (
     process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:21000/v1"
@@ -86,6 +101,21 @@ export async function apiRequest<T>(
     timeout.dispose();
   }
 
+  if (
+    response.status === 401 &&
+    options.accessToken &&
+    allowSessionRecovery &&
+    sessionRecovery
+  ) {
+    const recoveredAccessToken = await sessionRecovery(options.accessToken);
+    if (recoveredAccessToken) {
+      return apiRequestAttempt(
+        { ...options, accessToken: recoveredAccessToken },
+        false,
+      );
+    }
+  }
+
   if (!response.ok) {
     throw await toConsoleError(response);
   }
@@ -116,6 +146,13 @@ export async function apiRequest<T>(
 }
 
 export async function apiStream(options: StreamRequest): Promise<void> {
+  return apiStreamAttempt(options, true);
+}
+
+async function apiStreamAttempt(
+  options: StreamRequest,
+  allowSessionRecovery: boolean,
+): Promise<void> {
   const apiBase = (
     process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:21000/v1"
   ).replace(/\/+$/, "");
@@ -141,6 +178,21 @@ export async function apiStream(options: StreamRequest): Promise<void> {
       });
     } catch (error) {
       throw normalizeTransportError(error, options.signal, timeout.didExpire());
+    }
+
+    if (
+      response.status === 401 &&
+      options.accessToken &&
+      allowSessionRecovery &&
+      sessionRecovery
+    ) {
+      const recoveredAccessToken = await sessionRecovery(options.accessToken);
+      if (recoveredAccessToken) {
+        return apiStreamAttempt(
+          { ...options, accessToken: recoveredAccessToken },
+          false,
+        );
+      }
     }
 
     if (!response.ok) {

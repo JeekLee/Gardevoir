@@ -15,5 +15,5 @@ class CreateProvider(CamelModel):
 class UpdateProvider(CamelModel):
     name: str = Field(min_length=1, max_length=255)
     base_url: AnyHttpUrl
-    api_key: str = ""
+    api_key: str | None
     models: list[str] = Field(min_length=1)

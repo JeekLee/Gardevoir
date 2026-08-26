@@ -102,6 +102,22 @@
   opacity: 0.62;
 }
 
+.checkpointGuide {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.checkpointGuide > p,
+.checkpointPreviewNote {
+  color: var(--muted);
+  font-size: 0.62rem;
+  line-height: 1.45;
+}
+
+.checkpointGuide > p {
+  padding-inline: 0.25rem;
+}
+
 .checkpointRail {
   align-items: center;
   background: color-mix(in srgb, var(--surface) 82%, transparent);
@@ -247,7 +263,7 @@
 .cardIndex {
   color: var(--placeholder);
   font-family: var(--font-mono);
-  font-size: 0.56rem;
+  font-size: 0.6rem;
   position: absolute;
   right: 0.7rem;
   top: 0.58rem;
@@ -299,9 +315,9 @@
 }
 
 .draftBadge {
-  background: color-mix(in srgb, #d99b24 11%, var(--surface));
-  border: 1px solid color-mix(in srgb, #d99b24 32%, var(--border));
-  color: color-mix(in srgb, #b47708 82%, var(--text));
+  background: var(--warn-soft);
+  border: 1px solid color-mix(in srgb, var(--warn) 34%, var(--border));
+  color: color-mix(in srgb, var(--warn) 78%, var(--text));
 }
 
 .publishedBadge {
@@ -370,7 +386,7 @@
 .projectionRow > span:first-child {
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.58rem;
+  font-size: 0.6rem;
   letter-spacing: 0.06em;
 }
 
@@ -403,7 +419,7 @@
   color: var(--brand-deep);
   display: inline-flex;
   font-family: var(--font-mono);
-  font-size: 0.56rem;
+  font-size: 0.6rem;
   height: 1.55rem;
   justify-content: center;
   width: 1.55rem;
@@ -419,7 +435,7 @@
   border: 1px solid var(--border);
   border-radius: 999px;
   font-family: var(--font-mono);
-  font-size: 0.57rem;
+  font-size: 0.6rem;
   font-weight: 850;
   padding: 0.3rem 0.48rem;
   text-transform: uppercase;
@@ -432,9 +448,9 @@
 }
 
 .maskAction {
-  background: color-mix(in srgb, #d99b24 11%, var(--surface));
-  border-color: color-mix(in srgb, #d99b24 32%, var(--border));
-  color: color-mix(in srgb, #a96900 88%, var(--text));
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 34%, var(--border));
+  color: color-mix(in srgb, var(--warn) 78%, var(--text));
 }
 
 .allowAction {
@@ -710,6 +726,11 @@
 .checkpointPreview i {
   background: var(--border-strong);
   height: 1px;
+}
+
+.checkpointPreviewNote {
+  display: block;
+  margin-top: -0.7rem;
 }
 
 .dialogActions {

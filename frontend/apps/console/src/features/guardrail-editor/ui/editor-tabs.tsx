@@ -38,36 +38,45 @@ export function EditorTabs({
   }
 
   return (
-    <div className={styles.editorTabs} role="tablist" aria-label="Guardrail editor views">
-      {editorTabs.map((tab) => (
-        <button
-          key={tab}
-          ref={(element) => {
-            if (element) tabs.current.set(tab, element);
-            else tabs.current.delete(tab);
-          }}
-          id={`guardrail-tab-${tab}`}
-          role="tab"
-          type="button"
-          tabIndex={activeTab === tab ? 0 : -1}
-          aria-selected={activeTab === tab}
-          aria-controls="guardrail-tab-panel"
-          onClick={() => onChange(tab)}
-          onKeyDown={onKeyDown}
-        >
-          {tab === "overview" ? (
-            <>
-              <span aria-hidden="true">⌂</span>
-              개요
-            </>
-          ) : (
-            <>
-              <span>{checkpointMeta[tab].index}</span>
-              {checkpointMeta[tab].label}
-            </>
-          )}
-        </button>
-      ))}
+    <div className={styles.editorTabGroup}>
+      <div
+        className={styles.editorTabs}
+        role="tablist"
+        aria-label="Guardrail editor views"
+      >
+        {editorTabs.map((tab) => (
+          <button
+            key={tab}
+            ref={(element) => {
+              if (element) tabs.current.set(tab, element);
+              else tabs.current.delete(tab);
+            }}
+            id={`guardrail-tab-${tab}`}
+            role="tab"
+            type="button"
+            tabIndex={activeTab === tab ? 0 : -1}
+            aria-selected={activeTab === tab}
+            aria-controls="guardrail-tab-panel"
+            onClick={() => onChange(tab)}
+            onKeyDown={onKeyDown}
+          >
+            {tab === "overview" ? (
+              <>
+                <span aria-hidden="true">⌂</span>
+                개요
+              </>
+            ) : (
+              <>
+                <span>{checkpointMeta[tab].index}</span>
+                {checkpointMeta[tab].label}
+              </>
+            )}
+          </button>
+        ))}
+      </div>
+      <p className={styles.tabOrderNote}>
+        번호는 체크포인트 ID이며, 탭 순서는 실제 요청 실행 순서입니다.
+      </p>
     </div>
   );
 }

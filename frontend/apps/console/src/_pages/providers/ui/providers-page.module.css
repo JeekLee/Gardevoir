@@ -240,7 +240,7 @@
 .gateIndex {
   color: var(--placeholder);
   font-family: var(--font-mono);
-  font-size: 0.56rem;
+  font-size: 0.6rem;
   left: 0.37rem;
   position: absolute;
   top: 0.55rem;
@@ -640,13 +640,15 @@
   gap: 0.48rem;
 }
 
-.field > span {
+.field > span,
+.field > label {
   color: var(--muted-strong);
   font-size: 0.75rem;
   font-weight: 750;
 }
 
-.field > span em {
+.field > span em,
+.field > label em {
   color: var(--muted);
   font-size: 0.65rem;
   font-style: normal;
@@ -700,6 +702,25 @@
   color: var(--muted);
   font-size: 0.68rem;
   line-height: 1.45;
+}
+
+.removeKeyButton,
+.undoKeyButton {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 750;
+  justify-self: start;
+  padding: 0;
+}
+
+.removeKeyButton {
+  color: var(--danger-strong);
+}
+
+.undoKeyButton {
+  color: var(--brand-deep);
 }
 
 .fieldError {

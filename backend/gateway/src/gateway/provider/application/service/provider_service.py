@@ -51,7 +51,7 @@ class ProviderService:
                 provider.update(
                     name=cmd.name,
                     base_url=str(cmd.base_url),
-                    api_key=cmd.api_key,
+                    api_key=provider.api_key if cmd.api_key is None else cmd.api_key,
                     models=tuple(cmd.models),
                 )
             )

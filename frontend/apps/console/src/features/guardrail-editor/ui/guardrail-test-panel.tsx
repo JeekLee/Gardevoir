@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
+import Link from "next/link";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 
 import { useProviders } from "@/src/entities/provider";
@@ -30,13 +31,13 @@ const checkpointSections: {
     label: "tool_result 적용 결과",
     timing: "immediate",
   },
-  { key: "output", index: "③", label: "output 적용 결과", timing: "streaming" },
   {
     key: "toolCall",
     index: "④",
     label: "tool_call 적용 결과",
     timing: "streaming",
   },
+  { key: "output", index: "③", label: "output 적용 결과", timing: "streaming" },
 ];
 
 export function GuardrailTestPanel({
@@ -164,7 +165,10 @@ export function GuardrailTestPanel({
         </div>
         <div className={styles.headerControls}>
           <div className={styles.testContext}>
-            <p>Draft enforce</p>
+            <div className={styles.testMode}>
+              <strong>Draft enforcement test</strong>
+              <span>저장된 초안을 enforce 모드로 검사하며 발행본에는 영향을 주지 않습니다.</span>
+            </div>
             <label className={styles.modelPicker}>
               <span>업스트림 모델</span>
               <select
@@ -249,11 +253,25 @@ export function GuardrailTestPanel({
         </div>
       ) : null}
 
+      {!providers.isLoading && !providers.error && modelOptions.length === 0 ? (
+        <div className={styles.emptyModels} role="status">
+          <div>
+            <strong>사용 가능한 모델이 없습니다.</strong>
+            <span>
+              실제 호출 테스트에는 모델이 연결된 프로바이더가 하나 이상 필요합니다.
+            </span>
+          </div>
+          <Link href="/providers">프로바이더 설정으로 이동 →</Link>
+        </div>
+      ) : null}
+
       {error ? (
         <div className={styles.error} role="alert">
-          <strong>{error.code}</strong>
           <span>{error.message}</span>
-          {error.requestId ? <code>Reference {error.requestId}</code> : null}
+          <code>
+            Reference {error.code}
+            {error.requestId ? ` · ${error.requestId}` : ""}
+          </code>
         </div>
       ) : null}
 

@@ -13,11 +13,18 @@ export type ProviderPage = {
   total: number;
 };
 
-export type ProviderInput = {
+type ProviderBaseInput = {
   name: string;
   baseUrl: string;
-  apiKey: string;
   models: string[];
+};
+
+export type CreateProviderInput = ProviderBaseInput & {
+  apiKey: string;
+};
+
+export type UpdateProviderInput = ProviderBaseInput & {
+  apiKey: string | null;
 };
 
 export function parseProvider(value: unknown): ProviderSummary {

@@ -9,11 +9,15 @@ export const metadata: Metadata = {
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ reason?: string }>;
+  searchParams: Promise<{ reason?: string; returnTo?: string }>;
 }) {
-  const { reason } = await searchParams;
+  const { reason, returnTo } = await searchParams;
   const loginReason =
     reason === "expired" || reason === "forbidden" ? reason : null;
+  const safeReturnTo =
+    returnTo?.startsWith("/guardrails/") && !returnTo.startsWith("//")
+      ? returnTo
+      : null;
 
-  return <LoginPage reason={loginReason} />;
+  return <LoginPage reason={loginReason} returnTo={safeReturnTo} />;
 }
