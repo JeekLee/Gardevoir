@@ -25,6 +25,9 @@ def get_clickhouse_client(settings: ClickHouseSettings) -> Client:
         username=settings.user,
         password=settings.password,
         database=settings.database,
+        # sink 배치와 관리자 조회는 서로 독립된 요청이다. 세션 ID 를 공유하면 서로 다른
+        # 스레드에서 동시에 실행될 때 드라이버가 둘 중 하나를 거부한다.
+        autogenerate_session_id=False,
     )
     _clients.append(client)
     return client

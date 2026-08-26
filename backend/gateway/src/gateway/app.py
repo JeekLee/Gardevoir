@@ -24,6 +24,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from gateway import health
 from gateway.audit.infrastructure.adapter.clickhouse_sink import ClickHouseAuditSink
 from gateway.audit.infrastructure.schema import apply_clickhouse_schema
+from gateway.audit.presentation import audit_router
 from gateway.guardrail.definition.presentation import guardrail_router
 from gateway.guardrail.plan.application.service.registry import PlanRegistry
 from gateway.guardrail.plan.infrastructure.adapter.guardrail_source import (
@@ -228,4 +229,5 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
     app.include_router(guardrail_router.router, prefix=API_PREFIX)
     app.include_router(guardrail_test_router.router, prefix=API_PREFIX)
     app.include_router(provider_router.router, prefix=API_PREFIX)
+    app.include_router(audit_router.router, prefix=API_PREFIX)
     return app

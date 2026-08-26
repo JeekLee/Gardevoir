@@ -53,18 +53,24 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
           </span>
         </Link>
 
-        <nav className={styles.navigation} aria-label="Console navigation">
+        <nav className={styles.navigation} aria-label="콘솔 메뉴">
           <Link
             aria-current={pathname.startsWith("/guardrails") ? "page" : undefined}
             href="/guardrails"
           >
-            Guardrails
+            가드레일
           </Link>
           <Link
             aria-current={pathname.startsWith("/providers") ? "page" : undefined}
             href="/providers"
           >
-            Providers
+            프로바이더
+          </Link>
+          <Link
+            aria-current={pathname.startsWith("/audit") ? "page" : undefined}
+            href="/audit"
+          >
+            감사
           </Link>
         </nav>
 

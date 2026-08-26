@@ -137,12 +137,22 @@
   .header {
     gap: 0.75rem;
     grid-template-columns: 1fr auto;
-    padding: 0 1rem;
+    padding: 0.8rem 1rem 0;
   }
 
-  .navigation,
   .identityText {
     display: none;
+  }
+
+  .navigation {
+    gap: 1.25rem;
+    grid-column: 1 / -1;
+    min-height: 2.8rem;
+    overflow-x: auto;
+  }
+
+  .navigation a {
+    flex: 0 0 auto;
   }
 
   .account {
