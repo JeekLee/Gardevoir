@@ -40,12 +40,34 @@ describe("audit response parsers", () => {
       },
       promptTokens: 12,
       completionTokens: 4,
+      contentFingerprint:
+        "f93c6b3565b9cf1be9fbcf2720774505af0d52a1be72357f616cb7d3d6b0f984",
+      excerpt: "주민번호 ******-*******",
+      inputBody: '{"messages":[{"role":"user","content":"안녕하세요"}]}',
+      outputBody: '{"choices":[]}',
+      toolCallsBody: "[]",
     });
 
     expect(detail.verdicts).toEqual({
       masked: true,
       evidence: [{ check: "pii-output", count: 1 }],
     });
+    expect(detail.excerpt).toBe("주민번호 ******-*******");
+    expect(detail.contentFingerprint).toHaveLength(64);
+    expect(detail.inputBody).toContain('"messages"');
+  });
+
+  it("rejects detail responses without audit content fields", () => {
+    expect(() =>
+      parseAuditEventDetail({
+        ...event,
+        requestId: "request-1",
+        apiKeyId: "key-1",
+        verdicts: null,
+        promptTokens: 0,
+        completionTokens: 0,
+      }),
+    ).toThrow("Invalid audit detail response");
   });
 
   it("rejects malformed aggregate counts", () => {

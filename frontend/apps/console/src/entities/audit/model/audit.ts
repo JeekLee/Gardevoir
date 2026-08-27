@@ -59,6 +59,11 @@ export type AuditEventDetail = AuditEventSummary & {
   verdicts: JsonValue;
   promptTokens: number;
   completionTokens: number;
+  contentFingerprint: string;
+  excerpt: string;
+  inputBody: string;
+  outputBody: string;
+  toolCallsBody: string;
 };
 
 export type AuditEventPage = {
@@ -95,7 +100,12 @@ export function parseAuditEventDetail(value: unknown): AuditEventDetail {
     typeof value.apiKeyId !== "string" ||
     !isJsonValue(value.verdicts) ||
     !isCount(value.promptTokens) ||
-    !isCount(value.completionTokens)
+    !isCount(value.completionTokens) ||
+    typeof value.contentFingerprint !== "string" ||
+    typeof value.excerpt !== "string" ||
+    typeof value.inputBody !== "string" ||
+    typeof value.outputBody !== "string" ||
+    typeof value.toolCallsBody !== "string"
   ) {
     throw new Error("Invalid audit detail response");
   }
@@ -106,6 +116,11 @@ export function parseAuditEventDetail(value: unknown): AuditEventDetail {
     verdicts: cloneJson(value.verdicts),
     promptTokens: value.promptTokens,
     completionTokens: value.completionTokens,
+    contentFingerprint: value.contentFingerprint,
+    excerpt: value.excerpt,
+    inputBody: value.inputBody,
+    outputBody: value.outputBody,
+    toolCallsBody: value.toolCallsBody,
   };
 }
 

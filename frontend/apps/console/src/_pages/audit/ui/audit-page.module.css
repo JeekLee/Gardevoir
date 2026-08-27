@@ -565,6 +565,7 @@
   display: grid;
   gap: 1rem;
   max-height: calc(100dvh - 9rem);
+  min-width: 0;
   overflow-y: auto;
   padding: 1.2rem 1.5rem 1.6rem;
 }
@@ -573,6 +574,7 @@
   border-top: 1px solid var(--border);
   display: grid;
   gap: 1rem;
+  min-width: 0;
   padding: 1rem 0 0;
 }
 
@@ -597,6 +599,70 @@
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 0.62rem;
+}
+
+.excerptSection {
+  background: var(--brand-soft);
+  border: 1px solid color-mix(in srgb, var(--brand) 32%, var(--border));
+  border-radius: 0.7rem;
+  padding: 1rem;
+}
+
+.excerpt {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.65;
+  margin: 0;
+  max-width: 100%;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.bodyStorageOff {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.detailBodies {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.bodyDisclosure {
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.bodyDisclosure summary {
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 750;
+  padding: 0.75rem 0.85rem;
+}
+
+.bodyContent {
+  background: var(--surface-subtle);
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.55;
+  margin: 0;
+  max-height: 24rem;
+  max-width: 100%;
+  min-width: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: 0.85rem;
+  white-space: pre-wrap;
 }
 
 .detailGrid {
