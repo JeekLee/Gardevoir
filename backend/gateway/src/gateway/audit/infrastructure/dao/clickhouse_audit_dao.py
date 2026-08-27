@@ -2,6 +2,13 @@ import asyncio
 import datetime as dt
 
 import orjson
+from clickhouse_connect.cc_sqlalchemy import types
+from clickhouse_connect.cc_sqlalchemy.dialect import ClickHouseDialect
+from sqlalchemy import Column, MetaData, Table, and_, bindparam, func, literal, or_, select
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql import ColumnElement, Select
+from sqlalchemy.sql.compiler import SQLCompiler
+from sqlalchemy.sql.functions import FunctionElement
 
 from gateway.audit.application.dao.audit_dao import AuditCursor, AuditFilter
 from gateway.audit.application.result.audit_result import (
@@ -10,8 +17,46 @@ from gateway.audit.application.result.audit_result import (
     AuditSummary,
 )
 
-_TABLE = "audit_events"
-_EFFECTIVE_ACTION = "if(action = 'allow' AND JSONExtractBool(verdicts, 'masked'), 'mask', action)"
+_AUDIT_EVENTS = Table(
+    "audit_events",
+    MetaData(),
+    Column("id", types.String()),
+    Column("created_at", types.DateTime64(3)),
+    Column("request_id", types.String()),
+    Column("api_key_id", types.String()),
+    Column("app_name", types.LowCardinality(types.String())),
+    Column("guardrail", types.LowCardinality(types.String())),
+    Column("guardrail_version", types.UInt32()),
+    Column("mode", types.LowCardinality(types.String())),
+    Column("action", types.LowCardinality(types.String())),
+    Column("checkpoint", types.LowCardinality(types.String())),
+    Column("checks_fired", types.Array(types.LowCardinality(types.String()))),
+    Column("verdicts", types.String()),
+    Column("tier_reached", types.LowCardinality(types.String())),
+    Column("tainted", types.UInt8()),
+    Column("latency_ms", types.Float32()),
+    Column("model", types.LowCardinality(types.String())),
+    Column("prompt_tokens", types.UInt32()),
+    Column("completion_tokens", types.UInt32()),
+)
+_DIALECT = ClickHouseDialect(server_side_params=True)
+_IF = getattr(func, "if")
+
+
+class _QuantileTDigest(FunctionElement):
+    """ClickHouse parameterized quantileTDigest aggregate."""
+
+    type = types.Float64()
+    inherit_cache = True
+
+
+@compiles(_QuantileTDigest, "clickhousedb")
+def _compile_quantile_tdigest(element: _QuantileTDigest, compiler: SQLCompiler, **kwargs) -> str:
+    quantile, value = list(element.clauses)
+    return (
+        f"quantileTDigest({compiler.process(quantile, **kwargs)})"
+        f"({compiler.process(value, **kwargs)})"
+    )
 
 
 class ClickHouseAuditDao:
@@ -25,29 +70,29 @@ class ClickHouseAuditDao:
         limit: int,
         cursor: AuditCursor | None,
     ) -> tuple[list[AuditEventSummary], AuditCursor | None]:
-        where, parameters = _where(audit_filter, cursor=cursor)
+        clauses, parameters = _where(audit_filter, cursor=cursor)
         parameters["fetch_limit"] = limit + 1
-        query = f"""
-            SELECT
-                id,
-                created_at,
-                app_name,
-                guardrail,
-                guardrail_version,
-                mode,
-                {_EFFECTIVE_ACTION} AS effective_action,
-                checkpoint,
-                checks_fired,
-                tier_reached,
-                tainted,
-                latency_ms,
-                model
-            FROM {_TABLE}
-            WHERE {where}
-            ORDER BY created_at DESC, id DESC
-            LIMIT {{fetch_limit:UInt16}}
-        """
-        rows = await asyncio.to_thread(self._query, query, parameters)
+        statement = (
+            select(
+                _AUDIT_EVENTS.c.id,
+                _AUDIT_EVENTS.c.created_at,
+                _AUDIT_EVENTS.c.app_name,
+                _AUDIT_EVENTS.c.guardrail,
+                _AUDIT_EVENTS.c.guardrail_version,
+                _AUDIT_EVENTS.c.mode,
+                _effective_action().label("effective_action"),
+                _AUDIT_EVENTS.c.checkpoint,
+                _AUDIT_EVENTS.c.checks_fired,
+                _AUDIT_EVENTS.c.tier_reached,
+                _AUDIT_EVENTS.c.tainted,
+                _AUDIT_EVENTS.c.latency_ms,
+                _AUDIT_EVENTS.c.model,
+            )
+            .where(*clauses)
+            .order_by(_AUDIT_EVENTS.c.created_at.desc(), _AUDIT_EVENTS.c.id.desc())
+            .limit(bindparam("fetch_limit", type_=types.UInt16()))
+        )
+        rows = await asyncio.to_thread(self._query, statement, parameters)
         has_more = len(rows) > limit
         page_rows = rows[:limit]
         items = [_summary(row) for row in page_rows]
@@ -58,31 +103,31 @@ class ClickHouseAuditDao:
         return items, next_cursor
 
     async def get_event(self, event_id: str) -> AuditEventDetail | None:
-        query = f"""
-            SELECT
-                id,
-                created_at,
-                request_id,
-                api_key_id,
-                app_name,
-                guardrail,
-                guardrail_version,
-                mode,
-                {_EFFECTIVE_ACTION} AS effective_action,
-                checkpoint,
-                checks_fired,
-                verdicts,
-                tier_reached,
-                tainted,
-                latency_ms,
-                model,
-                prompt_tokens,
-                completion_tokens
-            FROM {_TABLE}
-            WHERE id = {{event_id:String}}
-            LIMIT 1
-        """
-        rows = await asyncio.to_thread(self._query, query, {"event_id": event_id})
+        statement = (
+            select(
+                _AUDIT_EVENTS.c.id,
+                _AUDIT_EVENTS.c.created_at,
+                _AUDIT_EVENTS.c.request_id,
+                _AUDIT_EVENTS.c.api_key_id,
+                _AUDIT_EVENTS.c.app_name,
+                _AUDIT_EVENTS.c.guardrail,
+                _AUDIT_EVENTS.c.guardrail_version,
+                _AUDIT_EVENTS.c.mode,
+                _effective_action().label("effective_action"),
+                _AUDIT_EVENTS.c.checkpoint,
+                _AUDIT_EVENTS.c.checks_fired,
+                _AUDIT_EVENTS.c.verdicts,
+                _AUDIT_EVENTS.c.tier_reached,
+                _AUDIT_EVENTS.c.tainted,
+                _AUDIT_EVENTS.c.latency_ms,
+                _AUDIT_EVENTS.c.model,
+                _AUDIT_EVENTS.c.prompt_tokens,
+                _AUDIT_EVENTS.c.completion_tokens,
+            )
+            .where(_AUDIT_EVENTS.c.id == bindparam("event_id", type_=types.String()))
+            .limit(1)
+        )
+        rows = await asyncio.to_thread(self._query, statement, {"event_id": event_id})
         if not rows:
             return None
         row = rows[0]
@@ -97,28 +142,33 @@ class ClickHouseAuditDao:
         )
 
     async def summary(self, audit_filter: AuditFilter) -> AuditSummary:
-        where, parameters = _where(audit_filter)
-        query = f"""
-            SELECT
-                map(
-                    'allow', toUInt64(countIf(effective_action = 'allow')),
-                    'mask', toUInt64(countIf(effective_action = 'mask')),
-                    'blocked', toUInt64(countIf(effective_action = 'blocked')),
-                    'approval_required',
-                        toUInt64(countIf(effective_action = 'approval_required'))
-                ) AS counts_by_action,
-                count() AS total,
-                if(total = 0, 0., quantileTDigest(0.5)(latency_ms)) AS latency_p50,
-                if(total = 0, 0., quantileTDigest(0.95)(latency_ms)) AS latency_p95
-            FROM (
-                SELECT
-                    {_EFFECTIVE_ACTION} AS effective_action,
-                    latency_ms
-                FROM {_TABLE}
-                WHERE {where}
+        clauses, parameters = _where(audit_filter)
+        filtered = (
+            select(
+                _effective_action().label("effective_action"),
+                _AUDIT_EVENTS.c.latency_ms,
             )
-        """
-        rows = await asyncio.to_thread(self._query, query, parameters)
+            .where(*clauses)
+            .subquery()
+        )
+        total = func.count()
+        statement = select(
+            func.map(
+                literal("allow"),
+                _count_action(filtered.c.effective_action, "allow"),
+                literal("mask"),
+                _count_action(filtered.c.effective_action, "mask"),
+                literal("blocked"),
+                _count_action(filtered.c.effective_action, "blocked"),
+                literal("approval_required"),
+                _count_action(filtered.c.effective_action, "approval_required"),
+                type_=types.Map(types.String(), types.UInt64()),
+            ).label("counts_by_action"),
+            total.label("total"),
+            _latency_quantile(total, filtered.c.latency_ms, 0.5).label("latency_p50"),
+            _latency_quantile(total, filtered.c.latency_ms, 0.95).label("latency_p95"),
+        ).select_from(filtered)
+        rows = await asyncio.to_thread(self._query, statement, parameters)
         row = rows[0]
         counts = {
             str(action): int(count) for action, count in (row["counts_by_action"] or {}).items()
@@ -130,9 +180,44 @@ class ClickHouseAuditDao:
             total=int(row["total"]),
         )
 
-    def _query(self, query: str, parameters: dict) -> list[dict]:
-        result = self._client.query(query, parameters=parameters)
+    def _query(self, statement: Select, parameters: dict[str, object]) -> list[dict]:
+        compiled = statement.params(**parameters).compile(dialect=_DIALECT)
+        result = self._client.query(str(compiled), parameters=compiled.params)
         return list(result.named_results())
+
+
+def _effective_action() -> ColumnElement[str]:
+    return _IF(
+        and_(
+            _AUDIT_EVENTS.c.action == literal("allow"),
+            func.JSONExtractBool(
+                _AUDIT_EVENTS.c.verdicts,
+                literal("masked"),
+                type_=types.UInt8(),
+            ),
+        ),
+        literal("mask"),
+        _AUDIT_EVENTS.c.action,
+        type_=types.String(),
+    )
+
+
+def _count_action(action_column: ColumnElement[str], action: str) -> ColumnElement[int]:
+    return func.toUInt64(
+        func.countIf(action_column == literal(action)),
+        type_=types.UInt64(),
+    )
+
+
+def _latency_quantile(
+    total: ColumnElement[int], latency_column: ColumnElement[float], quantile: float
+) -> ColumnElement[float]:
+    return _IF(
+        total == literal(0),
+        literal(0.0),
+        _QuantileTDigest(literal(quantile), latency_column),
+        type_=types.Float64(),
+    )
 
 
 def _summary(row: dict) -> AuditEventSummary:
@@ -153,39 +238,49 @@ def _summary(row: dict) -> AuditEventSummary:
     )
 
 
-def _where(audit_filter: AuditFilter, *, cursor: AuditCursor | None = None) -> tuple[str, dict]:
-    clauses: list[str] = []
-    parameters: dict = {}
+def _where(
+    audit_filter: AuditFilter, *, cursor: AuditCursor | None = None
+) -> tuple[list[ColumnElement[bool]], dict[str, object]]:
+    clauses: list[ColumnElement[bool]] = []
+    parameters: dict[str, object] = {}
     fields = {
-        "app_name": audit_filter.app_name,
-        "guardrail": audit_filter.guardrail,
-        "checkpoint": audit_filter.checkpoint,
-        "mode": audit_filter.mode,
+        "app_name": (_AUDIT_EVENTS.c.app_name, audit_filter.app_name),
+        "guardrail": (_AUDIT_EVENTS.c.guardrail, audit_filter.guardrail),
+        "checkpoint": (_AUDIT_EVENTS.c.checkpoint, audit_filter.checkpoint),
+        "mode": (_AUDIT_EVENTS.c.mode, audit_filter.mode),
     }
-    for field, value in fields.items():
+    for name, (column, value) in fields.items():
         if value is not None:
-            clauses.append(f"{field} = {{{field}:String}}")
-            parameters[field] = value
+            clauses.append(column == bindparam(name, type_=types.String()))
+            parameters[name] = value
     if audit_filter.action is not None:
-        clauses.append(f"{_EFFECTIVE_ACTION} = {{effective_action:String}}")
+        clauses.append(_effective_action() == bindparam("effective_action", type_=types.String()))
         parameters["effective_action"] = audit_filter.action
     if audit_filter.tainted is not None:
-        clauses.append("tainted = {tainted:UInt8}")
+        clauses.append(_AUDIT_EVENTS.c.tainted == bindparam("tainted", type_=types.UInt8()))
         parameters["tainted"] = int(audit_filter.tainted)
     if audit_filter.from_at is not None:
-        clauses.append("created_at >= {from_at:DateTime64(3)}")
+        clauses.append(
+            _AUDIT_EVENTS.c.created_at >= bindparam("from_at", type_=types.DateTime64(3))
+        )
         parameters["from_at"] = _clickhouse_datetime(audit_filter.from_at)
     if audit_filter.to_at is not None:
-        clauses.append("created_at <= {to_at:DateTime64(3)}")
+        clauses.append(_AUDIT_EVENTS.c.created_at <= bindparam("to_at", type_=types.DateTime64(3)))
         parameters["to_at"] = _clickhouse_datetime(audit_filter.to_at)
     if cursor is not None:
+        cursor_created_at = bindparam("cursor_created_at", type_=types.DateTime64(3))
         clauses.append(
-            "(created_at < {cursor_created_at:DateTime64(3)} OR "
-            "(created_at = {cursor_created_at:DateTime64(3)} AND id < {cursor_id:String}))"
+            or_(
+                _AUDIT_EVENTS.c.created_at < cursor_created_at,
+                and_(
+                    _AUDIT_EVENTS.c.created_at == cursor_created_at,
+                    _AUDIT_EVENTS.c.id < bindparam("cursor_id", type_=types.String()),
+                ),
+            )
         )
         parameters["cursor_created_at"] = _clickhouse_datetime(cursor.created_at)
         parameters["cursor_id"] = cursor.event_id
-    return " AND ".join(clauses) if clauses else "1", parameters
+    return clauses, parameters
 
 
 def _clickhouse_datetime(value: dt.datetime) -> dt.datetime:
