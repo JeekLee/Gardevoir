@@ -1,7 +1,7 @@
-"""SQLAlchemy Core metadata for ClickHouse tables."""
+"""Metadata shared by ClickHouse declarative models."""
 
-from sqlalchemy import MetaData
+from shared_kernel.clickhouse.base import CHBase
 
-CLICKHOUSE_METADATA = MetaData()
+CLICKHOUSE_METADATA = CHBase.metadata
 
 __all__ = ["CLICKHOUSE_METADATA"]

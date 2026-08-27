@@ -5,4 +5,4 @@ from gateway.audit.infrastructure.dao.clickhouse_audit_dao import ClickHouseAudi
 
 
 def provide_audit_dao(request: Request) -> AuditDao:
-    return ClickHouseAuditDao(request.app.state.clickhouse)
+    return ClickHouseAuditDao(request.app.state.clickhouse_session_factory)

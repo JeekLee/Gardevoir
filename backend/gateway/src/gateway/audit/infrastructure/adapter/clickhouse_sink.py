@@ -3,7 +3,7 @@
 응답 경로를 절대 막지 않는다(§10). 배치는 ClickHouse 의 요구사항이기도 하다 —
 작은 삽입을 자주 하면 파트가 과도하게 생긴다.
 
-컬럼 순서와 행 변환은 공유 Core Table 을 따른다. AuditEvent 는 저장소를 모른다.
+컬럼 순서와 행 변환은 선언적 모델의 테이블을 따른다. AuditEvent 는 저장소를 모른다.
 """
 
 import asyncio
@@ -11,14 +11,15 @@ import contextlib
 import logging
 
 from gateway.audit.application.model.audit_event import AuditEvent
-from gateway.audit.infrastructure.model.audit_event import AUDIT_EVENTS_TABLE
+from gateway.audit.infrastructure.model.audit_event import AuditEventModel
 
 logger = logging.getLogger(__name__)
 
 #: 감사의 존재 이유인 이벤트들. 큐가 꽉 차도 버리지 않는다 (§10).
 CRITICAL_ACTIONS = frozenset({"blocked", "approval_required"})
 
-AUDIT_COLUMNS = [column.name for column in AUDIT_EVENTS_TABLE.columns]
+_AUDIT_EVENTS_TABLE = AuditEventModel.__table__
+AUDIT_COLUMNS = [column.name for column in _AUDIT_EVENTS_TABLE.columns]
 
 #: stop() 이 배경 루프를 깨워 정상 종료시키는 신호. cancel() 을 쓰면 to_thread
 #: 안에 있던 배치가 유실된다 — to_thread 의 await 가 취소 지점이다.
@@ -36,7 +37,7 @@ def _to_row(event: AuditEvent) -> list:
     read them as milliseconds and store 1970 dates with no error at all (§11.10).
     """
     values_by_column = {
-        column.name: getattr(event, column.name) for column in AUDIT_EVENTS_TABLE.columns
+        column.name: getattr(event, column.name) for column in _AUDIT_EVENTS_TABLE.columns
     }
     values_by_column["checkpoint"] = str(event.checkpoint)
     values_by_column["checks_fired"] = list(event.checks_fired)
@@ -150,7 +151,7 @@ class ClickHouseAuditSink:
             return
         try:
             self._client.insert(
-                AUDIT_EVENTS_TABLE.name,
+                _AUDIT_EVENTS_TABLE.name,
                 [_to_row(e) for e in batch],
                 column_names=AUDIT_COLUMNS,
             )

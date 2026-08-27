@@ -2,7 +2,10 @@
 
 from pathlib import Path
 
-from gateway.audit.infrastructure.model.audit_event import AUDIT_EVENTS_TABLE
+from gateway.audit.infrastructure.model.audit_event import (
+    AUDIT_EVENTS_TABLE,
+    AuditEventModel,
+)
 from shared_kernel.clickhouse import CLICKHOUSE_METADATA
 from shared_kernel.database import Base
 
@@ -19,13 +22,40 @@ def _schema_columns() -> list[tuple[str, str]]:
     ]
 
 
+def _compact(value: str) -> str:
+    return value.replace("`", "").replace(" ", "")
+
+
+def _schema_table_options() -> tuple[str, str, str]:
+    definition = CLICKHOUSE_SCHEMA.read_text()
+    return (
+        definition.split("ENGINE = ", maxsplit=1)[1].splitlines()[0],
+        definition.split("PARTITION BY ", maxsplit=1)[1].splitlines()[0],
+        definition.split("ORDER BY ", maxsplit=1)[1].splitlines()[0].removesuffix(";"),
+    )
+
+
+def _model_table_options() -> tuple[str, str, str]:
+    definition = AuditEventModel.__table__.engine.compile()
+    engine, clauses = definition.removeprefix("Engine ").split(maxsplit=1)
+    order_by, partition_by = clauses.split("PARTITION BY ", maxsplit=1)
+    return engine, partition_by, order_by.removeprefix("ORDER BY ").strip()
+
+
 def test_table_columns_match_the_schema_source() -> None:
-    assert [(column.name, str(column.type)) for column in AUDIT_EVENTS_TABLE.columns] == (
+    assert [(column.name, str(column.type)) for column in AuditEventModel.__table__.columns] == (
         _schema_columns()
     )
 
 
+def test_table_engine_matches_the_schema_source() -> None:
+    assert tuple(map(_compact, _model_table_options())) == tuple(
+        map(_compact, _schema_table_options())
+    )
+
+
 def test_clickhouse_table_is_separate_from_postgres_metadata() -> None:
+    assert AUDIT_EVENTS_TABLE is AuditEventModel.__table__
     assert AUDIT_EVENTS_TABLE.metadata is CLICKHOUSE_METADATA
     assert AUDIT_EVENTS_TABLE.metadata is not Base.metadata
     assert AUDIT_EVENTS_TABLE.name not in Base.metadata.tables

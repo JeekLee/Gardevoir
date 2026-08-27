@@ -51,7 +51,13 @@ from gateway.proxy.infrastructure.adapter.provider_upstream_resolver import Prov
 from gateway.proxy.presentation import chat_router, guardrail_test_router
 from gateway.settings import GatewaySettings, get_settings
 from shared_kernel.auth import AccessTokenCodec
-from shared_kernel.clickhouse import dispose_clickhouse, get_clickhouse_client
+from shared_kernel.clickhouse import (
+    dispose_clickhouse,
+    dispose_clickhouse_engine,
+    get_clickhouse_client,
+    get_clickhouse_engine,
+    get_clickhouse_session_factory,
+)
 from shared_kernel.database import SqlAlchemyUnitOfWork, dispose_engine, get_session_factory
 from shared_kernel.exception import ErrorCode, error_response, register_exception_handlers
 from shared_kernel.log import REQUEST_ID_HEADER, RequestContextMiddleware, configure_logging
@@ -139,6 +145,9 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
 
         clickhouse = get_clickhouse_client(settings.clickhouse)
         app.state.clickhouse = clickhouse
+        clickhouse_engine = get_clickhouse_engine(settings.clickhouse)
+        app.state.clickhouse_engine = clickhouse_engine
+        app.state.clickhouse_session_factory = get_clickhouse_session_factory(clickhouse_engine)
         # 감사 스키마는 여기서 적용한다. CREATE TABLE IF NOT EXISTS 라 멱등이다.
         # clickhouse-connect 는 동기라 이벤트 루프를 막지 않게 스레드로 뺀다.
         applied = await asyncio.to_thread(apply_clickhouse_schema, clickhouse, _CLICKHOUSE_SQL_DIR)
@@ -175,6 +184,7 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
             await app.state.upstream.aclose()
             await dispose_redis()
             await dispose_engine()
+            dispose_clickhouse_engine()
             # clickhouse-connect 는 동기다. 닫지 않으면 HTTP 커넥션 풀이 남는다.
             dispose_clickhouse()
 
