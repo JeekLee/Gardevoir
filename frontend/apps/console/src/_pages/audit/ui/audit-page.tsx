@@ -31,6 +31,7 @@ import {
   consoleErrorReference,
 } from "@/src/shared/api";
 
+import { formatAuditBody } from "../lib/format-audit-body";
 import styles from "./audit-page.module.css";
 
 const actionCopy: Record<AuditAction, string> = {
@@ -575,8 +576,48 @@ function AuditDetailDialog({
 }
 
 function AuditDetailContent({ detail }: { detail: AuditEventDetail }) {
+  const bodies = [
+    ["입력 쿼리", detail.inputBody],
+    ["툴 내역", detail.toolCallsBody],
+    ["출력", detail.outputBody],
+  ].filter((body): body is [string, string] => body[1] !== "");
+
   return (
     <>
+      {detail.excerpt ? (
+        <section className={`${styles.detailSection} ${styles.excerptSection}`}>
+          <div className={styles.detailSectionHeading}>
+            <h3>걸린 부분</h3>
+            {bodies.length === 0 ? <span>본문 없음</span> : null}
+          </div>
+          <pre className={styles.excerpt}>{detail.excerpt}</pre>
+        </section>
+      ) : bodies.length === 0 ? (
+        <p className={styles.bodyStorageOff}>본문 없음</p>
+      ) : null}
+
+      {bodies.length > 0 ? (
+        <section className={styles.detailBodies} aria-label="감사 본문">
+          {bodies.map(([label, body]) => (
+            <AuditBodyDisclosure key={label} label={label} body={body} />
+          ))}
+        </section>
+      ) : null}
+
+      <section className={styles.detailSection}>
+        <h3>걸린 검사</h3>
+        <div className={styles.detailChecks}>
+          {detail.checksFired.length > 0
+            ? detail.checksFired.map((check) => <code key={check}>{check}</code>)
+            : <span>걸린 검사가 없습니다.</span>}
+        </div>
+      </section>
+
+      <section className={styles.detailSection}>
+        <h3>판정 근거</h3>
+        <JsonValueView value={detail.verdicts} />
+      </section>
+
       <section className={styles.detailSection}>
         <div className={styles.detailSectionHeading}>
           <h3>요청과 결과</h3>
@@ -600,23 +641,32 @@ function AuditDetailContent({ detail }: { detail: AuditEventDetail }) {
           <DetailField label="API 키 ID" value={<code>{detail.apiKeyId}</code>} />
           <DetailField label="프롬프트 토큰" value={numberFormat(detail.promptTokens)} />
           <DetailField label="완성 토큰" value={numberFormat(detail.completionTokens)} />
+          <DetailField
+            label="본문 지문"
+            value={
+              <code title={detail.contentFingerprint}>
+                {fingerprintPreview(detail.contentFingerprint)}
+              </code>
+            }
+          />
         </dl>
       </section>
-
-      <section className={styles.detailSection}>
-        <h3>걸린 검사</h3>
-        <div className={styles.detailChecks}>
-          {detail.checksFired.length > 0
-            ? detail.checksFired.map((check) => <code key={check}>{check}</code>)
-            : <span>걸린 검사가 없습니다.</span>}
-        </div>
-      </section>
-
-      <section className={styles.detailSection}>
-        <h3>판정 근거</h3>
-        <JsonValueView value={detail.verdicts} />
-      </section>
     </>
+  );
+}
+
+function AuditBodyDisclosure({
+  label,
+  body,
+}: {
+  label: string;
+  body: string;
+}) {
+  return (
+    <details className={styles.bodyDisclosure}>
+      <summary>{label}</summary>
+      <pre className={styles.bodyContent}>{formatAuditBody(body)}</pre>
+    </details>
   );
 }
 
@@ -655,6 +705,11 @@ function JsonValueView({ value }: { value: JsonValue }) {
     );
   }
   return <code className={styles.jsonScalar}>{jsonScalar(value)}</code>;
+}
+
+function fingerprintPreview(fingerprint: string): string {
+  if (fingerprint.length <= 24) return fingerprint;
+  return `${fingerprint.slice(0, 12)}…${fingerprint.slice(-8)}`;
 }
 
 function EmptyState() {
