@@ -30,6 +30,10 @@ _DOCUMENT_ROLES = {
     "tool_call": "Assistant tool call",
 }
 
+#: ruff 0.16 formatter 가 인라인 except 튜플의 괄호를 지워 파이썬2 문법으로
+#: 만드는 버그가 있다. 별칭으로 두면 formatter 가 손대지 않는다.
+_TRANSPORT_ERRORS = (httpx.HTTPError, ValueError)
+
 _YES = frozenset({"yes", "yes.", '"yes"', "'yes'"})
 _NO = frozenset({"no", "no.", '"no"', "'no'"})
 
@@ -102,7 +106,7 @@ class HttpxModelJudge:
                 headers={"content-type": "application/json", "accept": "application/json"},
                 timeout=deadline_ms / 1000,
             )
-        except (httpx.HTTPError, ValueError):
+        except _TRANSPORT_ERRORS:
             return self._failed(request, "transport_error")
 
         if response.status_code >= 400:
