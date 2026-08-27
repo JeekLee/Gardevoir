@@ -11,30 +11,15 @@
 
 .heading h2 {
   font-family: var(--font-display);
-  font-size: clamp(1.75rem, 4vw, 2.25rem);
+  font-size: 1.85rem;
   letter-spacing: -0.04em;
-}
-
-.heading p:last-child {
-  color: var(--muted);
-  font-size: 0.94rem;
-  line-height: 1.6;
-}
-
-.kicker {
-  color: var(--brand-strong);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
 }
 
 .error {
   align-items: flex-start;
   background: var(--danger-soft);
   border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
-  border-radius: 0.85rem;
+  border-radius: 0.35rem;
   color: var(--danger-strong);
   display: flex;
   gap: 0.7rem;
@@ -75,7 +60,7 @@
 .field input {
   background: var(--field);
   border: 1px solid var(--border);
-  border-radius: 0.85rem;
+  border-radius: 0.35rem;
   color: var(--text);
   min-height: 3.25rem;
   padding: 0 1rem;
@@ -105,7 +90,7 @@
   align-items: center;
   background: var(--brand-strong);
   border: 0;
-  border-radius: 0.9rem;
+  border-radius: 0.35rem;
   color: white;
   cursor: pointer;
   display: flex;
@@ -114,16 +99,11 @@
   justify-content: center;
   min-height: 3.25rem;
   padding: 0 1.2rem;
-  transition:
-    background 160ms ease,
-    transform 160ms ease,
-    box-shadow 160ms ease;
+  transition: background 160ms ease;
 }
 
 .submit:hover:not(:disabled) {
   background: var(--brand-deep);
-  box-shadow: 0 0.7rem 1.8rem color-mix(in srgb, var(--brand) 22%, transparent);
-  transform: translateY(-1px);
 }
 
 .submit:disabled {
@@ -150,10 +130,6 @@
   .field input,
   .submit {
     transition: none;
-  }
-
-  .submit:hover:not(:disabled) {
-    transform: none;
   }
 
   .spinner {

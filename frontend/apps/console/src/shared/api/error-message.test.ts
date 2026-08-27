@@ -24,7 +24,7 @@ describe("console error copy", () => {
     expect(
       consoleErrorMessage({ code: "UNKNOWN-001", httpStatus: 409 }),
     ).toBe(
-      "현재 상태와 충돌했습니다. 최신 내용을 확인한 뒤 다시 시도하세요.",
+      "현재 상태와 충돌했습니다. 최신 내용을 불러오세요.",
     );
   });
 });

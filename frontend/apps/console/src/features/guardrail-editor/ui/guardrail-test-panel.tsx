@@ -195,10 +195,6 @@ export function GuardrailTestPanel({
       <header className={styles.panelHeader}>
         <div className={styles.headerCopy}>
           <h2 id="guardrail-test-title">업스트림 테스트</h2>
-          <span>
-            저장된 초안을 즉석에서 컴파일하고 입력·출력 마스킹 적용 결과를 실시간으로
-            확인합니다.
-          </span>
         </div>
         <button
           ref={closeButton}
@@ -213,8 +209,7 @@ export function GuardrailTestPanel({
 
       <div className={styles.testContext}>
         <div className={styles.testMode}>
-          <strong>초안 강제 적용 테스트</strong>
-          <span>저장된 초안을 강제 적용 모드로 검사하며 발행본에는 영향을 주지 않습니다.</span>
+          <strong>저장된 초안 · enforce · 발행본 영향 없음</strong>
         </div>
         <label className={styles.modelPicker}>
           <span>업스트림 모델</span>
@@ -234,11 +229,7 @@ export function GuardrailTestPanel({
               ))
             )}
           </select>
-          <small>
-            {providers.isLoading
-              ? "모델을 불러오는 중입니다."
-              : "등록된 프로바이더 모델"}
-          </small>
+          {providers.isLoading ? <small>모델을 불러오는 중…</small> : null}
         </label>
       </div>
 
@@ -266,8 +257,8 @@ export function GuardrailTestPanel({
               : streamState === "streaming"
                 ? "응답 스트리밍 중…"
                 : dirty
-                  ? "Draft 저장 후 실제 호출 테스트"
-                  : "실제 호출 테스트"}
+                  ? "저장 후 테스트"
+                  : "테스트"}
           </button>
           {streamState === "streaming" ? (
             <button
@@ -295,7 +286,7 @@ export function GuardrailTestPanel({
           <div>
             <strong>사용 가능한 모델이 없습니다.</strong>
             <span>
-              실제 호출 테스트에는 모델이 연결된 프로바이더가 하나 이상 필요합니다.
+              테스트에는 모델이 연결된 프로바이더가 하나 이상 필요합니다.
             </span>
           </div>
           <Link href="/providers">프로바이더 설정으로 이동 →</Link>
@@ -736,7 +727,7 @@ function normalizeError(error: unknown): ConsoleApiError {
     : new ConsoleApiError({
         httpStatus: 0,
         code: "CONSOLE-006",
-        message: "가드레일 실제 호출 테스트를 완료하지 못했습니다.",
+        message: "가드레일 테스트를 완료하지 못했습니다.",
       });
 }
 

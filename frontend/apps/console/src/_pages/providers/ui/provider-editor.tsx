@@ -155,9 +155,7 @@ export function ProviderEditor({
           setFormErrorReference,
         );
       } else {
-        setFormError(
-          "프로바이더를 저장하지 못했습니다. 입력 내용과 연결 상태를 확인한 뒤 다시 시도하세요.",
-        );
+        setFormError("프로바이더를 저장하지 못했습니다.");
         setFormErrorReference(null);
       }
     } finally {

@@ -69,11 +69,10 @@
 }
 
 .testMode {
-  background: var(--brand-soft);
-  border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--border));
-  border-radius: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   color: var(--brand-deep);
-  padding: 0.5rem 0.65rem;
+  padding: 0.55rem 0;
 }
 
 .testMode strong,
@@ -84,15 +83,6 @@
 .testMode strong {
   font-family: var(--font-mono);
   font-size: 0.62rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.testMode span {
-  color: var(--muted-strong);
-  font-size: 0.62rem;
-  line-height: 1.4;
-  margin-top: 0.2rem;
 }
 
 .modelPicker {
@@ -106,7 +96,7 @@
 .form textarea {
   background: var(--field);
   border: 1px solid var(--border-strong);
-  border-radius: 0.65rem;
+  border-radius: 0.25rem;
   color: var(--text);
   font: inherit;
   min-width: 0;
@@ -158,7 +148,7 @@
 .error button {
   background: var(--brand-strong);
   border: 1px solid var(--brand-strong);
-  border-radius: 0.68rem;
+  border-radius: 0.25rem;
   color: white;
   cursor: pointer;
   font-size: 0.72rem;
@@ -177,7 +167,7 @@
   align-items: center;
   background: var(--surface);
   border: 1px dashed var(--border-strong);
-  border-radius: 0.72rem;
+  border-radius: 0.25rem;
   display: flex;
   gap: 1rem;
   justify-content: space-between;

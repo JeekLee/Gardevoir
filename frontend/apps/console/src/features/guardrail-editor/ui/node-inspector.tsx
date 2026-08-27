@@ -151,7 +151,6 @@ function SelectedNodeInspector({
         </div>
         <span>{checkpointMeta[node.data.checkpoint].index}</span>
       </div>
-      <p className={styles.nodeDescription}>{catalog.description}</p>
       <code className={styles.nodeId}>{domainNode.id}</code>
 
       {node.data.validationMessage ? (
@@ -415,7 +414,6 @@ function FixedCheckpoint({ checkpoint }: { checkpoint: Checkpoint }) {
         value={`${checkpointMeta[checkpoint].index} ${checkpointMeta[checkpoint].label}`}
         readOnly
       />
-      <small>검사 지점은 현재 탭에 고정됩니다.</small>
     </label>
   );
 }

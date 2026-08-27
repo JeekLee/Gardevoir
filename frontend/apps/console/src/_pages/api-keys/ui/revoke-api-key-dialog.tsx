@@ -54,9 +54,7 @@ export function RevokeApiKeyDialog({
         setError(consoleErrorMessage(caught));
         setErrorReference(consoleErrorReference(caught));
       } else {
-        setError(
-          "API 키를 폐기하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.",
-        );
+        setError("API 키를 폐기하지 못했습니다.");
       }
     }
   }

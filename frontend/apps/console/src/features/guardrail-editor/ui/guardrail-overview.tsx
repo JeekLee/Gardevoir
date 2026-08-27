@@ -58,20 +58,6 @@ export function GuardrailOverview({
     checkpointSummaries.flatMap((summary) => summary.actions),
   );
   const actions = guardrailActions.filter((action) => actionSet.has(action));
-  const status = readOnly
-    ? {
-        label: `발행 v${versionNumber} · 읽기 전용`,
-        description: "이 발행본은 변경할 수 없습니다.",
-        kind: "published",
-      }
-    : dirty
-      ? {
-          label: "저장하지 않은 변경",
-          description:
-            "설명과 그래프 변경은 이 편집 세션에 함께 유지됩니다.",
-          kind: "dirty",
-        }
-      : null;
   const descriptionId = `guardrail-description-${readOnly ? `v${versionNumber}` : "draft"}`;
   const descriptionHelpId = `${descriptionId}-help`;
 
@@ -79,21 +65,9 @@ export function GuardrailOverview({
     <div className={styles.overviewGrid}>
       <section
         className={styles.overviewHero}
-        aria-labelledby="guardrail-overview-title"
+        aria-label="가드레일 설정"
       >
         <div className={styles.overviewHeading}>
-          <div className={styles.overviewTitleRow}>
-            <p id="guardrail-overview-title">가드레일 개요</p>
-            {status ? (
-              <span
-                className={styles.overviewStatusPill}
-                data-state={status.kind}
-                role="status"
-              >
-                {status.label}
-              </span>
-            ) : null}
-          </div>
           <div className={styles.overviewDescriptionField}>
             <label htmlFor={descriptionId}>설명</label>
             <textarea
@@ -109,17 +83,9 @@ export function GuardrailOverview({
               rows={3}
             />
             <small id={descriptionHelpId}>
-              {readOnly
-                ? "발행 시점에 저장된 설명입니다."
-                : `${description.length.toLocaleString("ko-KR")} / 2,000자 · 그래프와 함께 저장됩니다.`}
+              {description.length.toLocaleString("ko-KR")} / 2,000자
             </small>
           </div>
-          {status ? (
-            <small className={styles.overviewStatusDescription}>
-              <span aria-hidden="true" />
-              {status.description}
-            </small>
-          ) : null}
         </div>
         <dl className={styles.overviewMetrics}>
           <div>
@@ -188,7 +154,7 @@ export function GuardrailOverview({
                   onClick={onChooseTemplate}
                   aria-label="템플릿에서 가드레일 시작"
                 >
-                  ＋ 템플릿에서 시작
+                  템플릿에서 시작
                 </button>
                 <button
                   className={styles.primaryAction}
@@ -209,12 +175,11 @@ export function GuardrailOverview({
           </div>
           {!readOnly ? (
             <div className={styles.publishedState} aria-label="발행 상태">
-              <span aria-hidden="true" />
               {publishedVersion !== null ? (
                 <Link
                   href={`/guardrails/${encodeURIComponent(name)}/versions/${publishedVersion}`}
                 >
-                  발행 v{publishedVersion} 보기 ↗
+                  발행 v{publishedVersion} 보기
                 </Link>
               ) : (
                 <strong>아직 발행되지 않음</strong>
@@ -229,12 +194,7 @@ export function GuardrailOverview({
         aria-labelledby="checkpoint-overview-title"
       >
         <div className={styles.overviewSectionTitle}>
-          <div>
-            <p>검사 지점 구성</p>
-            <h2 id="checkpoint-overview-title">검사 지점별 정책 흐름</h2>
-            <small>번호는 검사 지점 ID이며, 카드 순서는 실제 요청 실행 순서입니다.</small>
-          </div>
-          <span>카드를 선택해 해당 풀 캔버스로 이동합니다.</span>
+          <h2 id="checkpoint-overview-title">검사 지점</h2>
         </div>
         <div className={styles.checkpointCards}>
           {checkpointSummaries.map((summary) => {
@@ -250,7 +210,6 @@ export function GuardrailOverview({
                 <div>
                   <p>{meta.shortLabel}</p>
                   <h3>{meta.label}</h3>
-                  <span>{meta.description}</span>
                 </div>
                 <dl>
                   <div>
@@ -286,7 +245,6 @@ export function GuardrailOverview({
           initialGuardrailName={name}
           isGuardrailReady={readOnly || publishedVersion !== null}
           title="앱 연결"
-          description="이 가드레일 이름이 미리 입력된 curl 요청으로 실제 앱 연결 형식을 확인하세요."
         />
       </div>
     </div>

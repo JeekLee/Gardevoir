@@ -116,9 +116,7 @@ export function CreateGuardrailDialog({
       setFormError(consoleErrorMessage(error));
       setFormErrorReference(consoleErrorReference(error));
     } else {
-      setFormError(
-        "가드레일을 만들지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.",
-      );
+      setFormError("가드레일을 만들지 못했습니다.");
       setFormErrorReference(null);
     }
   }
@@ -136,7 +134,6 @@ export function CreateGuardrailDialog({
       <form className={styles.dialogForm} onSubmit={handleSubmit}>
         <div className={styles.dialogHeader}>
           <div>
-            <p className={styles.eyebrow}>새 정책 그래프</p>
             <h2 id="create-guardrail-title">가드레일 이름 지정</h2>
             <p>
               이름은 URL과 요청 헤더에서 식별자로 사용됩니다. 만든 뒤 네 검사

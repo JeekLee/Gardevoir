@@ -29,19 +29,14 @@ export function ApiKeysPage() {
   if (!session) return null;
 
   return (
-    <ApiKeyWorkspace
-      accessToken={session.tokens.accessToken}
-      operatorName={session.user.name}
-    />
+    <ApiKeyWorkspace accessToken={session.tokens.accessToken} />
   );
 }
 
 function ApiKeyWorkspace({
   accessToken,
-  operatorName,
 }: {
   accessToken: string;
-  operatorName: string;
 }) {
   const router = useRouter();
   const { endSession } = useSession();
@@ -97,12 +92,7 @@ function ApiKeyWorkspace({
     <section className={styles.page} aria-labelledby="api-keys-title">
       <div className={styles.pageHeader}>
         <div className={styles.headingBlock}>
-          <p className={styles.eyebrow}>앱 크레덴셜</p>
           <h1 id="api-keys-title">API 키</h1>
-          <p>
-            앱이 gardevoir를 호출할 때 사용할 키를 발급하고, 연결할 가드레일을
-            실제 요청 예시로 확인하세요.
-          </p>
         </div>
         <button
           className={styles.primaryButton}
@@ -112,35 +102,20 @@ function ApiKeyWorkspace({
             setIsCreating(true);
           }}
         >
-          <span aria-hidden="true">＋</span>
           새 API 키
         </button>
       </div>
 
-      <AppConnectionPanel
-        guardrailNames={publishedGuardrailNames}
-        isGuardrailReady={
-          !guardrailsQuery.isPending &&
-          !guardrailsQuery.error &&
-          publishedGuardrailNames.length > 0
-        }
-      />
-
       <div className={styles.statusBar}>
         <div className={styles.routeStatus}>
-          <span className={styles.liveDot} aria-hidden="true" />
           <span>
             API 키 <strong>{apiKeysQuery.data?.total ?? 0}</strong>개
           </span>
         </div>
-        <p>
-          로그인 사용자 <strong>{operatorName}</strong>
-        </p>
       </div>
 
       {notice ? (
         <div className={styles.notice} role="status">
-          <span aria-hidden="true">✓</span>
           {notice}
           <button type="button" onClick={() => setNotice(null)} aria-label="알림 닫기">
             ×
@@ -179,12 +154,21 @@ function ApiKeyWorkspace({
         ) : null}
       </div>
 
+      <AppConnectionPanel
+        guardrailNames={publishedGuardrailNames}
+        isGuardrailReady={
+          !guardrailsQuery.isPending &&
+          !guardrailsQuery.error &&
+          publishedGuardrailNames.length > 0
+        }
+      />
+
       {isCreating ? (
         <CreateApiKeyDialog
           accessToken={accessToken}
           guardrailNames={publishedGuardrailNames}
           onClose={() => setIsCreating(false)}
-          onCreated={(name) => setNotice(`${name} API 키를 만들었습니다.`)}
+          onCreated={(name) => setNotice(`${name} API 키 생성됨`)}
           onAuthorizationError={handleAuthorizationError}
         />
       ) : null}
@@ -197,7 +181,7 @@ function ApiKeyWorkspace({
           onClose={() => setEditing(null)}
           onSaved={(apiKey) => {
             setEditing(null);
-            setNotice(`${apiKey.name} API 키를 수정했습니다.`);
+            setNotice(`${apiKey.name} API 키 수정됨`);
           }}
           onAuthorizationError={handleAuthorizationError}
         />
@@ -211,7 +195,7 @@ function ApiKeyWorkspace({
           onClose={() => setRevoking(null)}
           onRevoked={() => {
             setRevoking(null);
-            setNotice(`${revoking.name} API 키를 폐기했습니다.`);
+            setNotice(`${revoking.name} API 키 폐기됨`);
           }}
           onAuthorizationError={handleAuthorizationError}
         />
@@ -313,17 +297,13 @@ function StatusBadge({ status }: { status: ApiKeyStatus }) {
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className={styles.emptyState}>
-      <span className={styles.emptyKey} aria-hidden="true">
-        gdv_
-      </span>
-      <p className={styles.eyebrow}>첫 연결 준비</p>
-      <h2>아직 API 키가 없습니다 — 앱을 연결하려면 키를 만드세요</h2>
+      <h2>API 키 없음</h2>
       <p>
         평문 키는 생성 직후 한 번만 보입니다. 안전한 비밀 저장소에 보관할
         준비를 마친 뒤 발급하세요.
       </p>
       <button className={styles.primaryButton} type="button" onClick={onCreate}>
-        첫 API 키 만들기
+        새 API 키
       </button>
     </div>
   );
@@ -334,12 +314,11 @@ function ErrorState({ error, onRetry }: { error: Error; onRetry: () => void }) {
     <div className={styles.errorState} role="alert">
       <span aria-hidden="true">!</span>
       <div>
-        <p className={styles.dangerEyebrow}>앱 크레덴셜을 사용할 수 없음</p>
         <h2>API 키를 불러오지 못했습니다</h2>
         <p>
           {error instanceof ConsoleApiError
             ? consoleErrorMessage(error)
-            : "API 키 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요."}
+            : "API 키 목록을 불러오지 못했습니다."}
         </p>
         {error instanceof ConsoleApiError ? (
           <code>{consoleErrorReference(error)}</code>

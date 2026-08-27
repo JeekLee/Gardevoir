@@ -17,9 +17,8 @@ export function AppConnectionPanel({
   initialGuardrailName,
   apiKey,
   isGuardrailReady,
-  title = "앱 연결 방법",
-  description =
-    "앱의 OpenAI 요청 주소와 헤더를 아래 값으로 바꾸면 가드레일이 적용됩니다.",
+  title = "앱 연결",
+  description,
 }: {
   guardrailNames?: string[];
   initialGuardrailName?: string;
@@ -63,9 +62,8 @@ export function AppConnectionPanel({
     <section className={styles.panel} aria-labelledby={`${id}-title`}>
       <div className={styles.heading}>
         <div>
-          <p>OpenAI 호환 연결</p>
           <h2 id={`${id}-title`}>{title}</h2>
-          <span>{description}</span>
+          {description ? <span>{description}</span> : null}
         </div>
         <code>{endpoint}</code>
       </div>
@@ -138,7 +136,7 @@ export function AppConnectionPanel({
       </div>
       <p className={styles.copyStatus} aria-live="polite">
         {copyState === "copied"
-          ? "curl 스니펫을 클립보드에 복사했습니다."
+          ? "복사됨"
           : copyState === "failed"
             ? "복사하지 못했습니다. 스니펫을 직접 선택해 복사하세요."
             : ""}

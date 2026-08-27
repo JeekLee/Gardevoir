@@ -60,7 +60,7 @@ export function LoginForm({
       } else if (caught instanceof ConsoleApiError) {
         setError(consoleErrorMessage(caught));
       } else {
-        setError("로그인하지 못했습니다. 입력 내용을 확인한 뒤 다시 시도하세요.");
+        setError("로그인하지 못했습니다. 입력 내용을 확인하세요.");
       }
     } finally {
       setIsSubmitting(false);
@@ -70,9 +70,7 @@ export function LoginForm({
   return (
     <form className={styles.form} onSubmit={handleSubmit}>
       <div className={styles.heading}>
-        <p className={styles.kicker}>콘솔 접근</p>
         <h2>관리자 로그인</h2>
-        <p>관리자 계정으로 모델 경로와 가드레일을 관리하세요.</p>
       </div>
 
       {error ? (
@@ -109,13 +107,10 @@ export function LoginForm({
         {isSubmitting ? (
           <>
             <span className={styles.spinner} aria-hidden="true" />
-            콘솔을 여는 중…
+            로그인 중…
           </>
         ) : (
-          <>
-            로그인
-            <span aria-hidden="true">→</span>
-          </>
+          "로그인"
         )}
       </button>
     </form>
