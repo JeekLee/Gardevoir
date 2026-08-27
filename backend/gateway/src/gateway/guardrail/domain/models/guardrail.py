@@ -77,14 +77,10 @@ class NodeType(StrEnum):
     EXTRACT = "extract"
     REGEX = "regex"
     MODEL = "model"
-    LENGTH = "length"
     TRANSFORM = "transform"
     VERDICT = "verdict"
     #: 대화에 외부 데이터(role:tool 결과)가 들어왔는가 (§8 1단계). 소스다.
     TAINT = "taint"
-    #: 입력이 전부 참인가. VERDICT 의 여러 입력은 OR 이므로 AND 가 따로 필요하다 —
-    #: §8 2단계가 "오염됨 AND 부작용 툴"이다.
-    ALL = "all"
     #: 이 tool_call 이 부작용 툴인가 (§7.6). 목록에 없으면 부작용 있음 — 미등록 툴이
     #: 안전한 쪽으로 기본 처리된다.
     SIDE_EFFECT = "side_effect"
@@ -96,6 +92,11 @@ class VerdictAction(StrEnum):
     BLOCK = "block"
     MASK = "mask"
     ALLOW = "allow"
+
+
+class VerdictCombine(StrEnum):
+    ANY = "any"
+    ALL = "all"
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,19 +282,16 @@ class Guardrail:
             GuardrailError.CYCLE.raise_(details={"nodes": unresolved})
 
 
-#: 노드 타입별 허용 입력 개수 (최소, 최대). verdict 의 여러 입력은 OR 다.
+#: 노드 타입별 허용 입력 개수 (최소, 최대).
 NODE_ARITY: dict[NodeType, tuple[int, int]] = {
     NodeType.EXTRACT: (0, 0),
     NodeType.REGEX: (1, 1),
     NodeType.MODEL: (1, 1),
-    NodeType.LENGTH: (1, 1),
     NodeType.TRANSFORM: (1, 1),
     NodeType.VERDICT: (1, _MANY),
     NodeType.TAINT: (0, 0),
     NodeType.SIDE_EFFECT: (0, 0),
     NodeType.PROVENANCE: (0, 0),
-    #: 입력이 하나면 AND 가 무의미하다 — 저작자가 뭔가 잘못 그린 것이다.
-    NodeType.ALL: (2, _MANY),
 }
 
 
@@ -441,12 +439,6 @@ def _reason(exc: Exception) -> str:
     return arg.decode(errors="replace") if isinstance(arg, bytes) else str(arg)
 
 
-def _validate_length(node: Node) -> None:
-    max_chars = node.config.get("max_chars")
-    if isinstance(max_chars, bool) or not isinstance(max_chars, int) or max_chars <= 0:
-        node.fail("max_chars must be a positive integer")
-
-
 def _validate_transform(node: Node) -> None:
     if node.config.get("op") not in VALID_TRANSFORMS:
         node.fail(f"op must be one of {sorted(VALID_TRANSFORMS)}")
@@ -455,6 +447,8 @@ def _validate_transform(node: Node) -> None:
 def _validate_verdict(node: Node) -> None:
     if node.config.get("action") not in set(VerdictAction):
         node.fail(f"action must be one of {sorted(a.value for a in VerdictAction)}")
+    if node.config.get("combine", VerdictCombine.ANY) not in set(VerdictCombine):
+        node.fail(f"combine must be one of {sorted(c.value for c in VerdictCombine)}")
 
 
 def _validate_taint(node: Node) -> None:
@@ -465,10 +459,6 @@ def _validate_taint(node: Node) -> None:
     """
     if node.config.get("checkpoint") not in VALID_CHECKPOINTS:
         node.fail(f"checkpoint must be one of {sorted(VALID_CHECKPOINTS)}")
-
-
-def _validate_all(node: Node) -> None:
-    """설정이 없다. 입력 개수는 arity 가 본다."""
 
 
 def _require_tool_call(node: Node) -> None:
@@ -508,11 +498,9 @@ _NODE_VALIDATORS = {
     NodeType.EXTRACT: _validate_extract,
     NodeType.REGEX: _validate_regex,
     NodeType.MODEL: _validate_model,
-    NodeType.LENGTH: _validate_length,
     NodeType.TRANSFORM: _validate_transform,
     NodeType.VERDICT: _validate_verdict,
     NodeType.TAINT: _validate_taint,
-    NodeType.ALL: _validate_all,
     NodeType.SIDE_EFFECT: _validate_side_effect,
     NodeType.PROVENANCE: _validate_provenance,
 }

@@ -90,21 +90,17 @@ describe("checkpoint editor view", () => {
   it("체크포인트에 유효한 카탈로그만 노출하고 소스 checkpoint를 탭에 고정한다", () => {
     expect(catalogForCheckpoint("input").map((item) => item.type)).toEqual([
       "extract",
-      "regex",
-      "length",
       "transform",
+      "regex",
       "model",
-      "all",
       "verdict",
     ]);
     expect(catalogForCheckpoint("tool_result").map((item) => item.type)).toEqual([
       "extract",
-      "regex",
-      "length",
       "transform",
+      "regex",
       "taint",
       "model",
-      "all",
       "verdict",
     ]);
     expect(catalogForCheckpoint("tool_call").map((item) => item.type)).toEqual([
@@ -112,7 +108,6 @@ describe("checkpoint editor view", () => {
       "side_effect",
       "provenance",
       "model",
-      "all",
       "verdict",
     ]);
     expect(createCatalogNode("extract", "output", "new-source")).toEqual({
@@ -139,10 +134,8 @@ describe("checkpoint editor view", () => {
       })),
     ).toEqual([
       { role: "Extract", types: ["extract"] },
-      {
-        role: "Check",
-        types: ["regex", "length", "transform", "model", "all"],
-      },
+      { role: "Transform", types: ["transform"] },
+      { role: "Check", types: ["regex", "model"] },
       { role: "Verdict", types: ["verdict"] },
     ]);
   });

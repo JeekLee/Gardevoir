@@ -14,11 +14,9 @@ import re2
 
 from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
 from gateway.guardrail.domain.models.execution_plan import (
-    All,
     ExecutionPlan,
     Extract,
     Instruction,
-    Length,
     ModelCheck,
     ModelNodeSpec,
     Program,
@@ -37,6 +35,7 @@ from gateway.guardrail.domain.models.guardrail import (
     Node,
     NodeType,
     VerdictAction,
+    VerdictCombine,
 )
 
 _DEFAULT_MODEL_ROUTE = "shieldstral"
@@ -51,8 +50,6 @@ _COST = {
     NodeType.TAINT: 0,
     NodeType.SIDE_EFFECT: 0,
     NodeType.PROVENANCE: 0,
-    NodeType.LENGTH: 1,
-    NodeType.ALL: 1,
     NodeType.TRANSFORM: 2,
     NodeType.REGEX: 3,
     NodeType.MODEL: 4,
@@ -104,9 +101,9 @@ class _Graph:
     def by_checkpoint(self) -> dict[str, set[str]]:
         """Group nodes by the checkpoint they descend from.
 
-        ② 를 함께 한다: 한 노드가 서로 다른 체크포인트에서 도달되면 그 노드는 두 시점
-        중 어디서도 평가할 수 없다. arity 때문에 regex/length/transform 은 입력이
-        하나라 이런 일이 없고, verdict 만 해당된다.
+        This also enforces ②: a node reachable from different checkpoints cannot be
+        evaluated at either time. Unary regex/model/transform nodes cannot have that
+        shape, so only verdict needs the check.
         """
         reached: dict[str, set[str]] = defaultdict(set)
         for node in self.nodes.values():
@@ -217,7 +214,7 @@ class _Graph:
         마스킹은 **위치**가 필요하다. 실행기는 걸렸는지만 알므로 걸린 패턴을 원본에
         다시 돌려 위치를 찾는데, 그 패턴이 transform 출력을 읽었다면 원본에서는 안
         걸릴 수 있다. 그러면 ``action=mask`` 라고 응답하면서 아무것도 가리지 않는다 —
-        조용한 fail-open 이다. length 는 애초에 위치가 없다.
+        조용한 fail-open 이다.
 
         런타임에 그 상황이 오지 않게 컴파일 시점에 거부한다. 제한은 MASK 만이다 —
         차단과 통과는 위치가 필요 없다.
@@ -393,22 +390,11 @@ class _Graph:
                     out=slots[node.id],
                     min_length=node.config.get("min_length", DEFAULT_PROVENANCE_MIN_LENGTH),
                 )
-            case NodeType.ALL:
-                return All(
-                    out=slots[node.id],
-                    srcs=tuple(slots[src] for src in self.inputs[node.id] if src in slots),
-                )
             case NodeType.TRANSFORM:
                 return Transform(
                     out=slots[node.id],
                     src=slots[self.inputs[node.id][0]],
                     op=node.config["op"],
-                )
-            case NodeType.LENGTH:
-                return Length(
-                    out=slots[node.id],
-                    src=slots[self.inputs[node.id][0]],
-                    max_chars=node.config["max_chars"],
                 )
             case NodeType.MODEL:
                 return ModelCheck(
@@ -426,6 +412,7 @@ class _Graph:
                 return Verdict(
                     srcs=tuple(slots[src] for src in self.inputs[node.id] if src in slots),
                     action=VerdictAction(node.config["action"]),
+                    combine=VerdictCombine(node.config.get("combine", VerdictCombine.ANY)),
                     node_id=node.id,
                 )
         raise AssertionError(f"unhandled node type {node.type!r}")  # pragma: no cover

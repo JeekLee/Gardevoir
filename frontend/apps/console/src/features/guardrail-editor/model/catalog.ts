@@ -47,7 +47,7 @@ export type NodeCatalogItem = {
   defaultConfig: (checkpoint: Checkpoint) => Record<string, unknown>;
 };
 
-export type NodeCatalogRole = "Extract" | "Check" | "Verdict";
+export type NodeCatalogRole = "Extract" | "Transform" | "Check" | "Verdict";
 
 export type NodeCatalogGroup = {
   role: NodeCatalogRole;
@@ -59,8 +59,9 @@ const catalogRoles: ReadonlyArray<
   Pick<NodeCatalogGroup, "role" | "description">
 > = [
   { role: "Extract", description: "무엇을 볼지" },
-  { role: "Check", description: "어떻게 볼지" },
-  { role: "Verdict", description: "어떤 결론을 낼지" },
+  { role: "Transform", description: "입력을 다듬는다" },
+  { role: "Check", description: "조건을 확인한다" },
+  { role: "Verdict", description: "결론과 조합을 정한다" },
 ];
 
 export const nodeCatalog: NodeCatalogItem[] = [
@@ -79,16 +80,9 @@ export const nodeCatalog: NodeCatalogItem[] = [
     defaultConfig: () => ({ pattern: "" }),
   },
   {
-    type: "length",
-    label: "길이",
-    category: "Check",
-    description: "최대 글자 수를 검사합니다.",
-    defaultConfig: () => ({ max_chars: 1_000 }),
-  },
-  {
     type: "transform",
     label: "텍스트 변환",
-    category: "Check",
+    category: "Transform",
     description: "다른 검사 전에 텍스트를 정규화합니다.",
     defaultConfig: () => ({ op: "lower" }),
   },
@@ -98,13 +92,6 @@ export const nodeCatalog: NodeCatalogItem[] = [
     category: "Check",
     description: "툴 데이터가 대화에 들어왔는지 추적합니다.",
     defaultConfig: (checkpoint) => ({ checkpoint }),
-  },
-  {
-    type: "all",
-    label: "모두 일치",
-    category: "Check",
-    description: "연결된 모든 검사가 일치해야 통과합니다.",
-    defaultConfig: () => ({}),
   },
   {
     type: "side_effect",
@@ -136,7 +123,7 @@ export const nodeCatalog: NodeCatalogItem[] = [
     label: "판정",
     category: "Verdict",
     description: "입력이 일치하면 차단, 마스킹 또는 허용으로 판정합니다.",
-    defaultConfig: () => ({ action: "block" }),
+    defaultConfig: () => ({ action: "block", combine: "any" }),
   },
 ];
 
@@ -148,42 +135,17 @@ const catalogTypesByCheckpoint: Record<
   Checkpoint,
   readonly GuardrailNodeType[]
 > = {
-  input: [
-    "extract",
-    "regex",
-    "length",
-    "transform",
-    "model",
-    "all",
-    "verdict",
-  ],
+  input: ["extract", "transform", "regex", "model", "verdict"],
   tool_result: [
     "extract",
-    "regex",
-    "length",
     "transform",
+    "regex",
     "taint",
     "model",
-    "all",
     "verdict",
   ],
-  tool_call: [
-    "taint",
-    "side_effect",
-    "provenance",
-    "model",
-    "all",
-    "verdict",
-  ],
-  output: [
-    "extract",
-    "regex",
-    "length",
-    "transform",
-    "model",
-    "all",
-    "verdict",
-  ],
+  tool_call: ["taint", "side_effect", "provenance", "model", "verdict"],
+  output: ["extract", "transform", "regex", "model", "verdict"],
 };
 
 export function catalogForCheckpoint(
@@ -232,14 +194,12 @@ export function nodeSummary(node: GuardrailNode): string {
         ? `${strictnessName(stringConfig(node, "strictness"))} · ${policy}`
         : "정책 미설정";
     }
-    case "length":
-      return `최대 ${numberConfig(node, "max_chars") ?? "?"}자`;
     case "transform":
       return transformName(stringConfig(node, "op"));
     case "verdict":
-      return actionName(stringConfig(node, "action"));
-    case "all":
-      return "모든 입력이 일치해야 함";
+      return `${actionName(stringConfig(node, "action"))} · ${combineName(
+        stringConfig(node, "combine"),
+      )}`;
     case "side_effect": {
       const readOnly = node.config.read_only;
       const count = Array.isArray(readOnly) ? readOnly.length : 0;
@@ -262,11 +222,8 @@ export function incomingRange(type: GuardrailNodeType): {
       return { min: 0, max: 0 };
     case "regex":
     case "model":
-    case "length":
     case "transform":
       return { min: 1, max: 1 };
-    case "all":
-      return { min: 2, max: null };
     case "verdict":
       return { min: 1, max: null };
   }
@@ -295,6 +252,10 @@ function actionName(value: string | null): string {
   if (value === "mask") return "마스킹";
   if (value === "allow") return "허용";
   return "판정 미설정";
+}
+
+function combineName(value: string | null): string {
+  return value === "all" ? "모두 충족 (AND)" : "하나라도 충족 (OR)";
 }
 
 function strictnessName(value: string | null): string {

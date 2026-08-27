@@ -23,7 +23,13 @@ _ACTION_ORDER = tuple(
     action.value for action in (VerdictAction.BLOCK, VerdictAction.MASK, VerdictAction.ALLOW)
 )
 _CHECK_NODE_TYPES = frozenset(
-    {NodeType.REGEX.value, NodeType.MODEL.value, NodeType.LENGTH.value, NodeType.TRANSFORM.value}
+    {
+        NodeType.REGEX.value,
+        NodeType.MODEL.value,
+        NodeType.TAINT.value,
+        NodeType.SIDE_EFFECT.value,
+        NodeType.PROVENANCE.value,
+    }
 )
 _TOOL_CALL_NODE_TYPES = frozenset({NodeType.SIDE_EFFECT.value, NodeType.PROVENANCE.value})
 

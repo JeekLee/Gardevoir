@@ -11,6 +11,10 @@ export const guardrailActions = ["block", "mask", "allow"] as const;
 
 export type GuardrailAction = (typeof guardrailActions)[number];
 
+export const verdictCombines = ["any", "all"] as const;
+
+export type VerdictCombine = (typeof verdictCombines)[number];
+
 export const modelStrictnesses = ["strict", "balanced", "lenient"] as const;
 
 export type ModelStrictness = (typeof modelStrictnesses)[number];
@@ -19,11 +23,9 @@ export const nodeTypes = [
   "extract",
   "regex",
   "model",
-  "length",
   "transform",
   "verdict",
   "taint",
-  "all",
   "side_effect",
   "provenance",
 ] as const;

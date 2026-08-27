@@ -29,17 +29,15 @@ export const guardrailTemplates: GuardrailTemplate[] = [
           type: "side_effect",
           config: { checkpoint: "tool_call", read_only: [] },
         },
-        { id: "tainted-and-side-effect", type: "all", config: {} },
         {
           id: "block",
           type: "verdict",
-          config: { action: "block" },
+          config: { action: "block", combine: "all" },
         },
       ],
       edges: [
-        { src: "tainted", dst: "tainted-and-side-effect" },
-        { src: "side-effect", dst: "tainted-and-side-effect" },
-        { src: "tainted-and-side-effect", dst: "block" },
+        { src: "tainted", dst: "block" },
+        { src: "side-effect", dst: "block" },
       ],
     },
   },
@@ -63,7 +61,7 @@ export const guardrailTemplates: GuardrailTemplate[] = [
         {
           id: "mask",
           type: "verdict",
-          config: { action: "mask" },
+          config: { action: "mask", combine: "any" },
         },
       ],
       edges: [
@@ -84,11 +82,15 @@ export const guardrailTemplates: GuardrailTemplate[] = [
           type: "extract",
           config: { checkpoint: "input" },
         },
-        { id: "too-long", type: "length", config: { max_chars: 4000 } },
+        {
+          id: "too-long",
+          type: "regex",
+          config: { pattern: "(?s).{4001,}" },
+        },
         {
           id: "block",
           type: "verdict",
-          config: { action: "block" },
+          config: { action: "block", combine: "any" },
         },
       ],
       edges: [
@@ -112,7 +114,7 @@ export const guardrailTemplates: GuardrailTemplate[] = [
         {
           id: "block",
           type: "verdict",
-          config: { action: "block" },
+          config: { action: "block", combine: "any" },
         },
       ],
       edges: [{ src: "external-arg", dst: "block" }],

@@ -321,14 +321,6 @@ function ConfigFields({
         </>
       );
     }
-    case "length":
-      return (
-        <NumberField
-          label="최대 글자 수"
-          value={numberValue(node.config.max_chars, 1_000)}
-          onChange={(value) => setConfig("max_chars", value)}
-        />
-      );
     case "transform":
       return (
         <label>
@@ -344,20 +336,31 @@ function ConfigFields({
       );
     case "verdict":
       return (
-        <label>
-          <span>판정</span>
-          <select
-            value={stringValue(node.config.action) || "block"}
-            onChange={(event) => setConfig("action", event.target.value)}
-          >
-            <option value="block">차단</option>
-            <option value="mask">마스킹</option>
-            <option value="allow">허용</option>
-          </select>
-        </label>
+        <>
+          <label>
+            <span>판정</span>
+            <select
+              value={stringValue(node.config.action) || "block"}
+              onChange={(event) => setConfig("action", event.target.value)}
+            >
+              <option value="block">차단</option>
+              <option value="mask">마스킹</option>
+              <option value="allow">허용</option>
+            </select>
+          </label>
+          <label>
+            <span>입력 조합</span>
+            <select
+              value={stringValue(node.config.combine) || "any"}
+              onChange={(event) => setConfig("combine", event.target.value)}
+            >
+              <option value="any">하나라도 충족(OR)</option>
+              <option value="all">모두 충족(AND)</option>
+            </select>
+            <small>연결된 Check가 판정을 발동하는 방식을 선택합니다.</small>
+          </label>
+        </>
       );
-    case "all":
-      return <p className={styles.noConfig}>이 노드는 설정할 항목이 없습니다.</p>;
     case "side_effect":
       return (
         <>
@@ -420,29 +423,6 @@ function FixedCheckpoint({ checkpoint }: { checkpoint: Checkpoint }) {
   );
 }
 
-function NumberField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label>
-      <span>{label}</span>
-      <input
-        type="number"
-        min={1}
-        step={1}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-    </label>
-  );
-}
-
 function EdgeItem({
   label,
   edgeId,
@@ -472,10 +452,6 @@ function EdgeItem({
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
-}
-
-function numberValue(value: unknown, fallback: number): number {
-  return typeof value === "number" ? value : fallback;
 }
 
 function optionalNumberValue(value: unknown): number | "" {

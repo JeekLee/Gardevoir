@@ -9,9 +9,7 @@
 from dataclasses import dataclass
 
 from gateway.guardrail.domain.models.execution_plan import (
-    All,
     Extract,
-    Length,
     ModelCheck,
     Program,
     Provenance,
@@ -22,7 +20,7 @@ from gateway.guardrail.domain.models.execution_plan import (
     Transform,
     Verdict,
 )
-from gateway.guardrail.domain.models.guardrail import VerdictAction
+from gateway.guardrail.domain.models.guardrail import VerdictAction, VerdictCombine
 
 PENDING = object()
 
@@ -106,11 +104,6 @@ def execute(program: Program, subject: Subject, *, collect_all: bool = False) ->
                 slots[instruction.out] = (
                     _TRANSFORMS[instruction.op](source) if source is not None else None
                 )
-            case Length():
-                source = slots[instruction.src]
-                slots[instruction.out] = (
-                    len(source) > instruction.max_chars if source is not None else False
-                )
             case ModelCheck():
                 slots[instruction.out] = PENDING
             case RegexOne():
@@ -127,27 +120,28 @@ def execute(program: Program, subject: Subject, *, collect_all: bool = False) ->
                 slots[instruction.out] = subject.tool_name not in instruction.read_only
             case Provenance():
                 slots[instruction.out] = bool(subject.foreign_args)
-            case All():
-                has_pending = False
-                for src in instruction.srcs:
-                    value = slots[src]
-                    if value is PENDING:
-                        has_pending = True
-                    elif not value:
-                        slots[instruction.out] = False
-                        break
-                else:
-                    slots[instruction.out] = PENDING if has_pending else True
             case Verdict():
-                triggered = False
                 has_pending = False
-                for src in instruction.srcs:
-                    value = slots[src]
-                    if value is True:
-                        triggered = True
-                        break
-                    if value is PENDING:
-                        has_pending = True
+                if instruction.combine is VerdictCombine.ALL:
+                    triggered = True
+                    for src in instruction.srcs:
+                        value = slots[src]
+                        if value is PENDING:
+                            triggered = False
+                            has_pending = True
+                        elif value is not True:
+                            triggered = False
+                            has_pending = False
+                            break
+                else:
+                    triggered = False
+                    for src in instruction.srcs:
+                        value = slots[src]
+                        if value is True:
+                            triggered = True
+                            break
+                        if value is PENDING:
+                            has_pending = True
                 if triggered:
                     fired.append(instruction.node_id)
                     if _SEVERITY[instruction.action] > _SEVERITY[action]:

@@ -16,11 +16,10 @@ describe("guardrail policy copy", () => {
           type: "side_effect",
           config: { checkpoint: "tool_call", read_only: [] },
         },
-        { id: "both", type: "all", config: {} },
         {
           id: "block",
           type: "verdict",
-          config: { action: "block" },
+          config: { action: "block", combine: "all" },
         },
       ],
       edges: [],

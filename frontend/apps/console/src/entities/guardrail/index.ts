@@ -9,6 +9,7 @@ export {
   guardrailActions,
   modelStrictnesses,
   nodeTypes,
+  verdictCombines,
   parseGuardrailDetail,
   parseGuardrailGraph,
   parseGuardrailPage,
@@ -22,6 +23,7 @@ export {
   type GuardrailPage,
   type GuardrailSummary,
   type ModelStrictness,
+  type VerdictCombine,
 } from "./model/guardrail";
 export {
   guardrailDraftOptions,

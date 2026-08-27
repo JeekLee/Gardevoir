@@ -10,7 +10,7 @@
 
 from dataclasses import dataclass, field
 
-from gateway.guardrail.domain.models.guardrail import VerdictAction
+from gateway.guardrail.domain.models.guardrail import VerdictAction, VerdictCombine
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,13 +26,6 @@ class Transform:
     out: int
     src: int
     op: str
-
-
-@dataclass(frozen=True, slots=True)
-class Length:
-    out: int
-    src: int
-    max_chars: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,41 +94,28 @@ class Provenance:
 
 
 @dataclass(frozen=True, slots=True)
-class All:
-    """입력이 전부 참인가.
-
-    VERDICT 의 여러 입력은 OR 다. §8 2단계가 "오염됨 AND 부작용 툴"이라 AND 가
-    따로 필요하다.
-    """
-
-    out: int
-    srcs: tuple[int, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class Verdict:
-    """결론. 슬롯에 쓰지 않는다 — 판정에는 bool 이 아니라 action 과 node_id 가 필요하다.
+    """A terminal decision that does not write to a slot.
 
-    ``srcs`` 가 여럿이면 OR 다. ``node_id`` 를 담는 이유: 감사 로그의 ``checks_fired``
-    가 정책 튜닝의 유일한 입력이다 (§4).
+    ``combine`` interprets multiple inputs as OR/AND. ``node_id`` identifies the
+    decision in ``checks_fired``, the audit input for policy tuning (§4).
     """
 
     srcs: tuple[int, ...]
     action: VerdictAction
+    combine: VerdictCombine
     node_id: str
 
 
 type Instruction = (
     Extract
     | Transform
-    | Length
     | ModelCheck
     | RegexOne
     | RegexSet
     | Taint
     | SideEffect
     | Provenance
-    | All
     | Verdict
 )
 

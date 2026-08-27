@@ -453,6 +453,15 @@ guardrail/application/service/inspector.py        체크포인트별 대상 추�
 
 Rules that must hold:
 
+- **The authored catalog has four roles.** Extract=`extract`; Transform=`transform`;
+  Check=`regex`/`model`/`taint`/`side_effect`/`provenance`; Verdict=`verdict`. There is no
+  `all` node: verdict owns `combine=any|all` and defaults to `any`. There is no `length` node:
+  use an RE2 pattern such as `(?s).{N,}`.
+- **Verdict preserves three-state model gating.** For `any`, a confirmed True fires, otherwise
+  PENDING delegates to the model. For `all`, any confirmed False suppresses the verdict,
+  otherwise PENDING delegates, and only all confirmed True values fire. Do not collapse PENDING
+  into a boolean.
+
 - **`Program` and its instructions are slotted dataclasses, NOT `CamelModel`.** Pydantic validation must
   never run on the request path. The `CamelModel` convention applies to DTOs that cross the
   HTTP boundary; a plan never does.

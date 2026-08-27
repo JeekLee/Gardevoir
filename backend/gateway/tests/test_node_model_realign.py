@@ -33,8 +33,12 @@ def _model(node_id: str = "model") -> dict:
     }
 
 
-def _verdict(*, action: str = "block", decision: str | None = None) -> dict:
+def _verdict(
+    *, action: str = "block", combine: str | None = None, decision: str | None = None
+) -> dict:
     config = {"action": action}
+    if combine is not None:
+        config["combine"] = combine
     if decision is not None:
         config["decision"] = decision
     return {"id": "verdict", "type": "verdict", "config": config}
@@ -110,26 +114,98 @@ def test_model_check_requires_one_input() -> None:
     assert caught.value.code == "GUARDRAIL-012"
 
 
-def test_all_short_circuits_pending_when_rule_is_false() -> None:
-    """힌트 규칙이 거짓이면 PENDING보다 먼저 False로 결론 난다."""
-    plan = _hint_plan()
+@pytest.mark.parametrize(
+    ("combine", "text", "expected_fired", "expected_pending"),
+    [
+        ("any", "contains a secret", ("verdict",), ()),
+        ("any", "ordinary request", (), ("verdict",)),
+        ("all", "ordinary request", (), ()),
+        ("all", "contains a secret", (), ("verdict",)),
+    ],
+)
+def test_verdict_combine_preserves_pending_three_state(
+    combine: str,
+    text: str,
+    expected_fired: tuple[str, ...],
+    expected_pending: tuple[str, ...],
+) -> None:
+    """any/all이 확정 규칙과 PENDING을 3상태 의미대로 합친다."""
+    plan = _hint_plan(combine=combine)
     program = plan.program_for("input")
 
     assert program is not None
-    result = execute(program, Subject(text="ordinary request"))
-    assert result.action is VerdictAction.ALLOW
+    result = execute(program, Subject(text=text))
+    assert result.checks_fired == expected_fired
+    assert result.pending_model == expected_pending
+    assert result.action is (VerdictAction.BLOCK if expected_fired else VerdictAction.ALLOW)
+
+
+@pytest.mark.parametrize(
+    ("combine", "text", "expected_action"),
+    [
+        ("any", "secret", VerdictAction.BLOCK),
+        ("any", "ordinary request", VerdictAction.ALLOW),
+        ("all", "secret", VerdictAction.ALLOW),
+        ("all", "secret token", VerdictAction.BLOCK),
+    ],
+)
+def test_verdict_combine_rule_only_results(
+    combine: str, text: str, expected_action: VerdictAction
+) -> None:
+    """규칙-only any는 OR, all은 AND로 확정 판정을 낸다."""
+    plan = _plan(
+        nodes=[
+            _extract(),
+            {"id": "secret", "type": "regex", "config": {"pattern": "secret"}},
+            {"id": "token", "type": "regex", "config": {"pattern": "token"}},
+            _verdict(combine=combine),
+        ],
+        edges=[
+            ("extract", "secret"),
+            ("extract", "token"),
+            ("secret", "verdict"),
+            ("token", "verdict"),
+        ],
+    )
+    program = plan.program_for("input")
+
+    assert program is not None
+    result = execute(program, Subject(text=text))
+    assert result.action is expected_action
     assert result.pending_model == ()
 
 
-def test_all_propagates_pending_when_rule_is_true() -> None:
-    """힌트 규칙이 참이면 모델 verdict를 pending으로 위임한다."""
-    plan = _hint_plan()
+def test_verdict_combine_defaults_to_any() -> None:
+    """combine이 없는 기존 verdict는 OR 동작을 유지한다."""
+    plan = _plan(
+        nodes=[
+            _extract(),
+            {"id": "first", "type": "regex", "config": {"pattern": "first"}},
+            {"id": "second", "type": "regex", "config": {"pattern": "second"}},
+            _verdict(),
+        ],
+        edges=[
+            ("extract", "first"),
+            ("extract", "second"),
+            ("first", "verdict"),
+            ("second", "verdict"),
+        ],
+    )
     program = plan.program_for("input")
 
     assert program is not None
-    result = execute(program, Subject(text="contains a secret"))
-    assert result.action is VerdictAction.ALLOW
-    assert result.pending_model == ("verdict",)
+    assert execute(program, Subject(text="first")).action is VerdictAction.BLOCK
+
+
+def test_verdict_rejects_unknown_combine() -> None:
+    """combine은 any/all 외 값을 저작 시점에 거부한다."""
+    with pytest.raises(AppError) as caught:
+        _plan(
+            nodes=[_extract(), _verdict(combine="invalid")],
+            edges=[("extract", "verdict")],
+        )
+
+    assert caught.value.code == "GUARDRAIL-005"
 
 
 def test_multiple_model_checks_for_one_verdict_are_rejected() -> None:
@@ -140,35 +216,31 @@ def test_multiple_model_checks_for_one_verdict_are_rejected() -> None:
                 _extract(),
                 _model("model-a"),
                 _model("model-b"),
-                {"id": "all", "type": "all", "config": {}},
-                _verdict(),
+                _verdict(combine="all"),
             ],
             edges=[
                 ("extract", "model-a"),
                 ("extract", "model-b"),
-                ("model-a", "all"),
-                ("model-b", "all"),
-                ("all", "verdict"),
+                ("model-a", "verdict"),
+                ("model-b", "verdict"),
             ],
         )
 
     assert caught.value.code == "GUARDRAIL-017"
 
 
-def _hint_plan():
+def _hint_plan(*, combine: str):
     return _plan(
         nodes=[
             _extract(),
             {"id": "regex", "type": "regex", "config": {"pattern": "secret"}},
             _model(),
-            {"id": "all", "type": "all", "config": {}},
-            _verdict(),
+            _verdict(combine=combine),
         ],
         edges=[
             ("extract", "regex"),
             ("extract", "model"),
-            ("regex", "all"),
-            ("model", "all"),
-            ("all", "verdict"),
+            ("regex", "verdict"),
+            ("model", "verdict"),
         ],
     )

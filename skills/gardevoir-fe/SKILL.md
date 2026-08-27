@@ -219,6 +219,14 @@ node IDs, edge endpoints, and declared array order. The backend uses declaration
 tie-breaker; sorting nodes by canvas position or regenerating IDs can change execution/audit order
 even when the visible graph looks equivalent.
 
+The node catalog renders four roles in this order:
+
+- **Extract** — `extract`; chooses what to inspect.
+- **Transform** — `transform`; prepares the input with `lower` or `strip`.
+- **Check** — `regex`, `model`, `taint`, `side_effect`, `provenance`; produces a condition.
+- **Verdict** — `verdict`; declares the action and combines inputs with `any` (default OR) or
+  `all` (AND). There are no separate `all` or `length` nodes; express length with RE2.
+
 React Flow types are editor types, not the gateway wire contract. Keep one explicit mapper at the
 editor boundary and test its round trip. Never leak `@xyflow/react` objects into entity API types or
 send its whole JSON object to the backend.

@@ -14,20 +14,21 @@
 
 ## 1. 문제 — 코드가 §5 에서 드리프트했다
 
-설계 문서 §5 는 노드를 **세 역할**로 규정한다:
+설계 문서 §5 는 노드를 **네 역할**로 규정한다:
 
 ```
 Extract   무엇을 볼지 (input / tool_result / output / tool_call)
-Check     어떻게 볼지 (regex / 결정론 / 모델 / 변환)
+Transform 입력을 다듬기 (lower / strip)
+Check     조건을 확인하기 (regex / model / taint / side_effect / provenance)
 Verdict   결론 (block / allow / ask / mask)
 ```
 
-- **모델은 Check 의 한 종류**다 — regex·결정론·변환과 나란히.
+- **모델은 Check 의 한 종류**다 — regex·결정론 검사와 나란히.
 - §4 는 티어(결론형/힌트형/모델형)를 "**체크가 선언하는 역할**"로 규정한다.
 
 그러나 코드(`guardrail.py`)는:
 1. `decision`(conclusive/hint/model_only)을 **VERDICT** 노드에 얹었다(문서상 Check 의 속성).
-2. **모델 Check 노드 타입이 없다**(regex/length/…/verdict 만 존재).
+2. **모델 Check 노드 타입이 없다**(regex/transform/…/verdict 만 존재).
 
 그래서 verdict 가 "검증·필터"처럼 느껴지고, 모델 정책을 verdict 필드로 얹으면 규칙 경로(regex→verdict)와
 비대칭이 된다. 이 스펙은 §5 로 정렬한다.
@@ -38,16 +39,18 @@ Verdict   결론 (block / allow / ask / mask)
   - `policy`: 자연어 정책 질의(모델에 물을 문장). 비어 있으면 저작 시점 검증 실패.
   - `strictness`(선택): 경계 사례 처리(예: Qwen `Controversial`, 아래 4b). 기본은 보수적.
   - Check 이므로 arity 는 **입력을 extract 에서 받는 형태**(regex 와 동일: `(1, 1)` — 무엇을 볼지 1개).
-- **verdict 는 결론만** — config `{action: block/mask/allow}`. **`decision` 필드 제거.**
+- **verdict 는 결론만** — config `{action: block/mask/allow, combine: any/all}`. `combine`의
+  기본값은 `any`다. **`decision` 필드 제거.**
 - **티어는 그래프 구조에서 나온다**(더 이상 필드 아님):
 
   | 티어 | 그래프 | 의미 |
   |---|---|---|
   | 결론형 | `extract → regex → verdict` | 규칙만으로 종료, 모델 미호출 |
   | 모델형 | `extract → model → verdict` | 규칙 없이 항상 모델 |
-  | 힌트형 | `extract → all(regex, model) → verdict` | regex 가 걸릴 때만 모델 호출(short-circuit), 모델이 확정 |
+  | 힌트형 | `extract → regex, model → verdict(combine=all)` | regex 가 걸릴 때만 모델 호출(short-circuit), 모델이 확정 |
 
-  힌트형의 "regex 걸릴 때만 모델"은 `all` 의 short-circuit 에서 공짜로 나온다(§3).
+  힌트형의 "regex 걸릴 때만 모델"은 verdict `combine=all`의 short-circuit 에서 공짜로
+  나온다(§3). `combine`을 생략한 verdict는 기존처럼 `any`(OR)다.
 
 ## 3. 실행 의미 — executor 3-상태 슬롯
 
@@ -55,13 +58,12 @@ Verdict   결론 (block / allow / ask / mask)
 
 - **PENDING**: `True/False/None` 과 구분되는 단일 센티널 객체.
 - **Model 명령**: 자기 out 슬롯을 `PENDING` 으로 둔다(규칙 티어에서 값을 못 냄).
-- **All 전파**(3-상태 AND): src 중 하나라도 `False`(falsy) → `False`; 아니고 하나라도 `PENDING` → `PENDING`; 그 외 → `True`.
-  - `all(False_regex, PENDING_model)` = `False` → verdict 미발화 → **모델 미호출**(힌트형 short-circuit).
-  - `all(True_regex, PENDING_model)` = `PENDING` → verdict pending → 모델 호출.
-- **Verdict 발화**(src 들에 대해):
-  - 어떤 src 가 확정 `True` → **결론형 발화**(action 적용). (규칙이 이미 결론 내면 모델 불필요.)
-  - 확정 True 없고 어떤 src 가 `PENDING` → **node_id 를 `pending_model` 에 추가**(모델로 위임). action 미적용.
-  - 전부 `False` → 미발화.
+- **Verdict `combine=any`**(3-상태 OR): 어떤 src가 확정 `True`면 발화(action 적용), 확정
+  True 없이 하나라도 `PENDING`이면 `pending_model`에 node_id를 추가, 전부 `False`면 미발화.
+- **Verdict `combine=all`**(3-상태 AND): 하나라도 확정 `False`면 미발화, False 없이 하나라도
+  `PENDING`이면 `pending_model`에 node_id를 추가, 전부 확정 `True`면 발화(action 적용).
+  - `verdict(all, False_regex, PENDING_model)` → 미발화 → **모델 미호출**(힌트형 short-circuit).
+  - `verdict(all, True_regex, PENDING_model)` → pending → 모델 호출.
 
 → **런타임 산출물(`pending_model` = verdict node_id 들)은 지금과 동일 형태**다. 규칙-only 요청은 PENDING 이
 전혀 안 생겨 기존 0.62 ms 경로 그대로. **4a 는 런타임 행동 보존**(모델 아직 미호출; pending 은 감사에만).
@@ -146,7 +148,9 @@ OCR/좌표/redaction/재검증 별도 트랙, 준비 전엔 block/격리만(조�
 
 - 신규 **Model Check 노드**: 정책 `policy` textarea(자연어) + strictness 선택. React Flow 팔레트에 Check 로.
 - verdict 노드에서 `decision` 컨트롤 제거(결론=action 만).
-- 노드를 §5 세 역할(**Extract / Check / Verdict**)로 팔레트에서 묶어 보여 저작자 멘탈모델 정렬.
+- 노드를 §5 네 역할(**Extract / Transform / Check / Verdict**)로 팔레트에서 묶어 보여 저작자
+  멘탈모델 정렬. transform은 Transform, regex·model·taint·side_effect·provenance는 Check다.
+- verdict 인스펙터에서 입력 조합 `any`(하나라도 충족, OR) / `all`(모두 충족, AND)을 선택한다.
 - 콘솔은 LAN 평문 HTTP(비보안 컨텍스트) — secure-context 전용 API 무가드 사용 금지.
 
 ## 9. 마이그레이션
@@ -160,6 +164,12 @@ OCR/좌표/redaction/재검증 별도 트랙, 준비 전엔 block/격리만(조�
 2026-08-27 로컬 Postgres 확인 결과 `default`의 draft와 발행본 v1~v4에 있는 verdict 25개는 모두
 `conclusive`였고 `hint`/`model_only`는 0개였다. JSONB의 여분 `decision` 키는 레니언트 파서가 보존하되
 검증과 컴파일에서 읽지 않아 무해하므로 Alembic 데이터 마이그레이션은 만들지 않는다.
+
+노드 카탈로그 정렬 전 같은 DB를 다시 확인한 결과 `all`은 `default` draft와 v1~v4에 각 1개씩
+총 5개, `length`는 v1에 1개 있었다. 따라서 이번에는 Alembic 데이터 마이그레이션이 필요하다.
+각 `all`의 입력을 downstream verdict에 직접 연결하고 `combine=all`을 넣으며, `length(max_chars=N)`은
+기존의 `len(text) > N`과 개행 의미를 보존하는 `regex("(?s).{N+1,}")`로 바꾼다. 콘솔
+`templates.ts`의 AND 템플릿과 길이 템플릿도 같은 형태로 바꾼다.
 
 ## 10. 단계와 검증
 

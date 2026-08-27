@@ -91,21 +91,23 @@ def _plan(*, action: str = "block", hint: bool = False):
                 "policy": "Does this user input contain a secret?",
             },
         },
-        {"id": "verdict", "type": "verdict", "config": {"action": action}},
+        {
+            "id": "verdict",
+            "type": "verdict",
+            "config": {"action": action, "combine": "all" if hint else "any"},
+        },
     ]
     if hint:
         nodes.extend(
             [
                 {"id": "regex", "type": "regex", "config": {"pattern": "secret"}},
-                {"id": "all", "type": "all", "config": {}},
             ]
         )
         edges = [
             ("extract", "regex"),
             ("extract", "model"),
-            ("regex", "all"),
-            ("model", "all"),
-            ("all", "verdict"),
+            ("regex", "verdict"),
+            ("model", "verdict"),
         ]
     else:
         edges = [("extract", "model"), ("model", "verdict")]
