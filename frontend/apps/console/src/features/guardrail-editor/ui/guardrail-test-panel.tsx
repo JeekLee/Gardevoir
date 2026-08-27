@@ -2,7 +2,14 @@
 
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 
 import { useProviders } from "@/src/entities/provider";
 import {
@@ -36,12 +43,17 @@ const checkpointSections: {
     timing: "immediate",
   },
   {
+    key: "output",
+    index: "③",
+    label: "출력 적용 결과",
+    timing: "streaming",
+  },
+  {
     key: "toolCall",
     index: "④",
     label: "툴 호출 적용 결과",
     timing: "streaming",
   },
-  { key: "output", index: "③", label: "출력 적용 결과", timing: "streaming" },
 ];
 
 export function GuardrailTestPanel({
@@ -80,6 +92,7 @@ export function GuardrailTestPanel({
   const [error, setError] = useState<ConsoleApiError | null>(null);
   const [isPreparing, setIsPreparing] = useState(false);
   const abortController = useRef<AbortController | null>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
   const mutation = useMutation({
     mutationFn: (input: {
       model: string;
@@ -148,17 +161,37 @@ export function GuardrailTestPanel({
     }
   }
 
-  function close() {
+  const close = useCallback(() => {
     abortController.current?.abort();
     onClear();
     onClose();
-  }
+  }, [onClear, onClose]);
+
+  useEffect(() => {
+    closeButton.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    };
+    window.addEventListener("keydown", closeOnEscape, true);
+    return () => window.removeEventListener("keydown", closeOnEscape, true);
+  }, [close]);
 
   const isBusy =
     isPreparing || mutation.isPending || streamState === "streaming";
 
   return (
-    <section className={styles.panel} aria-labelledby="guardrail-test-title">
+    <section
+      className={styles.panel}
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="guardrail-test-title"
+    >
       <header className={styles.panelHeader}>
         <div className={styles.headerCopy}>
           <h2 id="guardrail-test-title">업스트림 테스트</h2>
@@ -167,47 +200,47 @@ export function GuardrailTestPanel({
             확인합니다.
           </span>
         </div>
-        <div className={styles.headerControls}>
-          <div className={styles.testContext}>
-            <div className={styles.testMode}>
-              <strong>초안 강제 적용 테스트</strong>
-              <span>저장된 초안을 강제 적용 모드로 검사하며 발행본에는 영향을 주지 않습니다.</span>
-            </div>
-            <label className={styles.modelPicker}>
-              <span>업스트림 모델</span>
-              <select
-                value={selectedModel}
-                onChange={(event) => setModel(event.target.value)}
-                disabled={isBusy || providers.isLoading || modelOptions.length === 0}
-                required
-              >
-                {modelOptions.length === 0 ? (
-                  <option value="">사용 가능한 모델 없음</option>
-                ) : (
-                  modelOptions.map((option) => (
-                    <option key={option.model} value={option.model}>
-                      {option.model} · {option.provider}
-                    </option>
-                  ))
-                )}
-              </select>
-              <small>
-                {providers.isLoading
-                  ? "모델을 불러오는 중입니다."
-                  : "등록된 프로바이더 모델"}
-              </small>
-            </label>
-          </div>
-          <button
-            className={styles.closeButton}
-            type="button"
-            onClick={close}
-            aria-label="테스트 패널 닫기"
-          >
-            ×
-          </button>
-        </div>
+        <button
+          ref={closeButton}
+          className={styles.closeButton}
+          type="button"
+          onClick={close}
+          aria-label="테스트 패널 닫기"
+        >
+          ×
+        </button>
       </header>
+
+      <div className={styles.testContext}>
+        <div className={styles.testMode}>
+          <strong>초안 강제 적용 테스트</strong>
+          <span>저장된 초안을 강제 적용 모드로 검사하며 발행본에는 영향을 주지 않습니다.</span>
+        </div>
+        <label className={styles.modelPicker}>
+          <span>업스트림 모델</span>
+          <select
+            value={selectedModel}
+            onChange={(event) => setModel(event.target.value)}
+            disabled={isBusy || providers.isLoading || modelOptions.length === 0}
+            required
+          >
+            {modelOptions.length === 0 ? (
+              <option value="">사용 가능한 모델 없음</option>
+            ) : (
+              modelOptions.map((option) => (
+                <option key={option.model} value={option.model}>
+                  {option.model} · {option.provider}
+                </option>
+              ))
+            )}
+          </select>
+          <small>
+            {providers.isLoading
+              ? "모델을 불러오는 중입니다."
+              : "등록된 프로바이더 모델"}
+          </small>
+        </label>
+      </div>
 
       <form className={styles.form} onSubmit={(event) => void runTest(event)}>
         <label>

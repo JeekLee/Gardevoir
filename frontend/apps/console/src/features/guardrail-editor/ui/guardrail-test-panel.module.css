@@ -1,18 +1,38 @@
 .panel {
-  background: color-mix(in srgb, var(--brand-soft) 38%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--border));
-  border-radius: 1rem;
+  animation: test-drawer-enter 180ms ease-out;
+  background: color-mix(in srgb, var(--brand-soft) 18%, var(--surface));
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--brand) 28%, var(--border));
+  bottom: 0;
+  box-shadow: -1.2rem 0 3.2rem rgb(18 43 32 / 18%);
   display: grid;
   gap: 1rem;
+  grid-auto-rows: max-content;
+  max-width: 100vw;
   min-width: 0;
-  padding: 1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 1rem 1.5rem;
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: clamp(27.5rem, 38vw, 35rem);
+  z-index: 40;
 }
 
 .panelHeader {
   align-items: start;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(18px);
+  border-bottom: 1px solid var(--border);
   display: grid;
   gap: 1rem;
   grid-template-columns: minmax(0, 1fr) auto;
+  margin: 0 -1rem;
+  padding: 1.1rem 1rem 1rem;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .headerCopy {
@@ -42,20 +62,17 @@
   font-size: 1.15rem;
 }
 
-.headerControls,
 .testContext {
   align-items: start;
-  display: flex;
+  display: grid;
   gap: 0.65rem;
 }
 
 .testMode {
   background: var(--brand-soft);
   border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--border));
-  border-radius: 999px;
+  border-radius: 0.75rem;
   color: var(--brand-deep);
-  margin-top: 1.2rem;
-  max-width: 18rem;
   padding: 0.5rem 0.65rem;
 }
 
@@ -81,7 +98,8 @@
 .modelPicker {
   display: grid;
   gap: 0.22rem;
-  min-width: min(18rem, 34vw);
+  min-width: 0;
+  width: 100%;
 }
 
 .modelPicker select,
@@ -120,7 +138,7 @@
   align-items: end;
   display: grid;
   gap: 0.75rem;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 1fr;
 }
 
 .form label {
@@ -246,10 +264,9 @@
 }
 
 .resultSummary {
-  align-items: center;
-  display: flex;
+  align-items: start;
+  display: grid;
   gap: 1rem;
-  justify-content: space-between;
   min-width: 0;
 }
 
@@ -299,6 +316,7 @@
 }
 
 .resultSummary dl {
+  flex-wrap: wrap;
   min-width: 0;
 }
 
@@ -398,7 +416,7 @@
   align-items: start;
   display: grid;
   gap: 0.8rem;
-  grid-template-columns: auto minmax(8rem, 1fr) minmax(8rem, 1fr);
+  grid-template-columns: 1fr;
   min-width: 0;
 }
 
@@ -407,7 +425,7 @@
 .blockedNotice {
   border-radius: 0.55rem;
   font-size: 0.68rem;
-  grid-column: 1 / -1;
+  grid-column: 1;
   padding: 0.62rem 0.7rem;
 }
 
@@ -513,7 +531,7 @@
   align-items: stretch;
   display: grid;
   gap: 0.55rem;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
 }
 
@@ -555,6 +573,8 @@
   font-family: var(--font-mono);
   font-size: 1rem;
   font-weight: 850;
+  justify-self: center;
+  transform: rotate(90deg);
 }
 
 .maskHighlight {
@@ -625,90 +645,30 @@
 }
 
 @media (max-width: 980px) {
-  .panelHeader {
-    grid-template-columns: 1fr;
-  }
-
-  .headerControls {
-    justify-content: space-between;
-  }
-
-  .testContext {
-    min-width: 0;
-  }
-
-  .modelPicker {
-    min-width: min(24rem, 60vw);
-  }
-
   .emptyModels {
     align-items: stretch;
     flex-direction: column;
   }
+}
 
-  .checkpointDetails {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .evidence {
-    grid-column: 1 / -1;
+@media (max-width: 760px) {
+  .panel {
+    border-left: 0;
+    width: 100vw;
   }
 }
 
-@media (max-width: 700px) {
-  .form {
-    grid-template-columns: 1fr;
-  }
-
-  .headerControls,
-  .testContext {
-    align-items: stretch;
-  }
-
-  .testContext {
-    flex: 1;
-    flex-direction: column;
-  }
-
-  .testMode {
-    align-self: start;
-    margin-top: 0;
-  }
-
-  .modelPicker {
-    min-width: 0;
-    width: 100%;
-  }
-
-  .resultSummary {
-    align-items: start;
-    flex-direction: column;
-  }
-
-  .resultSummary dl {
-    flex-wrap: wrap;
-  }
-
-  .checkpointDetails {
-    grid-template-columns: 1fr;
-  }
-
-  .textComparison {
-    grid-template-columns: 1fr;
-  }
-
-  .applyArrow {
-    justify-self: center;
-    transform: rotate(90deg);
-  }
-
-  .checkpointDetails > *,
-  .evidence {
-    grid-column: 1;
+@keyframes test-drawer-enter {
+  from {
+    transform: translateX(100%);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .panel {
+    animation: none;
+  }
+
   .runButton {
     transition: none;
   }

@@ -45,7 +45,7 @@ export function GuardrailOverview({
   isPublishing: boolean;
   onOpenCheckpoint: (checkpoint: Checkpoint) => void;
   onPublish: () => void;
-  onTest: () => void;
+  onTest: (opener: HTMLButtonElement) => void;
   onChooseTemplate: () => void;
 }) {
   const checkpointSummaries = summarizeCheckpointGraphs(graph);
@@ -155,7 +155,7 @@ export function GuardrailOverview({
                 className={styles.secondaryAction}
                 type="button"
                 disabled={isBusy}
-                onClick={onTest}
+                onClick={(event) => onTest(event.currentTarget)}
               >
                 초안 테스트
               </button>

@@ -106,13 +106,6 @@
   width: 2.55rem;
 }
 
-.editorIdentity > div {
-  display: grid;
-  gap: 0.2rem;
-  min-width: 0;
-}
-
-.editorIdentity p,
 .inspectorHeader p,
 .nodeRoster > p,
 .selectedTitle p {
@@ -131,7 +124,7 @@
 }
 
 .draftBadge,
-.versionBadge {
+.readOnlyBadge {
   border-radius: 999px;
   flex: 0 0 auto;
   font-size: 0.64rem;
@@ -145,7 +138,7 @@
   color: color-mix(in srgb, var(--warn) 78%, var(--text));
 }
 
-.versionBadge {
+.readOnlyBadge {
   background: var(--brand-soft);
   border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--border));
   color: var(--brand-deep);

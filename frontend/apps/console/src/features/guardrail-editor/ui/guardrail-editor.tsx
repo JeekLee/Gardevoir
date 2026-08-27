@@ -20,7 +20,7 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   guardrailKeys,
@@ -162,6 +162,8 @@ export function GuardrailEditor({
   );
   const [isChoosingTemplate, setIsChoosingTemplate] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const testOpener = useRef<HTMLElement | null>(null);
+  const testDrawerWasOpen = useRef(false);
   const [pendingDestructiveAction, setPendingDestructiveAction] =
     useState<PendingDestructiveAction | null>(null);
   const [authenticationError, setAuthenticationError] =
@@ -202,6 +204,19 @@ export function GuardrailEditor({
   useEffect(() => {
     if (recoveredDraft) clearRecoveredDraft(detail.name);
   }, [detail.name, recoveredDraft]);
+
+  useEffect(() => {
+    if (isTesting) {
+      testDrawerWasOpen.current = true;
+      return;
+    }
+    if (!testDrawerWasOpen.current) return;
+
+    testDrawerWasOpen.current = false;
+    const opener = testOpener.current;
+    testOpener.current = null;
+    if (opener?.isConnected) opener.focus();
+  }, [isTesting]);
 
   useEffect(() => {
     if (!activeCheckpoint || !flowInstance) return;
@@ -563,6 +578,15 @@ export function GuardrailEditor({
     setTestHighlight({ fired: [], upstream: [] });
   }
 
+  function openTestDrawer(opener: HTMLElement) {
+    testOpener.current = opener;
+    setIsTesting(true);
+  }
+
+  function closeTestDrawer() {
+    setIsTesting(false);
+  }
+
   function handleTestResult(result: GuardrailTestResult) {
     const highlights = testHighlights(wireGraph, firedCheckCodes(result));
     setTestHighlight(highlights);
@@ -598,29 +622,34 @@ export function GuardrailEditor({
           <Link href="/guardrails" aria-label="가드레일 목록으로 돌아가기">
             ←
           </Link>
-          <div>
-            <p>{readOnly ? "발행된 정책 그래프" : "초안 정책 그래프"}</p>
-            <h1 id="guardrail-name">{detail.name}</h1>
-          </div>
+          <h1 id="guardrail-name">{detail.name}</h1>
         </div>
         <div className={styles.editorActions}>
-          <span className={readOnly ? styles.versionBadge : styles.draftBadge}>
-            {readOnly
-              ? `발행 버전 ${detail.versionNumber}`
-              : dirty
-                ? "저장하지 않은 변경"
-                : "초안 저장됨"}
-          </span>
-          {!readOnly ? (
-            <button
-              className={styles.primaryAction}
-              type="button"
-              disabled={isBusy || !dirty}
-              onClick={() => void saveDraft()}
-            >
-              {saveMutation.isPending ? "저장하는 중…" : "초안 저장"}
-            </button>
-          ) : null}
+          {readOnly ? (
+            <span className={styles.readOnlyBadge}>읽기 전용</span>
+          ) : (
+            <>
+              <span className={styles.draftBadge} aria-live="polite">
+                {dirty ? "저장하지 않은 변경" : "초안 저장됨"}
+              </span>
+              <button
+                className={styles.secondaryAction}
+                type="button"
+                disabled={isBusy}
+                onClick={(event) => openTestDrawer(event.currentTarget)}
+              >
+                테스트
+              </button>
+              <button
+                className={styles.primaryAction}
+                type="button"
+                disabled={isBusy || !dirty}
+                onClick={() => void saveDraft()}
+              >
+                {saveMutation.isPending ? "저장하는 중…" : "초안 저장"}
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -657,25 +686,6 @@ export function GuardrailEditor({
         </div>
       ) : null}
 
-      {isTesting && !readOnly ? (
-        <GuardrailTestPanel
-          accessToken={accessToken}
-          guardrailName={detail.name}
-          dirty={dirty}
-          onSaveDraft={async () => (await saveDraft()) !== null}
-          onAuthorizationError={handleAuthorizationError}
-          onGatewayError={(error) =>
-            handleGatewayError(
-              error,
-              "실제 호출 테스트를 완료하지 못했습니다.",
-            )
-          }
-          onResult={handleTestResult}
-          onClear={clearTestHighlight}
-          onClose={() => setIsTesting(false)}
-        />
-      ) : null}
-
       <div
         id="guardrail-tab-panel"
         role="tabpanel"
@@ -696,7 +706,7 @@ export function GuardrailEditor({
             isPublishing={publishMutation.isPending}
             onOpenCheckpoint={openCheckpoint}
             onPublish={() => void publishDraft()}
-            onTest={() => setIsTesting(true)}
+            onTest={openTestDrawer}
             onChooseTemplate={() => setIsChoosingTemplate(true)}
           />
         ) : (
@@ -829,6 +839,25 @@ export function GuardrailEditor({
           </div>
         )}
       </div>
+
+      {isTesting && !readOnly ? (
+        <GuardrailTestPanel
+          accessToken={accessToken}
+          guardrailName={detail.name}
+          dirty={dirty}
+          onSaveDraft={async () => (await saveDraft()) !== null}
+          onAuthorizationError={handleAuthorizationError}
+          onGatewayError={(error) =>
+            handleGatewayError(
+              error,
+              "실제 호출 테스트를 완료하지 못했습니다.",
+            )
+          }
+          onResult={handleTestResult}
+          onClear={clearTestHighlight}
+          onClose={closeTestDrawer}
+        />
+      ) : null}
 
       {isChoosingTemplate ? (
         <TemplatePicker
