@@ -58,14 +58,50 @@ export function GuardrailOverview({
     checkpointSummaries.flatMap((summary) => summary.actions),
   );
   const actions = guardrailActions.filter((action) => actionSet.has(action));
+  const status = readOnly
+    ? {
+        label: `발행 v${versionNumber} · 읽기 전용`,
+        description: "이 발행본은 변경할 수 없습니다.",
+        kind: "published",
+      }
+    : dirty
+      ? {
+          label: "저장하지 않은 변경",
+          description:
+            "탭을 전환해도 변경 내용은 이 편집 세션에 유지됩니다.",
+          kind: "dirty",
+        }
+      : {
+          label: "초안 저장됨",
+          description: "현재 전체 그래프가 게이트웨이 초안과 일치합니다.",
+          kind: "saved",
+        };
 
   return (
     <div className={styles.overviewGrid}>
-      <section className={styles.overviewHero}>
-        <div>
+      <section
+        className={styles.overviewHero}
+        aria-labelledby="guardrail-overview-title"
+      >
+        <div className={styles.overviewHeading}>
           <p>가드레일 개요</p>
-          <h2>한 그래프, 네 검사 지점</h2>
-          <span>{describeGuardrailGraph(wireGraph)}</span>
+          <div className={styles.overviewTitleRow}>
+            <h2 id="guardrail-overview-title">한 그래프, 네 검사 지점</h2>
+            <span
+              className={styles.overviewStatusPill}
+              data-state={status.kind}
+              role="status"
+            >
+              {status.label}
+            </span>
+          </div>
+          <span className={styles.overviewDescription}>
+            {describeGuardrailGraph(wireGraph)}
+          </span>
+          <small className={styles.overviewStatusDescription}>
+            <span aria-hidden="true" />
+            {status.description}
+          </small>
         </div>
         <dl className={styles.overviewMetrics}>
           <div>
@@ -80,19 +116,85 @@ export function GuardrailOverview({
             <dt>판정</dt>
             <dd>{totalVerdicts}</dd>
           </div>
+          <div className={styles.overviewOutcomeMetric}>
+            <dt>결과</dt>
+            <dd
+              className={styles.overviewOutcomes}
+              aria-label="가드레일 판정 결과"
+            >
+              {actions.length > 0 ? (
+                actions.map((action) => (
+                  <b key={action} data-action={action}>
+                    {actionLabels[action]}
+                  </b>
+                ))
+              ) : (
+                <em>아직 판정 노드가 없습니다.</em>
+              )}
+            </dd>
+          </div>
         </dl>
-        <div className={styles.overviewOutcomes} aria-label="가드레일 판정 결과">
-          <span>결과</span>
-          {actions.length > 0 ? (
-            actions.map((action) => (
-              <b key={action} data-action={action}>
-                {actionLabels[action]}
-              </b>
-            ))
-          ) : (
-            <em>아직 판정 노드가 없습니다.</em>
-          )}
-        </div>
+        <footer className={styles.overviewFooter}>
+          <div className={styles.overviewActions}>
+            {readOnly ? (
+              <Link
+                className={styles.primaryAction}
+                href={`/guardrails/${encodeURIComponent(name)}`}
+              >
+                초안으로 돌아가기
+              </Link>
+            ) : (
+              <>
+                <button
+                  className={styles.secondaryAction}
+                  type="button"
+                  disabled={isBusy}
+                  onClick={(event) => onTest(event.currentTarget)}
+                  aria-label="현재 초안 테스트"
+                >
+                  초안 테스트
+                </button>
+                <button
+                  className={styles.secondaryAction}
+                  type="button"
+                  disabled={isBusy}
+                  onClick={onChooseTemplate}
+                  aria-label="템플릿에서 가드레일 시작"
+                >
+                  ＋ 템플릿에서 시작
+                </button>
+                <button
+                  className={styles.primaryAction}
+                  type="button"
+                  disabled={isBusy}
+                  onClick={onPublish}
+                  aria-busy={isPublishing}
+                  aria-label={dirty ? "초안을 저장한 뒤 발행" : "저장된 초안 발행"}
+                >
+                  {isPublishing
+                    ? "발행하는 중…"
+                    : dirty
+                      ? "저장 후 발행"
+                      : "발행"}
+                </button>
+              </>
+            )}
+          </div>
+          {!readOnly ? (
+            <div className={styles.publishedState} aria-label="발행 상태">
+              <span aria-hidden="true" />
+              {publishedVersion !== null ? (
+                <Link
+                  href={`/guardrails/${encodeURIComponent(name)}/versions/${publishedVersion}`}
+                >
+                  발행 v{publishedVersion} 보기 ↗
+                </Link>
+              ) : (
+                <strong>아직 발행되지 않음</strong>
+              )}
+            </div>
+          ) : null}
+        </footer>
       </section>
 
       <div className={styles.connectionOverview}>
@@ -103,86 +205,6 @@ export function GuardrailOverview({
           description="이 가드레일 이름이 미리 입력된 curl 요청으로 실제 앱 연결 형식을 확인하세요."
         />
       </div>
-
-      <section
-        className={styles.guardrailState}
-        aria-labelledby="guardrail-state-title"
-      >
-        <div>
-          <p>가드레일 상태</p>
-          <h2 id="guardrail-state-title">
-            {readOnly
-              ? `발행 버전 ${versionNumber}`
-              : dirty
-                ? "저장하지 않은 초안"
-                : "초안 저장됨"}
-          </h2>
-          <span>
-            {readOnly
-              ? "이 발행본은 변경할 수 없습니다."
-              : dirty
-                ? "탭을 전환해도 변경 내용은 이 편집 세션에 유지됩니다."
-                : "현재 전체 그래프가 게이트웨이 초안과 일치합니다."}
-          </span>
-        </div>
-
-        <div className={styles.publishedState}>
-          <span>발행 상태</span>
-          {readOnly && versionNumber !== null ? (
-            <strong>버전 {versionNumber} · 읽기 전용</strong>
-          ) : publishedVersion !== null ? (
-            <Link
-              href={`/guardrails/${encodeURIComponent(name)}/versions/${publishedVersion}`}
-            >
-              발행 버전 {publishedVersion} 보기 ↗
-            </Link>
-          ) : (
-            <strong>아직 발행되지 않음</strong>
-          )}
-        </div>
-
-        <div className={styles.overviewActions}>
-          {readOnly ? (
-            <Link
-              className={styles.primaryAction}
-              href={`/guardrails/${encodeURIComponent(name)}`}
-            >
-              초안으로 돌아가기
-            </Link>
-          ) : (
-            <>
-              <button
-                className={styles.secondaryAction}
-                type="button"
-                disabled={isBusy}
-                onClick={(event) => onTest(event.currentTarget)}
-              >
-                초안 테스트
-              </button>
-              <button
-                className={styles.secondaryAction}
-                type="button"
-                disabled={isBusy}
-                onClick={onChooseTemplate}
-              >
-                ＋ 템플릿에서 시작
-              </button>
-              <button
-                className={styles.primaryAction}
-                type="button"
-                disabled={isBusy}
-                onClick={onPublish}
-              >
-                {isPublishing
-                  ? "발행하는 중…"
-                  : dirty
-                    ? "저장 후 발행"
-                    : "발행"}
-              </button>
-            </>
-          )}
-        </div>
-      </section>
 
       <section
         className={styles.checkpointOverview}
