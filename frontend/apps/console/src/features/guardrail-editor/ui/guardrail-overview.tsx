@@ -2,10 +2,8 @@ import Link from "next/link";
 
 import { AppConnectionPanel } from "@/src/entities/api-key";
 import {
-  describeGuardrailGraph,
   guardrailActions,
   type Checkpoint,
-  type GuardrailGraph,
 } from "@/src/entities/guardrail";
 
 import { checkpointMeta } from "../model/catalog";
@@ -22,7 +20,7 @@ const actionLabels = {
 export function GuardrailOverview({
   name,
   graph,
-  wireGraph,
+  description,
   readOnly,
   versionNumber,
   publishedVersion,
@@ -30,12 +28,13 @@ export function GuardrailOverview({
   isBusy,
   isPublishing,
   onOpenCheckpoint,
+  onDescriptionChange,
   onPublish,
   onChooseTemplate,
 }: {
   name: string;
   graph: EditorGraph;
-  wireGraph: GuardrailGraph;
+  description: string;
   readOnly: boolean;
   versionNumber: number | null;
   publishedVersion: number | null;
@@ -43,6 +42,7 @@ export function GuardrailOverview({
   isBusy: boolean;
   isPublishing: boolean;
   onOpenCheckpoint: (checkpoint: Checkpoint) => void;
+  onDescriptionChange: (description: string) => void;
   onPublish: () => void;
   onChooseTemplate: () => void;
 }) {
@@ -66,14 +66,16 @@ export function GuardrailOverview({
       ? {
           label: "저장하지 않은 변경",
           description:
-            "탭을 전환해도 변경 내용은 이 편집 세션에 유지됩니다.",
+            "설명과 그래프 변경은 이 편집 세션에 함께 유지됩니다.",
           kind: "dirty",
         }
       : {
           label: "초안 저장됨",
-          description: "현재 전체 그래프가 게이트웨이 초안과 일치합니다.",
+          description: "현재 설명과 전체 그래프가 게이트웨이 초안과 일치합니다.",
           kind: "saved",
         };
+  const descriptionId = `guardrail-description-${readOnly ? `v${versionNumber}` : "draft"}`;
+  const descriptionHelpId = `${descriptionId}-help`;
 
   return (
     <div className={styles.overviewGrid}>
@@ -93,9 +95,26 @@ export function GuardrailOverview({
               {status.label}
             </span>
           </div>
-          <span className={styles.overviewDescription}>
-            {describeGuardrailGraph(wireGraph)}
-          </span>
+          <div className={styles.overviewDescriptionField}>
+            <label htmlFor={descriptionId}>설명</label>
+            <textarea
+              id={descriptionId}
+              className={styles.overviewDescriptionInput}
+              value={description}
+              onChange={(event) => onDescriptionChange(event.target.value)}
+              placeholder="이 가드레일의 목적을 설명하세요"
+              aria-describedby={descriptionHelpId}
+              readOnly={readOnly}
+              disabled={!readOnly && isBusy}
+              maxLength={2000}
+              rows={3}
+            />
+            <small id={descriptionHelpId}>
+              {readOnly
+                ? "발행 시점에 저장된 설명입니다."
+                : `${description.length.toLocaleString("ko-KR")} / 2,000자 · 그래프와 함께 저장됩니다.`}
+            </small>
+          </div>
           <small className={styles.overviewStatusDescription}>
             <span aria-hidden="true" />
             {status.description}

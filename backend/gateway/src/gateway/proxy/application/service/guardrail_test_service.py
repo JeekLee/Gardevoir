@@ -134,6 +134,7 @@ class GuardrailTestService:
             name=detail.name,
             version=detail.version,
             version_number=detail.version_number,
+            description=detail.description,
             graph=detail.graph,
         )
         guardrail.validate()

@@ -350,15 +350,65 @@
   font-size: clamp(1.45rem, 2.5vw, 2rem);
 }
 
-.overviewDescription,
 .overviewSectionTitle > span {
   color: var(--muted);
   font-size: 0.72rem;
   line-height: 1.55;
 }
 
-.overviewDescription {
+.overviewDescriptionField {
+  display: grid;
+  gap: 0.42rem;
   max-width: 74ch;
+}
+
+.overviewDescriptionField label {
+  color: var(--muted-strong);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.overviewDescriptionInput {
+  background: color-mix(in srgb, var(--field) 80%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 0.72rem;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  min-height: 6.2rem;
+  padding: 0.72rem 0.8rem;
+  resize: vertical;
+  width: 100%;
+}
+
+.overviewDescriptionInput::placeholder {
+  color: var(--placeholder);
+}
+
+.overviewDescriptionInput:focus {
+  background: var(--surface);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 4px var(--brand-soft);
+  outline: none;
+}
+
+.overviewDescriptionInput:read-only {
+  background: var(--surface-subtle);
+  color: var(--muted-strong);
+  cursor: default;
+  resize: none;
+}
+
+.overviewDescriptionInput:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.overviewDescriptionField > small {
+  color: var(--muted);
+  font-size: 0.62rem;
+  line-height: 1.45;
 }
 
 .overviewStatusPill {

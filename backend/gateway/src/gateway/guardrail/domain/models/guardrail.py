@@ -18,6 +18,7 @@ import re2
 from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
 
 DRAFT_VERSION = "draft"
+MAX_DESCRIPTION_LENGTH = 2000
 
 #: §3 의 네 검사 지점. 감사 모듈의 Checkpoint 와 어긋나지 않는지는 테스트로
 #: 고정한다 — 도메인이 감사 모듈을 임포트하면 의존 방향이 뒤집힌다.
@@ -137,19 +138,45 @@ class Guardrail:
     name: str
     version: str
     version_number: int | None
+    description: str
     nodes: tuple[Node, ...]
     edges: tuple[Edge, ...]
 
     def __post_init__(self) -> None:
         require_valid_name(self.name)
+        if not isinstance(self.description, str):
+            GuardrailError.INVALID_DESCRIPTION.raise_(
+                details={"reason": "description must be a string"}
+            )
+        if _contains_nul(self.description):
+            GuardrailError.INVALID_DESCRIPTION.raise_(details={"reason": "NUL is not allowed"})
+        if len(self.description) > MAX_DESCRIPTION_LENGTH:
+            GuardrailError.INVALID_DESCRIPTION.raise_(
+                details={
+                    "reason": f"description must be at most {MAX_DESCRIPTION_LENGTH} characters",
+                    "max_length": MAX_DESCRIPTION_LENGTH,
+                }
+            )
 
     @classmethod
-    def draft(cls, name: str, graph: dict) -> Guardrail:
-        return cls.from_graph(name=name, version=DRAFT_VERSION, version_number=None, graph=graph)
+    def draft(cls, *, name: str, description: str, graph: dict) -> Guardrail:
+        return cls.from_graph(
+            name=name,
+            version=DRAFT_VERSION,
+            version_number=None,
+            description=description,
+            graph=graph,
+        )
 
     @classmethod
     def from_graph(
-        cls, *, name: str, version: str, version_number: int | None, graph: dict
+        cls,
+        *,
+        name: str,
+        version: str,
+        version_number: int | None,
+        description: str,
+        graph: dict,
     ) -> Guardrail:
         """Build from the serialised graph.
 
@@ -162,6 +189,7 @@ class Guardrail:
             name=name,
             version=version,
             version_number=version_number,
+            description=description,
             nodes=tuple(_parse_node(n) for n in _sequence(graph, "nodes")),
             edges=tuple(_parse_edge(e) for e in _sequence(graph, "edges")),
         )

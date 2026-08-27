@@ -18,6 +18,11 @@ import styles from "./guardrails-page.module.css";
 
 const namePattern = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 
+type CreateGuardrailInput = {
+  name: string;
+  description: string;
+};
+
 export function CreateGuardrailDialog({
   accessToken,
   onClose,
@@ -31,16 +36,18 @@ export function CreateGuardrailDialog({
   const queryClient = useQueryClient();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [name, setName] = useState("");
-  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [description, setDescription] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [descriptionError, setDescriptionError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [formErrorReference, setFormErrorReference] = useState<string | null>(
     null,
   );
 
   const createMutation = useMutation({
-    mutationFn: (nextName: string) =>
+    mutationFn: (input: CreateGuardrailInput) =>
       createGuardrail(accessToken, {
-        name: nextName,
+        ...input,
         graph: { nodes: [], edges: [] },
       }),
   });
@@ -52,20 +59,24 @@ export function CreateGuardrailDialog({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setFieldError(null);
+    setNameError(null);
+    setDescriptionError(null);
     setFormError(null);
     setFormErrorReference(null);
     const nextName = name.trim();
 
     if (!namePattern.test(nextName)) {
-      setFieldError(
+      setNameError(
         "영문 소문자와 숫자를 사용하고 단어는 하이픈 하나로 구분해 1~64자로 입력하세요.",
       );
       return;
     }
 
     try {
-      const detail = await createMutation.mutateAsync(nextName);
+      const detail = await createMutation.mutateAsync({
+        name: nextName,
+        description,
+      });
       queryClient.setQueryData(guardrailKeys.draft(nextName), detail);
       await queryClient.invalidateQueries({ queryKey: guardrailKeys.list() });
       router.push(`/guardrails/${encodeURIComponent(detail.name)}`);
@@ -86,11 +97,18 @@ export function CreateGuardrailDialog({
       error instanceof ConsoleApiError &&
       (error.code === "GUARDRAIL-006" || error.code === "GUARDRAIL-010")
     ) {
-      setFieldError(
+      setNameError(
         error.code === "GUARDRAIL-006"
           ? "같은 이름의 가드레일이 이미 있습니다."
           : "가드레일 이름 형식이 올바르지 않습니다.",
       );
+      return;
+    }
+    if (
+      error instanceof ConsoleApiError &&
+      error.code === "GUARDRAIL-016"
+    ) {
+      setDescriptionError("설명은 2,000자 이내로 입력하고 NUL 문자를 제외하세요.");
       return;
     }
 
@@ -144,32 +162,67 @@ export function CreateGuardrailDialog({
         ) : null}
 
         <div className={styles.dialogBody}>
-          <label className={styles.field}>
+          <label className={styles.field} htmlFor="guardrail-name">
             <span>가드레일 이름</span>
             <input
+              id="guardrail-name"
               className={styles.slugInput}
               value={name}
               onChange={(event) => {
                 setName(event.target.value);
-                setFieldError(null);
+                setNameError(null);
               }}
-              aria-invalid={Boolean(fieldError)}
+              aria-invalid={Boolean(nameError)}
               aria-describedby={
-                fieldError ? "guardrail-name-error" : "guardrail-name-help"
+                nameError ? "guardrail-name-error" : "guardrail-name-help"
               }
               placeholder="agent-action-control"
               autoComplete="off"
               maxLength={64}
               autoFocus
             />
-            {fieldError ? (
+            {nameError ? (
               <small id="guardrail-name-error" className={styles.fieldError}>
-                {fieldError}
+                {nameError}
               </small>
             ) : (
               <small id="guardrail-name-help" className={styles.fieldHelp}>
                 영문 소문자, 숫자, 하이픈만 사용할 수 있습니다. 최종 형식은
                 게이트웨이가 검증합니다.
+              </small>
+            )}
+          </label>
+
+          <label className={styles.field} htmlFor="guardrail-description">
+            <span>설명 (선택)</span>
+            <textarea
+              id="guardrail-description"
+              className={styles.descriptionInput}
+              value={description}
+              onChange={(event) => {
+                setDescription(event.target.value);
+                setDescriptionError(null);
+              }}
+              aria-invalid={Boolean(descriptionError)}
+              aria-describedby={
+                descriptionError
+                  ? "guardrail-description-error"
+                  : "guardrail-description-help"
+              }
+              placeholder="이 가드레일의 목적을 설명하세요"
+              maxLength={2000}
+              rows={4}
+            />
+            {descriptionError ? (
+              <small
+                id="guardrail-description-error"
+                className={styles.fieldError}
+              >
+                {descriptionError}
+              </small>
+            ) : (
+              <small id="guardrail-description-help" className={styles.fieldHelp}>
+                비워둘 수 있으며, 만든 뒤 개요에서 그래프와 함께 편집할 수 있습니다.
               </small>
             )}
           </label>

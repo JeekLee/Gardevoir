@@ -56,7 +56,7 @@ class GuardrailService:
         self._plan_refresher = plan_refresher
 
     async def create(self, cmd: CreateGuardrail) -> GuardrailDetail:
-        draft = Guardrail.draft(cmd.name, cmd.graph)
+        draft = Guardrail.draft(name=cmd.name, description=cmd.description, graph=cmd.graph)
         _validate(draft)
         # 유일 제약이 DB 에도 있지만, IntegrityError 를 409 로 번역하는 것보다
         # 여기서 먼저 확인하는 편이 오류 메시지가 정확하다.
@@ -71,7 +71,7 @@ class GuardrailService:
         return detail
 
     async def update_draft(self, name: str, cmd: UpdateDraft) -> GuardrailDetail:
-        draft = Guardrail.draft(name, cmd.graph)
+        draft = Guardrail.draft(name=name, description=cmd.description, graph=cmd.graph)
         _validate(draft)
         async with self._unit_of_work:
             # draft 가 없으면 repository 가 GUARDRAIL-008 을 올린다.

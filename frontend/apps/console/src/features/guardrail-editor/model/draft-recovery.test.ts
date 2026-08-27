@@ -28,8 +28,10 @@ describe("draft recovery", () => {
       edges: [],
     };
 
-    preserveRecoveredDraft("draft-name", graph);
-    expect(peekRecoveredDraft("draft-name")).toBe(graph);
+    const draft = { description: "복구할 설명", graph };
+
+    preserveRecoveredDraft("draft-name", draft);
+    expect(peekRecoveredDraft("draft-name")).toBe(draft);
     clearRecoveredDraft("draft-name");
     expect(peekRecoveredDraft("draft-name")).toBeNull();
   });

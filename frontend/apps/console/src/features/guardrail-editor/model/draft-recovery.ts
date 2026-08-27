@@ -1,12 +1,20 @@
 import type { EditorGraph } from "./graph-mapper";
 
-const recoveredDrafts = new Map<string, EditorGraph>();
+export type RecoveredDraft = {
+  description: string;
+  graph: EditorGraph;
+};
 
-export function preserveRecoveredDraft(name: string, graph: EditorGraph): void {
-  recoveredDrafts.set(name, graph);
+const recoveredDrafts = new Map<string, RecoveredDraft>();
+
+export function preserveRecoveredDraft(
+  name: string,
+  draft: RecoveredDraft,
+): void {
+  recoveredDrafts.set(name, draft);
 }
 
-export function peekRecoveredDraft(name: string): EditorGraph | null {
+export function peekRecoveredDraft(name: string): RecoveredDraft | null {
   return recoveredDrafts.get(name) ?? null;
 }
 

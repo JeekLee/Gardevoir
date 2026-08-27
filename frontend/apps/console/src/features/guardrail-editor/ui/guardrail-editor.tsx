@@ -134,9 +134,15 @@ export function GuardrailEditor({
     [detail.name, readOnly],
   );
   const [graph, setGraph] = useState<EditorGraph>(() =>
-    recoveredDraft ?? toEditorGraph(detail.graph),
+    recoveredDraft?.graph ?? toEditorGraph(detail.graph),
   );
-  const [baseline, setBaseline] = useState<GuardrailGraph>(detail.graph);
+  const [description, setDescription] = useState(
+    recoveredDraft?.description ?? detail.description,
+  );
+  const [baseline, setBaseline] = useState({
+    description: detail.description,
+    graph: detail.graph,
+  });
   const [activeTab, setActiveTab] = useState<EditorTab>("overview");
   const [tabFocusRequest, setTabFocusRequest] = useState(0);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -174,8 +180,8 @@ export function GuardrailEditor({
   });
 
   const saveMutation = useMutation({
-    mutationFn: (wireGraph: GuardrailGraph) =>
-      updateGuardrailDraft(accessToken, detail.name, wireGraph),
+    mutationFn: (draft: { description: string; graph: GuardrailGraph }) =>
+      updateGuardrailDraft(accessToken, detail.name, draft),
   });
   const publishMutation = useMutation({
     mutationFn: () => publishGuardrail(accessToken, detail.name),
@@ -183,8 +189,10 @@ export function GuardrailEditor({
 
   const wireGraph = useMemo(() => toGuardrailGraph(graph), [graph]);
   const dirty = useMemo(
-    () => graphFingerprint(wireGraph) !== graphFingerprint(baseline),
-    [baseline, wireGraph],
+    () =>
+      description !== baseline.description ||
+      graphFingerprint(wireGraph) !== graphFingerprint(baseline.graph),
+    [baseline, description, wireGraph],
   );
   const activeCheckpoint: Checkpoint | null =
     activeTab === "overview" ? null : activeTab;
@@ -462,13 +470,23 @@ export function GuardrailEditor({
     setStatus("연결을 삭제했습니다.");
   }
 
+  function changeDescription(nextDescription: string) {
+    setDescription(nextDescription);
+    setGraphError(null);
+    setStatus("가드레일 설명을 변경했습니다. 초안을 저장하면 그래프와 함께 반영됩니다.");
+  }
+
   async function saveDraft(): Promise<GuardrailDetail | null> {
     setGraphError(null);
     setStatus("초안을 저장하는 중…");
     try {
-      const saved = await saveMutation.mutateAsync(toGuardrailGraph(graph));
+      const saved = await saveMutation.mutateAsync({
+        description,
+        graph: toGuardrailGraph(graph),
+      });
       setGraph((current) => mergeCanonicalGraph(saved.graph, current));
-      setBaseline(saved.graph);
+      setDescription(saved.description);
+      setBaseline({ description: saved.description, graph: saved.graph });
       queryClient.setQueryData(guardrailKeys.draft(detail.name), saved);
       void queryClient.invalidateQueries({ queryKey: guardrailKeys.list() });
       setStatus("초안을 저장했습니다. 게이트웨이 검증을 통과했습니다.");
@@ -570,7 +588,7 @@ export function GuardrailEditor({
 
   function continueToSignIn() {
     if (!authenticationError) return;
-    preserveRecoveredDraft(detail.name, graph);
+    preserveRecoveredDraft(detail.name, { description, graph });
     onAuthorizationError(authenticationError);
   }
 
@@ -697,7 +715,7 @@ export function GuardrailEditor({
           <GuardrailOverview
             name={detail.name}
             graph={graph}
-            wireGraph={wireGraph}
+            description={description}
             readOnly={readOnly}
             versionNumber={detail.versionNumber}
             publishedVersion={publishedVersion}
@@ -705,6 +723,7 @@ export function GuardrailEditor({
             isBusy={isBusy}
             isPublishing={publishMutation.isPending}
             onOpenCheckpoint={openCheckpoint}
+            onDescriptionChange={changeDescription}
             onPublish={() => void publishDraft()}
             onChooseTemplate={() => setIsChoosingTemplate(true)}
           />
@@ -939,7 +958,7 @@ function useDirtyNavigationGuard(enabled: boolean) {
     if (!enabled) return;
 
     const message =
-      "초안에서 나갈까요? 저장하지 않은 그래프 변경 내용이 사라집니다.";
+      "초안에서 나갈까요? 저장하지 않은 설명과 그래프 변경 내용이 사라집니다.";
     const beforeUnload = (event: BeforeUnloadEvent) => event.preventDefault();
     const guardLink = (event: MouseEvent) => {
       const target = event.target;

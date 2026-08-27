@@ -51,3 +51,8 @@ class GuardrailError(ErrorCatalog):
         "this node type is only meaningful at one checkpoint",
         ValidationError,
     )
+    INVALID_DESCRIPTION = (
+        "GUARDRAIL-016",
+        "the guardrail description is invalid",
+        ValidationError,
+    )

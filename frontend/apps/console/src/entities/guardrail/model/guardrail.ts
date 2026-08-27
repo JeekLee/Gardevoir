@@ -43,6 +43,7 @@ export type GuardrailGraph = {
 
 export type GuardrailSummary = {
   name: string;
+  description: string;
   latestVersionNumber: number | null;
   hasDraft: boolean;
   updatedAt: string;
@@ -61,6 +62,7 @@ export type GuardrailDetail = {
   name: string;
   version: string;
   versionNumber: number | null;
+  description: string;
   graph: GuardrailGraph;
   createdAt: string;
   updatedAt: string;
@@ -87,6 +89,7 @@ export function parseGuardrailDetail(value: unknown): GuardrailDetail {
     typeof value.name !== "string" ||
     typeof value.version !== "string" ||
     (value.versionNumber !== null && typeof value.versionNumber !== "number") ||
+    typeof value.description !== "string" ||
     typeof value.createdAt !== "string" ||
     typeof value.updatedAt !== "string"
   ) {
@@ -97,6 +100,7 @@ export function parseGuardrailDetail(value: unknown): GuardrailDetail {
     name: value.name,
     version: value.version,
     versionNumber: value.versionNumber,
+    description: value.description,
     graph: parseGuardrailGraph(value.graph),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
@@ -122,6 +126,7 @@ function parseGuardrailSummary(value: unknown): GuardrailSummary {
   if (
     !isRecord(value) ||
     typeof value.name !== "string" ||
+    typeof value.description !== "string" ||
     (value.latestVersionNumber !== null &&
       typeof value.latestVersionNumber !== "number") ||
     typeof value.hasDraft !== "boolean" ||
@@ -132,6 +137,7 @@ function parseGuardrailSummary(value: unknown): GuardrailSummary {
 
   return {
     name: value.name,
+    description: value.description,
     latestVersionNumber: value.latestVersionNumber,
     hasDraft: value.hasDraft,
     updatedAt: value.updatedAt,

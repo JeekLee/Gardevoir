@@ -17,7 +17,7 @@ export function listGuardrails(accessToken: string, signal?: AbortSignal) {
 
 export function createGuardrail(
   accessToken: string,
-  input: { name: string; graph: GuardrailGraph },
+  input: { name: string; description?: string; graph: GuardrailGraph },
 ) {
   return apiRequest({
     path: "/guardrails",
@@ -44,13 +44,13 @@ export function getGuardrailDraft(
 export function updateGuardrailDraft(
   accessToken: string,
   name: string,
-  graph: GuardrailGraph,
+  draft: { description: string; graph: GuardrailGraph },
 ) {
   return apiRequest({
     path: `/guardrails/${encodeURIComponent(name)}/draft`,
     method: "PUT",
     accessToken,
-    body: { graph },
+    body: draft,
     parse: parseGuardrailDetail,
   });
 }

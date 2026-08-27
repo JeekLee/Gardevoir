@@ -9,6 +9,7 @@ describe("guardrail response parsing", () => {
         items: [
           {
             name: "agent-actions",
+            description: "오염된 대화의 부작용 툴 호출을 차단합니다.",
             latestVersionNumber: 3,
             hasDraft: true,
             updatedAt: "2026-08-24T00:00:00Z",
@@ -22,6 +23,7 @@ describe("guardrail response parsing", () => {
       }).items[0],
     ).toMatchObject({
       name: "agent-actions",
+      description: "오염된 대화의 부작용 툴 호출을 차단합니다.",
       latestVersionNumber: 3,
       checkpoints: ["tool_result", "tool_call"],
       actions: ["block"],
@@ -34,11 +36,15 @@ describe("guardrail response parsing", () => {
         name: "agent-actions",
         version: "draft",
         versionNumber: null,
+        description: "초안 설명",
         graph: { nodes: [], edges: [] },
         createdAt: "2026-08-24T00:00:00Z",
         updatedAt: "2026-08-24T00:00:00Z",
-      }).graph,
-    ).toEqual({ nodes: [], edges: [] });
+      }),
+    ).toMatchObject({
+      description: "초안 설명",
+      graph: { nodes: [], edges: [] },
+    });
   });
 
   it("defaults summary projection fields from an older gateway response", () => {
@@ -47,6 +53,7 @@ describe("guardrail response parsing", () => {
         items: [
           {
             name: "legacy-policy",
+            description: "",
             latestVersionNumber: null,
             hasDraft: true,
             updatedAt: "2026-08-24T00:00:00Z",
@@ -68,6 +75,7 @@ describe("guardrail response parsing", () => {
         name: "future-policy",
         version: "draft",
         versionNumber: null,
+        description: "",
         graph: {
           nodes: [{ id: "new", type: "future_node", config: {} }],
           edges: [],
@@ -76,5 +84,18 @@ describe("guardrail response parsing", () => {
         updatedAt: "2026-08-24T00:00:00Z",
       }),
     ).toThrow("Invalid guardrail node response");
+  });
+
+  it("rejects responses without a description", () => {
+    expect(() =>
+      parseGuardrailDetail({
+        name: "missing-description",
+        version: "draft",
+        versionNumber: null,
+        graph: { nodes: [], edges: [] },
+        createdAt: "2026-08-24T00:00:00Z",
+        updatedAt: "2026-08-24T00:00:00Z",
+      }),
+    ).toThrow("Invalid guardrail response");
   });
 });

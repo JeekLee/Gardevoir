@@ -14,6 +14,7 @@ def to_domain(row: GuardrailModel) -> Guardrail:
         name=row.name,
         version=row.version,
         version_number=row.version_number,
+        description=row.description,
         graph=row.graph or {},
     )
 
@@ -24,5 +25,6 @@ def to_model(guardrail: Guardrail, *, id: str) -> GuardrailModel:
         name=guardrail.name,
         version=guardrail.version,
         version_number=guardrail.version_number,
+        description=guardrail.description,
         graph=guardrail.to_graph(),
     )

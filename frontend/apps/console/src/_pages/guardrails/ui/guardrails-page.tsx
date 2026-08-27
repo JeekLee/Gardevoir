@@ -181,6 +181,8 @@ function GuardrailCard({
   guardrail: GuardrailSummary;
   order: number;
 }) {
+  const description = guardrail.description.trim();
+
   return (
     <article className={styles.guardrailCard}>
       <span className={styles.cardIndex} aria-hidden="true">
@@ -205,7 +207,7 @@ function GuardrailCard({
 
       <div className={styles.policyProjection}>
         <p className={styles.policyDescription}>
-          {describeGuardrailSummary(guardrail)}
+          {description || describeGuardrailSummary(guardrail)}
         </p>
 
         <div className={styles.projectionRow}>

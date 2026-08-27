@@ -12,6 +12,7 @@ from shared_kernel.api import CamelModel
 
 class GuardrailSummary(CamelModel):
     name: str
+    description: str
     latest_version_number: int | None
     has_draft: bool
     updated_at: datetime
@@ -25,6 +26,7 @@ class GuardrailDetail(CamelModel):
     name: str
     version: str
     version_number: int | None
+    description: str
     graph: dict
     created_at: datetime
     updated_at: datetime

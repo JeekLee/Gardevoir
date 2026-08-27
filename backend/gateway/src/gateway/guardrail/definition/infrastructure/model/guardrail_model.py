@@ -7,7 +7,7 @@ queryable — "which guardrails use this pattern" is a jsonb_array_elements away
 which a bytea blob would not.
 """
 
-from sqlalchemy import Integer, String, UniqueConstraint
+from sqlalchemy import Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +27,8 @@ class GuardrailModel(Base, TimestampMixin):
     #: NULL on the draft. Postgres treats NULLs as distinct in a unique index,
     #: so one draft per name is enforced by (name, version) alone.
     version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
 
     #: {"nodes": [...], "edges": [...]}
     graph: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")

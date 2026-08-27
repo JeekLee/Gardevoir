@@ -31,6 +31,7 @@ _TOOL_CALL_NODE_TYPES = frozenset({NodeType.SIDE_EFFECT.value, NodeType.PROVENAN
 @dataclass(slots=True)
 class _SummaryState:
     name: str
+    description: str
     latest_version_number: int | None
     has_draft: bool
     updated_at: datetime
@@ -80,6 +81,7 @@ class SqlAlchemyGuardrailDao:
                     GuardrailModel.name,
                     GuardrailModel.version,
                     GuardrailModel.version_number,
+                    GuardrailModel.description,
                     GuardrailModel.graph,
                     GuardrailModel.updated_at,
                 )
@@ -94,6 +96,7 @@ class SqlAlchemyGuardrailDao:
             if state is None:
                 state = _SummaryState(
                     name=row.name,
+                    description="",
                     latest_version_number=None,
                     has_draft=False,
                     updated_at=row.updated_at,
@@ -105,12 +108,14 @@ class SqlAlchemyGuardrailDao:
             if row.version == DRAFT_VERSION:
                 state.has_draft = True
                 if state.latest_version_number is None:
+                    state.description = row.description
                     state.graph = row.graph
             if row.version_number is not None and (
                 state.latest_version_number is None
                 or row.version_number > state.latest_version_number
             ):
                 state.latest_version_number = row.version_number
+                state.description = row.description
                 state.graph = row.graph
 
         items = []
@@ -119,6 +124,7 @@ class SqlAlchemyGuardrailDao:
             items.append(
                 GuardrailSummary(
                     name=state.name,
+                    description=state.description,
                     latest_version_number=state.latest_version_number,
                     has_draft=state.has_draft,
                     updated_at=state.updated_at,

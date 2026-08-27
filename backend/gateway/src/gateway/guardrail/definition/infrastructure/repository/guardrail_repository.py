@@ -66,7 +66,9 @@ class SqlAlchemyGuardrailRepository:
         row = await self._row(guardrail.name, DRAFT_VERSION)
         if row is None:
             GuardrailError.NO_DRAFT.raise_(details={"name": guardrail.name})
-        row.graph = to_model(guardrail, id=row.id).graph
+        replacement = to_model(guardrail, id=row.id)
+        row.description = replacement.description
+        row.graph = replacement.graph
         await self._session.flush()
 
     async def next_version_number(self, name: str) -> int:
