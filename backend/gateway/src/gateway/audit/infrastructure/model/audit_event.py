@@ -32,6 +32,11 @@ class AuditEventModel(CHBase):
     model: Mapped[str] = mapped_column(types.LowCardinality(types.String()))
     prompt_tokens: Mapped[int] = mapped_column(types.UInt32())
     completion_tokens: Mapped[int] = mapped_column(types.UInt32())
+    content_fingerprint: Mapped[str] = mapped_column(types.String())
+    excerpt: Mapped[str] = mapped_column(types.String())
+    input_body: Mapped[str] = mapped_column(types.String())
+    output_body: Mapped[str] = mapped_column(types.String())
+    tool_calls_body: Mapped[str] = mapped_column(types.String())
 
     __table_args__ = (
         engines.MergeTree(

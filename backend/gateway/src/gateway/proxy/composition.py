@@ -41,6 +41,8 @@ def provide_proxy_service(request: Request) -> ProxyService:
         upstream_resolver=request.app.state.upstream_resolver,
         audit=request.app.state.audit_sink,
         model_tier=provide_model_tier(request),
+        store_bodies=request.app.state.settings.audit.store_bodies,
+        audit_excerpt_max_chars=request.app.state.settings.audit.excerpt_max_chars,
         # 계획 레지스트리는 프로세스 수명이므로 app.state 가 소유한다. 검사기는
         # 상태가 없어 요청마다 만들어도 된다.
         inspector=Inspector(plans=request.app.state.plans),

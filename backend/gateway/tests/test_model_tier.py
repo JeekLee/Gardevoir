@@ -322,6 +322,8 @@ async def test_disabled_proxy_preserves_pending_and_allows_with_rules_audit(capl
         upstream_resolver=FakeResolver(),
         audit=audit,
         model_tier=None,
+        store_bodies=False,
+        audit_excerpt_max_chars=256,
         inspector=Inspector(plans=FakePlans(plan)),
     )
 
@@ -338,6 +340,10 @@ async def test_disabled_proxy_preserves_pending_and_allows_with_rules_audit(capl
     assert len(upstream.payloads) == 1
     assert audit.events[0].tier_reached == TIER_RULES
     assert orjson.loads(audit.events[0].verdicts)["pending_model"] == ["verdict"]
+    assert len(audit.events[0].content_fingerprint) == 64
+    assert audit.events[0].input_body == ""
+    assert audit.events[0].output_body == ""
+    assert audit.events[0].tool_calls_body == ""
     assert "model tier is disabled" in caplog.text
 
 
@@ -351,6 +357,8 @@ async def test_enabled_failure_blocks_before_upstream_and_audits_model() -> None
         upstream_resolver=FakeResolver(),
         audit=audit,
         model_tier=_model_tier(FakeModelJudge([_judge_result(violated=None, score=None)])),
+        store_bodies=False,
+        audit_excerpt_max_chars=256,
         inspector=Inspector(plans=FakePlans(plan)),
     )
 
@@ -374,11 +382,14 @@ async def test_model_mask_is_applied_before_upstream() -> None:
     """모델 MASK의 규칙 span은 non-stream input 본문에 실제 적용된다."""
     plan = _plan(action="mask", hint=True)
     upstream = FakeUpstream()
+    audit = FakeAuditSink()
     proxy = ProxyService(
         upstream=upstream,
         upstream_resolver=FakeResolver(),
-        audit=FakeAuditSink(),
+        audit=audit,
         model_tier=_model_tier(FakeModelJudge([_judge_result(violated=True)])),
+        store_bodies=True,
+        audit_excerpt_max_chars=256,
         inspector=Inspector(plans=FakePlans(plan)),
     )
 
@@ -394,3 +405,9 @@ async def test_model_mask_is_applied_before_upstream() -> None:
     assert result.status_code == 200
     sent = orjson.loads(upstream.payloads[0])
     assert sent["messages"][0]["content"] == "a [개인정보 삭제됨]"
+    event = audit.events[0]
+    assert "secret" not in event.excerpt
+    assert "[개인정보 삭제됨]" in event.excerpt
+    assert orjson.loads(event.input_body)["messages"][0]["content"] == "a secret"
+    assert orjson.loads(event.output_body)["choices"][0]["message"]["content"] == "ok"
+    assert orjson.loads(event.tool_calls_body) == []

@@ -52,9 +52,17 @@ class ModelJudgeSettings(BaseModel):
         return self
 
 
+class AuditSettings(BaseModel):
+    """Privacy controls for audit content (§10)."""
+
+    store_bodies: bool = False
+    excerpt_max_chars: int = Field(default=256, ge=32)
+
+
 class GatewaySettings(BaseAppSettings):
     upstream_timeout_s: float = Field(default=120.0, gt=0)
     model_judge: ModelJudgeSettings = Field(default_factory=ModelJudgeSettings)
+    audit: AuditSettings = Field(default_factory=AuditSettings)
 
     #: 기본값은 빈 목록이다. 운영 환경에서 설정 누락으로 개발 오리진이 열리는 것보다,
     #: 필요한 오리진을 배포 설정에 명시하게 하는 편이 안전하다.

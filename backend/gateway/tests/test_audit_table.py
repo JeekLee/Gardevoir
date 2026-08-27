@@ -16,6 +16,9 @@ CLICKHOUSE_BASELINE = (
     Path(__file__).resolve().parents[1]
     / "alembic/clickhouse/versions/260827_create_audit_events.py"
 )
+CLICKHOUSE_AUDIT_CONTENT = (
+    Path(__file__).resolve().parents[1] / "alembic/clickhouse/versions/260827_add_audit_content.py"
+)
 
 
 def _baseline_module() -> ModuleType:
@@ -34,14 +37,32 @@ def _baseline_ddl() -> str:
     return str(execute.call_args.args[0])
 
 
+def _audit_content_ddl() -> list[str]:
+    spec = importlib.util.spec_from_file_location(
+        "clickhouse_audit_content", CLICKHOUSE_AUDIT_CONTENT
+    )
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    with patch.object(migration.op, "execute") as execute:
+        migration.upgrade()
+    assert execute.call_count == 5
+    return [str(call.args[0]) for call in execute.call_args_list]
+
+
 def _schema_columns() -> list[tuple[str, str]]:
     definition = _baseline_ddl().split("(", maxsplit=1)[1]
     definition = definition.split("\n)\nENGINE", maxsplit=1)[0]
-    return [
+    baseline = [
         tuple(line.strip().removesuffix(",").split(maxsplit=1))
         for line in definition.splitlines()
         if line.strip()
     ]
+    added = [
+        tuple(statement.split("ADD COLUMN IF NOT EXISTS ", maxsplit=1)[1].split(maxsplit=1))
+        for statement in _audit_content_ddl()
+    ]
+    return baseline + added
 
 
 def _compact(value: str) -> str:

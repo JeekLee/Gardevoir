@@ -96,6 +96,14 @@ class StreamRelay:
         """Return the fully accumulated tool calls after relay completion."""
         return self._acc.tool_calls
 
+    @property
+    def raw_completion(self) -> dict:
+        """Return the accumulated upstream completion before masking."""
+        completion = self._acc.as_completion(content=self._acc.content)
+        if self._acc.usage:
+            completion["usage"] = self._acc.usage
+        return completion
+
     async def relay(self, upstream: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
         tail = b""
         opened = False

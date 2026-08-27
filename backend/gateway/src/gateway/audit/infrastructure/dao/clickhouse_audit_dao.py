@@ -108,6 +108,11 @@ class ClickHouseAuditDao:
             verdicts=orjson.loads(model.verdicts),
             prompt_tokens=model.prompt_tokens,
             completion_tokens=model.completion_tokens,
+            content_fingerprint=model.content_fingerprint,
+            excerpt=model.excerpt,
+            input_body=model.input_body,
+            output_body=model.output_body,
+            tool_calls_body=model.tool_calls_body,
         )
 
     async def summary(self, audit_filter: AuditFilter) -> AuditSummary:

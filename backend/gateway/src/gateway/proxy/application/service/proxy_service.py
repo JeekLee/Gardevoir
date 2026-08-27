@@ -45,6 +45,7 @@ from gateway.guardrail.application.text import (
 from gateway.guardrail.domain.models.execution_plan import ExecutionPlan
 from gateway.guardrail.domain.models.guardrail import VerdictAction
 from gateway.guardrail.domain.models.mode import Mode
+from gateway.proxy.application.audit_content import capture_audit_content
 from gateway.proxy.application.authenticated_request import AuthenticatedRequest
 from gateway.proxy.application.port.llm_upstream import LlmUpstream, UpstreamResult
 from gateway.proxy.application.port.upstream_resolver import UpstreamResolver
@@ -370,6 +371,8 @@ class ProxyService:
         upstream_resolver: UpstreamResolver,
         audit: AuditSink,
         model_tier: ModelTier | None,
+        store_bodies: bool,
+        audit_excerpt_max_chars: int,
         inspector: Inspector | None = None,
         holdback_chars: int = 128,
         window_chars: int = 512,
@@ -380,6 +383,8 @@ class ProxyService:
         # None 은 설정에서 명시적으로 disabled 인 상태다. provide_proxy_service 가 항상
         # 값을 넘기므로 enabled 배선 누락이 기본값으로 숨지 않는다.
         self._model_tier = model_tier
+        self._store_bodies = store_bodies
+        self._audit_excerpt_max_chars = audit_excerpt_max_chars
         self._inspector = inspector
         self._holdback_chars = holdback_chars
         self._window_chars = window_chars
@@ -402,6 +407,7 @@ class ProxyService:
                 request_id=request_id,
                 verdicts=verdicts,
                 latency_ms=completion.added_latency_ms,
+                input_payload=payload,
             )
 
         result = completion.upstream
@@ -430,6 +436,8 @@ class ProxyService:
                 model="",
                 prompt_tokens=0,
                 completion_tokens=0,
+                input_payload=payload,
+                response_body=result.body,
             )
             return ProxyResult(
                 status_code=result.status_code,
@@ -448,6 +456,8 @@ class ProxyService:
             model=model,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            input_payload=payload,
+            response_body=result.body,
         )
 
         return ProxyResult(
@@ -627,6 +637,7 @@ class ProxyService:
                 request_id=request_id,
                 verdicts=verdicts,
                 latency_ms=self._added_latency_ms(started, 0.0),
+                input_payload=payload,
             )
             return
 
@@ -655,12 +666,15 @@ class ProxyService:
             # 업스트림이 오류를 내면 본문이 SSE 가 아니다. 파싱·합성하면 오류 본문을
             # 망가뜨리므로 그대로 중계한다 — 우리가 응답을 잃는 것이 더 나쁘다.
             relayed = upstream_stream.status_code < 400
+            error_body_parts: list[bytes] | None = [] if self._store_bodies else None
 
             async def chunks() -> AsyncIterator[bytes]:
                 """중계기가 ③④ 를 돌리고, 확장 객체는 판정이 끝난 뒤에 붙는다."""
                 nonlocal verdicts
                 if not relayed:
                     async for chunk in upstream_stream.aiter():
+                        if error_body_parts is not None:
+                            error_body_parts.append(chunk)
                         yield chunk
                     yield (
                         _SSE_PREFIX
@@ -705,6 +719,10 @@ class ProxyService:
                     model=relay.outcome.model,
                     prompt_tokens=int(usage.get("prompt_tokens") or 0),
                     completion_tokens=int(usage.get("completion_tokens") or 0),
+                    input_payload=payload,
+                    response_body=(
+                        relay.raw_completion if relayed else b"".join(error_body_parts or ())
+                    ),
                 )
 
     # -- 체크포인트 ----------------------------------------------------------
@@ -888,6 +906,7 @@ class ProxyService:
         request_id: str,
         verdicts: _Verdicts,
         latency_ms: float,
+        input_payload: bytes,
     ) -> ProxyResult:
         extension = self._extension(auth, audit_id, verdicts)
         await self._submit_audit(
@@ -899,6 +918,8 @@ class ProxyService:
             model="",
             prompt_tokens=0,
             completion_tokens=0,
+            input_payload=input_payload,
+            response_body=None,
         )
         return ProxyResult(
             status_code=BLOCKED_INPUT_STATUS,
@@ -916,6 +937,7 @@ class ProxyService:
         request_id: str,
         verdicts: _Verdicts,
         latency_ms: float,
+        input_payload: bytes,
     ) -> ProxyStream:
         """스트림을 열지 않았으므로 SSE 가 아니라 JSON 이다."""
         result = await self._blocked_input(
@@ -924,6 +946,7 @@ class ProxyService:
             request_id=request_id,
             verdicts=verdicts,
             latency_ms=latency_ms,
+            input_payload=input_payload,
         )
 
         async def single() -> AsyncIterator[bytes]:
@@ -1004,8 +1027,20 @@ class ProxyService:
         model: str,
         prompt_tokens: int,
         completion_tokens: int,
+        input_payload: bytes,
+        response_body: object | bytes | None,
     ) -> None:
         would_have = verdicts.would_have
+        content = capture_audit_content(
+            request_payload=input_payload,
+            response_body=response_body,
+            plan=verdicts.plan,
+            checkpoint=verdicts.checkpoint,
+            checks_fired=verdicts.checks,
+            tool_evidence=verdicts.evidence,
+            store_bodies=self._store_bodies,
+            excerpt_max_chars=self._audit_excerpt_max_chars,
+        )
         await self._audit.submit(
             AuditEvent(
                 id=audit_id,
@@ -1037,6 +1072,11 @@ class ProxyService:
                 model=verdicts.model or model,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                content_fingerprint=content.content_fingerprint,
+                excerpt=content.excerpt,
+                input_body=content.input_body,
+                output_body=content.output_body,
+                tool_calls_body=content.tool_calls_body,
             )
         )
 

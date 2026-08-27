@@ -50,3 +50,8 @@ class AuditEvent:
     model: str
     prompt_tokens: int
     completion_tokens: int
+    content_fingerprint: str
+    excerpt: str
+    input_body: str
+    output_body: str
+    tool_calls_body: str
