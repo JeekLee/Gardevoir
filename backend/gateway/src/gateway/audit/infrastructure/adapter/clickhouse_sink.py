@@ -3,7 +3,7 @@
 응답 경로를 절대 막지 않는다(§10). 배치는 ClickHouse 의 요구사항이기도 하다 —
 작은 삽입을 자주 하면 파트가 과도하게 생긴다.
 
-컬럼 순서와 행 변환은 여기가 소유한다. AuditEvent 는 저장소를 모른다.
+컬럼 순서와 행 변환은 공유 Core Table 을 따른다. AuditEvent 는 저장소를 모른다.
 """
 
 import asyncio
@@ -11,36 +11,14 @@ import contextlib
 import logging
 
 from gateway.audit.application.model.audit_event import AuditEvent
+from gateway.audit.infrastructure.model.audit_event import AUDIT_EVENTS_TABLE
 
 logger = logging.getLogger(__name__)
 
 #: 감사의 존재 이유인 이벤트들. 큐가 꽉 차도 버리지 않는다 (§10).
 CRITICAL_ACTIONS = frozenset({"blocked", "approval_required"})
 
-#: clickhouse/001_audit_events.sql 의 컬럼 순서와 일치해야 한다.
-#: 어긋나면 삽입이 조용히 엉뚱한 열에 들어간다.
-AUDIT_COLUMNS = [
-    "id",
-    "created_at",
-    "request_id",
-    "api_key_id",
-    "app_name",
-    "guardrail",
-    "guardrail_version",
-    "mode",
-    "action",
-    "checkpoint",
-    "checks_fired",
-    "verdicts",
-    "tier_reached",
-    "tainted",
-    "latency_ms",
-    "model",
-    "prompt_tokens",
-    "completion_tokens",
-]
-
-_TABLE = "audit_events"
+AUDIT_COLUMNS = [column.name for column in AUDIT_EVENTS_TABLE.columns]
 
 #: stop() 이 배경 루프를 깨워 정상 종료시키는 신호. cancel() 을 쓰면 to_thread
 #: 안에 있던 배치가 유실된다 — to_thread 의 await 가 취소 지점이다.
@@ -57,26 +35,13 @@ def _to_row(event: AuditEvent) -> list:
     created_at stays a datetime. Passing unix seconds as an int makes ClickHouse
     read them as milliseconds and store 1970 dates with no error at all (§11.10).
     """
-    return [
-        event.id,
-        event.created_at,
-        event.request_id,
-        event.api_key_id,
-        event.app_name,
-        event.guardrail,
-        event.guardrail_version,
-        event.mode,
-        event.action,
-        str(event.checkpoint),
-        list(event.checks_fired),
-        event.verdicts,
-        event.tier_reached,
-        1 if event.tainted else 0,
-        event.latency_ms,
-        event.model,
-        event.prompt_tokens,
-        event.completion_tokens,
-    ]
+    values_by_column = {
+        column.name: getattr(event, column.name) for column in AUDIT_EVENTS_TABLE.columns
+    }
+    values_by_column["checkpoint"] = str(event.checkpoint)
+    values_by_column["checks_fired"] = list(event.checks_fired)
+    values_by_column["tainted"] = 1 if event.tainted else 0
+    return [values_by_column[name] for name in AUDIT_COLUMNS]
 
 
 class ClickHouseAuditSink:
@@ -184,7 +149,11 @@ class ClickHouseAuditSink:
         if not batch:
             return
         try:
-            self._client.insert(_TABLE, [_to_row(e) for e in batch], column_names=AUDIT_COLUMNS)
+            self._client.insert(
+                AUDIT_EVENTS_TABLE.name,
+                [_to_row(e) for e in batch],
+                column_names=AUDIT_COLUMNS,
+            )
             self.written += len(batch)
         except Exception:
             self.dropped += len(batch)

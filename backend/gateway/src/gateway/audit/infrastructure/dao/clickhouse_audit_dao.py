@@ -4,7 +4,7 @@ import datetime as dt
 import orjson
 from clickhouse_connect.cc_sqlalchemy import types
 from clickhouse_connect.cc_sqlalchemy.dialect import ClickHouseDialect
-from sqlalchemy import Column, MetaData, Table, and_, bindparam, func, literal, or_, select
+from sqlalchemy import and_, bindparam, func, literal, or_, select
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql import ColumnElement, Select
 from sqlalchemy.sql.compiler import SQLCompiler
@@ -16,29 +16,8 @@ from gateway.audit.application.result.audit_result import (
     AuditEventSummary,
     AuditSummary,
 )
+from gateway.audit.infrastructure.model.audit_event import AUDIT_EVENTS_TABLE
 
-_AUDIT_EVENTS = Table(
-    "audit_events",
-    MetaData(),
-    Column("id", types.String()),
-    Column("created_at", types.DateTime64(3)),
-    Column("request_id", types.String()),
-    Column("api_key_id", types.String()),
-    Column("app_name", types.LowCardinality(types.String())),
-    Column("guardrail", types.LowCardinality(types.String())),
-    Column("guardrail_version", types.UInt32()),
-    Column("mode", types.LowCardinality(types.String())),
-    Column("action", types.LowCardinality(types.String())),
-    Column("checkpoint", types.LowCardinality(types.String())),
-    Column("checks_fired", types.Array(types.LowCardinality(types.String()))),
-    Column("verdicts", types.String()),
-    Column("tier_reached", types.LowCardinality(types.String())),
-    Column("tainted", types.UInt8()),
-    Column("latency_ms", types.Float32()),
-    Column("model", types.LowCardinality(types.String())),
-    Column("prompt_tokens", types.UInt32()),
-    Column("completion_tokens", types.UInt32()),
-)
 _DIALECT = ClickHouseDialect(server_side_params=True)
 _IF = getattr(func, "if")
 
@@ -74,22 +53,22 @@ class ClickHouseAuditDao:
         parameters["fetch_limit"] = limit + 1
         statement = (
             select(
-                _AUDIT_EVENTS.c.id,
-                _AUDIT_EVENTS.c.created_at,
-                _AUDIT_EVENTS.c.app_name,
-                _AUDIT_EVENTS.c.guardrail,
-                _AUDIT_EVENTS.c.guardrail_version,
-                _AUDIT_EVENTS.c.mode,
+                AUDIT_EVENTS_TABLE.c.id,
+                AUDIT_EVENTS_TABLE.c.created_at,
+                AUDIT_EVENTS_TABLE.c.app_name,
+                AUDIT_EVENTS_TABLE.c.guardrail,
+                AUDIT_EVENTS_TABLE.c.guardrail_version,
+                AUDIT_EVENTS_TABLE.c.mode,
                 _effective_action().label("effective_action"),
-                _AUDIT_EVENTS.c.checkpoint,
-                _AUDIT_EVENTS.c.checks_fired,
-                _AUDIT_EVENTS.c.tier_reached,
-                _AUDIT_EVENTS.c.tainted,
-                _AUDIT_EVENTS.c.latency_ms,
-                _AUDIT_EVENTS.c.model,
+                AUDIT_EVENTS_TABLE.c.checkpoint,
+                AUDIT_EVENTS_TABLE.c.checks_fired,
+                AUDIT_EVENTS_TABLE.c.tier_reached,
+                AUDIT_EVENTS_TABLE.c.tainted,
+                AUDIT_EVENTS_TABLE.c.latency_ms,
+                AUDIT_EVENTS_TABLE.c.model,
             )
             .where(*clauses)
-            .order_by(_AUDIT_EVENTS.c.created_at.desc(), _AUDIT_EVENTS.c.id.desc())
+            .order_by(AUDIT_EVENTS_TABLE.c.created_at.desc(), AUDIT_EVENTS_TABLE.c.id.desc())
             .limit(bindparam("fetch_limit", type_=types.UInt16()))
         )
         rows = await asyncio.to_thread(self._query, statement, parameters)
@@ -105,26 +84,26 @@ class ClickHouseAuditDao:
     async def get_event(self, event_id: str) -> AuditEventDetail | None:
         statement = (
             select(
-                _AUDIT_EVENTS.c.id,
-                _AUDIT_EVENTS.c.created_at,
-                _AUDIT_EVENTS.c.request_id,
-                _AUDIT_EVENTS.c.api_key_id,
-                _AUDIT_EVENTS.c.app_name,
-                _AUDIT_EVENTS.c.guardrail,
-                _AUDIT_EVENTS.c.guardrail_version,
-                _AUDIT_EVENTS.c.mode,
+                AUDIT_EVENTS_TABLE.c.id,
+                AUDIT_EVENTS_TABLE.c.created_at,
+                AUDIT_EVENTS_TABLE.c.request_id,
+                AUDIT_EVENTS_TABLE.c.api_key_id,
+                AUDIT_EVENTS_TABLE.c.app_name,
+                AUDIT_EVENTS_TABLE.c.guardrail,
+                AUDIT_EVENTS_TABLE.c.guardrail_version,
+                AUDIT_EVENTS_TABLE.c.mode,
                 _effective_action().label("effective_action"),
-                _AUDIT_EVENTS.c.checkpoint,
-                _AUDIT_EVENTS.c.checks_fired,
-                _AUDIT_EVENTS.c.verdicts,
-                _AUDIT_EVENTS.c.tier_reached,
-                _AUDIT_EVENTS.c.tainted,
-                _AUDIT_EVENTS.c.latency_ms,
-                _AUDIT_EVENTS.c.model,
-                _AUDIT_EVENTS.c.prompt_tokens,
-                _AUDIT_EVENTS.c.completion_tokens,
+                AUDIT_EVENTS_TABLE.c.checkpoint,
+                AUDIT_EVENTS_TABLE.c.checks_fired,
+                AUDIT_EVENTS_TABLE.c.verdicts,
+                AUDIT_EVENTS_TABLE.c.tier_reached,
+                AUDIT_EVENTS_TABLE.c.tainted,
+                AUDIT_EVENTS_TABLE.c.latency_ms,
+                AUDIT_EVENTS_TABLE.c.model,
+                AUDIT_EVENTS_TABLE.c.prompt_tokens,
+                AUDIT_EVENTS_TABLE.c.completion_tokens,
             )
-            .where(_AUDIT_EVENTS.c.id == bindparam("event_id", type_=types.String()))
+            .where(AUDIT_EVENTS_TABLE.c.id == bindparam("event_id", type_=types.String()))
             .limit(1)
         )
         rows = await asyncio.to_thread(self._query, statement, {"event_id": event_id})
@@ -146,7 +125,7 @@ class ClickHouseAuditDao:
         filtered = (
             select(
                 _effective_action().label("effective_action"),
-                _AUDIT_EVENTS.c.latency_ms,
+                AUDIT_EVENTS_TABLE.c.latency_ms,
             )
             .where(*clauses)
             .subquery()
@@ -189,15 +168,15 @@ class ClickHouseAuditDao:
 def _effective_action() -> ColumnElement[str]:
     return _IF(
         and_(
-            _AUDIT_EVENTS.c.action == literal("allow"),
+            AUDIT_EVENTS_TABLE.c.action == literal("allow"),
             func.JSONExtractBool(
-                _AUDIT_EVENTS.c.verdicts,
+                AUDIT_EVENTS_TABLE.c.verdicts,
                 literal("masked"),
                 type_=types.UInt8(),
             ),
         ),
         literal("mask"),
-        _AUDIT_EVENTS.c.action,
+        AUDIT_EVENTS_TABLE.c.action,
         type_=types.String(),
     )
 
@@ -244,10 +223,10 @@ def _where(
     clauses: list[ColumnElement[bool]] = []
     parameters: dict[str, object] = {}
     fields = {
-        "app_name": (_AUDIT_EVENTS.c.app_name, audit_filter.app_name),
-        "guardrail": (_AUDIT_EVENTS.c.guardrail, audit_filter.guardrail),
-        "checkpoint": (_AUDIT_EVENTS.c.checkpoint, audit_filter.checkpoint),
-        "mode": (_AUDIT_EVENTS.c.mode, audit_filter.mode),
+        "app_name": (AUDIT_EVENTS_TABLE.c.app_name, audit_filter.app_name),
+        "guardrail": (AUDIT_EVENTS_TABLE.c.guardrail, audit_filter.guardrail),
+        "checkpoint": (AUDIT_EVENTS_TABLE.c.checkpoint, audit_filter.checkpoint),
+        "mode": (AUDIT_EVENTS_TABLE.c.mode, audit_filter.mode),
     }
     for name, (column, value) in fields.items():
         if value is not None:
@@ -257,24 +236,26 @@ def _where(
         clauses.append(_effective_action() == bindparam("effective_action", type_=types.String()))
         parameters["effective_action"] = audit_filter.action
     if audit_filter.tainted is not None:
-        clauses.append(_AUDIT_EVENTS.c.tainted == bindparam("tainted", type_=types.UInt8()))
+        clauses.append(AUDIT_EVENTS_TABLE.c.tainted == bindparam("tainted", type_=types.UInt8()))
         parameters["tainted"] = int(audit_filter.tainted)
     if audit_filter.from_at is not None:
         clauses.append(
-            _AUDIT_EVENTS.c.created_at >= bindparam("from_at", type_=types.DateTime64(3))
+            AUDIT_EVENTS_TABLE.c.created_at >= bindparam("from_at", type_=types.DateTime64(3))
         )
         parameters["from_at"] = _clickhouse_datetime(audit_filter.from_at)
     if audit_filter.to_at is not None:
-        clauses.append(_AUDIT_EVENTS.c.created_at <= bindparam("to_at", type_=types.DateTime64(3)))
+        clauses.append(
+            AUDIT_EVENTS_TABLE.c.created_at <= bindparam("to_at", type_=types.DateTime64(3))
+        )
         parameters["to_at"] = _clickhouse_datetime(audit_filter.to_at)
     if cursor is not None:
         cursor_created_at = bindparam("cursor_created_at", type_=types.DateTime64(3))
         clauses.append(
             or_(
-                _AUDIT_EVENTS.c.created_at < cursor_created_at,
+                AUDIT_EVENTS_TABLE.c.created_at < cursor_created_at,
                 and_(
-                    _AUDIT_EVENTS.c.created_at == cursor_created_at,
-                    _AUDIT_EVENTS.c.id < bindparam("cursor_id", type_=types.String()),
+                    AUDIT_EVENTS_TABLE.c.created_at == cursor_created_at,
+                    AUDIT_EVENTS_TABLE.c.id < bindparam("cursor_id", type_=types.String()),
                 ),
             )
         )
