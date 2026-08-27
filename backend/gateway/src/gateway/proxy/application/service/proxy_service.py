@@ -27,7 +27,7 @@ from dataclasses import dataclass, field, replace
 
 import orjson
 
-from gateway.audit.application.audit_event import AuditEvent, Checkpoint, new_event_id
+from gateway.audit.application.model.audit_event import AuditEvent, Checkpoint, new_event_id
 from gateway.audit.application.port.audit_sink import AuditSink
 from gateway.guardrail.domain.models.guardrail import VerdictAction
 from gateway.guardrail.domain.models.mode import Mode
