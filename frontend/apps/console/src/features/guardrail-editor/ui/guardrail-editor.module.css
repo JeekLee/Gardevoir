@@ -300,6 +300,10 @@
 .overviewGrid {
   display: grid;
   gap: 1rem;
+  grid-template-areas:
+    "hero"
+    "checkpoints"
+    "connection";
 }
 
 .overviewHero,
@@ -315,11 +319,16 @@
     var(--surface);
   display: grid;
   gap: 1.25rem;
+  grid-area: hero;
   overflow: hidden;
   padding: 1.5rem;
 }
 
-.overviewHeading,
+.overviewHeading {
+  display: grid;
+  gap: 0.8rem;
+}
+
 .overviewSectionTitle > div {
   display: grid;
   gap: 0.28rem;
@@ -330,6 +339,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
+  justify-content: space-between;
 }
 
 .overviewSectionTitle small {
@@ -349,14 +359,9 @@
   text-transform: uppercase;
 }
 
-.overviewHero h2,
 .overviewSectionTitle h2 {
   font-family: var(--font-display);
   letter-spacing: -0.045em;
-}
-
-.overviewHero h2 {
-  font-size: clamp(1.45rem, 2.5vw, 2rem);
 }
 
 .overviewSectionTitle > span {
@@ -429,7 +434,6 @@
   padding: 0.45rem 0.65rem;
 }
 
-.overviewStatusPill[data-state="saved"],
 .overviewStatusPill[data-state="published"] {
   background: var(--brand-soft);
   border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--border));
@@ -592,10 +596,12 @@
 }
 
 .checkpointOverview {
+  grid-area: checkpoints;
   padding: 1.35rem;
 }
 
 .connectionOverview {
+  grid-area: connection;
   min-width: 0;
 }
 
@@ -1554,7 +1560,6 @@
 }
 
 @media (max-width: 520px) {
-  .overviewTitleRow { align-items: flex-start; flex-direction: column; }
   .overviewMetrics > div { padding-inline: 0.45rem; }
   .overviewActions { grid-template-columns: 1fr; }
   .overviewActions > :last-child:nth-child(odd) { grid-column: auto; }

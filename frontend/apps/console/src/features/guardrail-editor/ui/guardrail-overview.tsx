@@ -71,11 +71,7 @@ export function GuardrailOverview({
             "설명과 그래프 변경은 이 편집 세션에 함께 유지됩니다.",
           kind: "dirty",
         }
-      : {
-          label: "초안 저장됨",
-          description: "현재 설명과 전체 그래프가 게이트웨이 초안과 일치합니다.",
-          kind: "saved",
-        };
+      : null;
   const descriptionId = `guardrail-description-${readOnly ? `v${versionNumber}` : "draft"}`;
   const descriptionHelpId = `${descriptionId}-help`;
 
@@ -86,16 +82,17 @@ export function GuardrailOverview({
         aria-labelledby="guardrail-overview-title"
       >
         <div className={styles.overviewHeading}>
-          <p>가드레일 개요</p>
           <div className={styles.overviewTitleRow}>
-            <h2 id="guardrail-overview-title">한 그래프, 네 검사 지점</h2>
-            <span
-              className={styles.overviewStatusPill}
-              data-state={status.kind}
-              role="status"
-            >
-              {status.label}
-            </span>
+            <p id="guardrail-overview-title">가드레일 개요</p>
+            {status ? (
+              <span
+                className={styles.overviewStatusPill}
+                data-state={status.kind}
+                role="status"
+              >
+                {status.label}
+              </span>
+            ) : null}
           </div>
           <div className={styles.overviewDescriptionField}>
             <label htmlFor={descriptionId}>설명</label>
@@ -117,10 +114,12 @@ export function GuardrailOverview({
                 : `${description.length.toLocaleString("ko-KR")} / 2,000자 · 그래프와 함께 저장됩니다.`}
             </small>
           </div>
-          <small className={styles.overviewStatusDescription}>
-            <span aria-hidden="true" />
-            {status.description}
-          </small>
+          {status ? (
+            <small className={styles.overviewStatusDescription}>
+              <span aria-hidden="true" />
+              {status.description}
+            </small>
+          ) : null}
         </div>
         <dl className={styles.overviewMetrics}>
           <div>
@@ -225,15 +224,6 @@ export function GuardrailOverview({
         </footer>
       </section>
 
-      <div className={styles.connectionOverview}>
-        <AppConnectionPanel
-          initialGuardrailName={name}
-          isGuardrailReady={readOnly || publishedVersion !== null}
-          title="앱 연결"
-          description="이 가드레일 이름이 미리 입력된 curl 요청으로 실제 앱 연결 형식을 확인하세요."
-        />
-      </div>
-
       <section
         className={styles.checkpointOverview}
         aria-labelledby="checkpoint-overview-title"
@@ -290,6 +280,15 @@ export function GuardrailOverview({
           })}
         </div>
       </section>
+
+      <div className={styles.connectionOverview}>
+        <AppConnectionPanel
+          initialGuardrailName={name}
+          isGuardrailReady={readOnly || publishedVersion !== null}
+          title="앱 연결"
+          description="이 가드레일 이름이 미리 입력된 curl 요청으로 실제 앱 연결 형식을 확인하세요."
+        />
+      </div>
     </div>
   );
 }
