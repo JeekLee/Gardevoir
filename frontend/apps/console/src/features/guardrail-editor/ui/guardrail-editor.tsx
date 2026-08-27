@@ -706,7 +706,6 @@ export function GuardrailEditor({
             isPublishing={publishMutation.isPending}
             onOpenCheckpoint={openCheckpoint}
             onPublish={() => void publishDraft()}
-            onTest={openTestDrawer}
             onChooseTemplate={() => setIsChoosingTemplate(true)}
           />
         ) : (

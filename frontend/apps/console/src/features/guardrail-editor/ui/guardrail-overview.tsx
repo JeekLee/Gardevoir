@@ -31,7 +31,6 @@ export function GuardrailOverview({
   isPublishing,
   onOpenCheckpoint,
   onPublish,
-  onTest,
   onChooseTemplate,
 }: {
   name: string;
@@ -45,7 +44,6 @@ export function GuardrailOverview({
   isPublishing: boolean;
   onOpenCheckpoint: (checkpoint: Checkpoint) => void;
   onPublish: () => void;
-  onTest: (opener: HTMLButtonElement) => void;
   onChooseTemplate: () => void;
 }) {
   const checkpointSummaries = summarizeCheckpointGraphs(graph);
@@ -145,15 +143,6 @@ export function GuardrailOverview({
               </Link>
             ) : (
               <>
-                <button
-                  className={styles.secondaryAction}
-                  type="button"
-                  disabled={isBusy}
-                  onClick={(event) => onTest(event.currentTarget)}
-                  aria-label="현재 초안 테스트"
-                >
-                  초안 테스트
-                </button>
                 <button
                   className={styles.secondaryAction}
                   type="button"
