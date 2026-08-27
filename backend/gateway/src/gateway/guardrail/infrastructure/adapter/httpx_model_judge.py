@@ -33,6 +33,7 @@ _DOCUMENT_ROLES = {
 #: ruff 0.16 formatter 가 인라인 except 튜플의 괄호를 지워 파이썬2 문법으로
 #: 만드는 버그가 있다. 별칭으로 두면 formatter 가 손대지 않는다.
 _TRANSPORT_ERRORS = (httpx.HTTPError, ValueError)
+_PARSE_ERRORS = (KeyError, IndexError, TypeError)
 
 _YES = frozenset({"yes", "yes.", '"yes"', "'yes'"})
 _NO = frozenset({"no", "no.", '"no"', "'no'"})
@@ -139,7 +140,7 @@ class HttpxModelJudge:
             choice = body["choices"][0]  # type: ignore[index]
             position = choice["logprobs"]["content"][0]
             top_logprobs = position["top_logprobs"]
-        except KeyError, IndexError, TypeError:
+        except _PARSE_ERRORS:
             return cls._failed(request, "malformed_response")
         if not isinstance(choice, dict) or not isinstance(position, dict):
             return cls._failed(request, "malformed_response")

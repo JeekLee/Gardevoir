@@ -15,7 +15,6 @@ from gateway.guardrail.application.text import (
     extract_tool_result_text,
 )
 from gateway.guardrail.domain.models.execution_plan import (
-    All,
     ExecutionPlan,
     Program,
     RegexSet,
@@ -187,8 +186,14 @@ def _verdict_patterns(program: Program, checks_fired: tuple[str, ...]) -> list[o
             pattern_slots.add(slot)
             continue
         producer = producers.get(slot)
-        if isinstance(producer, All):
+        # 중간 명령(transform 등)은 상류를 계속 거슬러 올라가 regex 슬롯을 찾는다.
+        # verdict 는 이제 자기 srcs 를 직접 들고 있으므로 조합 노드가 따로 없다.
+        if producer is None:
+            continue
+        if hasattr(producer, "srcs"):
             pending.extend(producer.srcs)
+        elif hasattr(producer, "src"):
+            pending.append(producer.src)
 
     return [program.patterns_by_slot[slot] for slot in sorted(pattern_slots)]
 

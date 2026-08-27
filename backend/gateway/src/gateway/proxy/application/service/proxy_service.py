@@ -359,6 +359,8 @@ class _InspectedCompletion:
     response: object
     upstream: UpstreamResult | None
     verdicts: _Verdicts
+    input_text: GuardrailTestText
+    tool_result_text: GuardrailTestText
     added_latency_ms: float
     total_latency_ms: float
 
@@ -472,7 +474,6 @@ class ProxyService:
         self, *, plan: ExecutionPlan, mode: Mode, payload: bytes
     ) -> GuardrailTestCompletion:
         """Run a compiled plan through the real non-streaming upstream flow."""
-        input_text, tool_result_text = self._test_request_texts(plan, mode, payload)
         completion = await self._complete_with_plan(
             plan=plan,
             mode=mode,
@@ -491,8 +492,8 @@ class ProxyService:
             tool_result=verdicts.tool_result,
             output=verdicts.output,
             tool_call=verdicts.tool_call,
-            input_text=input_text,
-            tool_result_text=tool_result_text,
+            input_text=completion.input_text,
+            tool_result_text=completion.tool_result_text,
             latency_ms=completion.total_latency_ms,
         )
 
@@ -505,7 +506,7 @@ class ProxyService:
         decoded = _decode(payload)
         raw_input_text = extract_input_text(decoded)
         raw_tool_result_text = extract_tool_result_text(decoded)
-        verdicts = self._inspect_before_upstream(plan, decoded, mode)
+        verdicts = await self._inspect_before_upstream(plan, decoded, mode)
         input_text = GuardrailTestText(
             raw=raw_input_text,
             applied=extract_input_text(decoded),
@@ -628,7 +629,7 @@ class ProxyService:
 
         plan = self._plan_for(auth)
         decoded = _decode(payload)
-        verdicts = self._inspect_before_upstream(plan, decoded, mode)
+        verdicts = await self._inspect_before_upstream(plan, decoded, mode)
 
         if verdicts.blocked_before_upstream:
             yield await self._blocked_input_stream(
@@ -738,7 +739,7 @@ class ProxyService:
             )
         return plan
 
-    def _inspect_before_upstream(
+    async def _inspect_before_upstream(
         self, plan: ExecutionPlan | None, decoded: object, mode: Mode
     ) -> _Verdicts:
         """① 과 ② — 업스트림 호출 전에 도는 검사.
@@ -746,10 +747,25 @@ class ProxyService:
         ① 이 막으면 ② 는 돌지 않는다. 이미 결론이 났고, 감사 로그가 "어디서 걸렸나"를
         하나로 답할 수 있어야 한다.
         """
-        verdicts = self._inspect_input_before_upstream(plan, decoded, mode)
+        verdicts = await self._inspect_input_before_upstream(plan, decoded, mode)
         return self._inspect_tool_result_before_upstream(plan, decoded, verdicts)
 
-    def _inspect_input_before_upstream(
+    async def _inspect_input_before_upstream(
+        self, plan: ExecutionPlan | None, decoded: object, mode: Mode
+    ) -> _Verdicts:
+        """Resolve rule and model tiers for ① before any upstream call."""
+        raw_input_text = extract_input_text(decoded)
+        verdicts = self._inspect_input_rules(plan, decoded, mode)
+        if verdicts.input.blocked:
+            return verdicts
+        return await self._inspect_input_model(
+            plan=plan,
+            decoded=decoded,
+            raw_input_text=raw_input_text,
+            verdicts=verdicts,
+        )
+
+    def _inspect_input_rules(
         self, plan: ExecutionPlan | None, decoded: object, mode: Mode
     ) -> _Verdicts:
         if self._inspector is None:
@@ -778,42 +794,30 @@ class ProxyService:
             ),
         )
 
-    def _test_request_texts(
-        self, plan: ExecutionPlan, mode: Mode, payload: bytes
-    ) -> tuple[GuardrailTestText, GuardrailTestText]:
-        decoded = _decode(payload)
-        raw_input_text = extract_input_text(decoded)
-        raw_tool_result_text = extract_tool_result_text(decoded)
-        self._inspect_before_upstream(plan, decoded, mode)
-        return (
-            GuardrailTestText(raw=raw_input_text, applied=extract_input_text(decoded)),
-            GuardrailTestText(
-                raw=raw_tool_result_text,
-                applied=extract_tool_result_text(decoded),
-            ),
-        )
-
     async def _complete_with_plan(
         self, *, plan: ExecutionPlan | None, mode: Mode, payload: bytes
     ) -> _InspectedCompletion:
         started = time.perf_counter()
         decoded = _decode(payload)
         raw_input_text = extract_input_text(decoded)
-        verdicts = self._inspect_input_before_upstream(plan, decoded, mode)
-        if not verdicts.input.blocked:
-            verdicts = await self._inspect_input_model(
-                plan=plan,
-                decoded=decoded,
-                raw_input_text=raw_input_text,
-                verdicts=verdicts,
-            )
-        verdicts = self._inspect_tool_result_before_upstream(plan, decoded, verdicts)
+        raw_tool_result_text = extract_tool_result_text(decoded)
+        verdicts = await self._inspect_before_upstream(plan, decoded, mode)
+        input_text = GuardrailTestText(
+            raw=raw_input_text,
+            applied=extract_input_text(decoded),
+        )
+        tool_result_text = GuardrailTestText(
+            raw=raw_tool_result_text,
+            applied=extract_tool_result_text(decoded),
+        )
         if verdicts.blocked_before_upstream:
             latency_ms = self._added_latency_ms(started, 0.0)
             return _InspectedCompletion(
                 response=None,
                 upstream=None,
                 verdicts=verdicts,
+                input_text=input_text,
+                tool_result_text=tool_result_text,
                 added_latency_ms=latency_ms,
                 total_latency_ms=latency_ms,
             )
@@ -839,6 +843,8 @@ class ProxyService:
             response=body,
             upstream=result,
             verdicts=verdicts,
+            input_text=input_text,
+            tool_result_text=tool_result_text,
             added_latency_ms=self._added_latency_ms(started, result.elapsed_s),
             total_latency_ms=(time.perf_counter() - started) * 1000,
         )
@@ -851,7 +857,7 @@ class ProxyService:
         raw_input_text: str,
         verdicts: _Verdicts,
     ) -> _Verdicts:
-        """Resolve only ① input for the non-streaming path (Phase 4b scope)."""
+        """Resolve pending ① verdicts after rules and before any upstream call."""
         if not verdicts.input.pending_model or self._model_tier is None:
             return verdicts
         if plan is None or self._inspector is None:

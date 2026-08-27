@@ -1,6 +1,7 @@
-"""Model-tier merge and non-streaming input integration tests."""
+"""Model-tier merge and input-path integration tests."""
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from uuid import uuid4
 
@@ -42,6 +43,7 @@ class FakePlans:
 class FakeUpstream:
     def __init__(self) -> None:
         self.payloads: list[bytes] = []
+        self.stream_payloads: list[bytes] = []
 
     async def complete(
         self, *, base_url: str, api_key: str, path: str, payload: bytes
@@ -66,9 +68,29 @@ class FakeUpstream:
             elapsed_s=0.0,
         )
 
+    @asynccontextmanager
+    async def open_stream(
+        self, *, base_url: str, api_key: str, path: str, payload: bytes
+    ) -> AsyncIterator[FakeUpstreamStream]:
+        self.stream_payloads.append(payload)
+        yield FakeUpstreamStream()
+
+
+class FakeUpstreamStream:
+    status_code = 200
+    headers = {"content-type": "text/event-stream"}
+
+    async def aiter(self) -> AsyncIterator[bytes]:
+        if False:
+            yield b""
+
 
 class FakeResolver:
+    def __init__(self) -> None:
+        self.models: list[str] = []
+
     async def resolve(self, model: str) -> Upstream:
+        self.models.append(model)
         return Upstream(base_url="http://upstream", api_key="secret")
 
 
@@ -378,6 +400,165 @@ async def test_enabled_failure_blocks_before_upstream_and_audits_model() -> None
     assert audit.events[0].tier_reached == TIER_MODEL
     assert audit.events[0].model == "mistralai/Shieldstral-1.0-3B@revision"
     assert orjson.loads(audit.events[0].verdicts)["model_judgements"][0]["violated"] is None
+
+
+async def test_all_proxy_paths_share_model_input_block_before_upstream() -> None:
+    """complete·test·stream 모두 같은 모델 input 차단을 업스트림 전에 적용한다."""
+    plan = _plan()
+    judge = FakeModelJudge([_judge_result(violated=True)])
+    upstream = FakeUpstream()
+    resolver = FakeResolver()
+    audit = FakeAuditSink()
+    proxy = ProxyService(
+        upstream=upstream,
+        upstream_resolver=resolver,
+        audit=audit,
+        model_tier=_model_tier(judge),
+        store_bodies=False,
+        audit_excerpt_max_chars=256,
+        inspector=Inspector(plans=FakePlans(plan)),
+    )
+    auth = AuthenticatedRequest(uuid4(), "app", "model-tier")
+    payload = orjson.dumps(
+        {"model": "chat-model", "messages": [{"role": "user", "content": "secret"}]}
+    )
+    stream_payload = orjson.dumps(
+        {
+            "model": "chat-model",
+            "messages": [{"role": "user", "content": "secret"}],
+            "stream": True,
+        }
+    )
+
+    complete_result = await proxy.complete(
+        auth=auth,
+        mode=Mode.ENFORCE,
+        payload=payload,
+        request_id="complete",
+    )
+    test_result = await proxy.test(plan=plan, mode=Mode.ENFORCE, payload=payload)
+    async with proxy.stream(
+        auth=auth,
+        mode=Mode.ENFORCE,
+        payload=stream_payload,
+        request_id="stream",
+    ) as stream_result:
+        stream_body = b"".join([chunk async for chunk in stream_result.aiter()])
+    async with proxy.test_stream(
+        plan=plan,
+        mode=Mode.ENFORCE,
+        payload=stream_payload,
+    ) as test_stream_result:
+        test_stream_body = b"".join([chunk async for chunk in test_stream_result.aiter()])
+        test_stream_pre = test_stream_result.pre()
+        test_stream_completion = test_stream_result.result()
+
+    inspections = (
+        test_result.input,
+        test_stream_pre.input,
+        test_stream_completion.input,
+    )
+    assert all(inspection.blocked for inspection in inspections)
+    assert all(inspection.tier == TIER_MODEL for inspection in inspections)
+    assert all(inspection.pending_model == () for inspection in inspections)
+    assert complete_result.status_code == 400
+    assert stream_result.status_code == 400
+    assert orjson.loads(stream_body)["error"]["code"] == "content_filter"
+    assert test_stream_body == b""
+    assert len(judge.calls) == 4
+    assert all(call[0].text == "secret" for call in judge.calls)
+    assert upstream.payloads == []
+    assert upstream.stream_payloads == []
+    assert resolver.models == []
+    assert [event.tier_reached for event in audit.events] == [TIER_MODEL, TIER_MODEL]
+    assert all(event.model == "mistralai/Shieldstral-1.0-3B@revision" for event in audit.events)
+
+
+async def test_streaming_model_input_preserves_dry_run_would_have() -> None:
+    """스트리밍 dry-run은 모델 차단을 would_have로 남기고 업스트림을 연다."""
+    plan = _plan()
+    judge = FakeModelJudge([_judge_result(violated=True)])
+    upstream = FakeUpstream()
+    audit = FakeAuditSink()
+    proxy = ProxyService(
+        upstream=upstream,
+        upstream_resolver=FakeResolver(),
+        audit=audit,
+        model_tier=_model_tier(judge),
+        store_bodies=False,
+        audit_excerpt_max_chars=256,
+        inspector=Inspector(plans=FakePlans(plan)),
+    )
+    auth = AuthenticatedRequest(uuid4(), "app", "model-tier")
+    payload = orjson.dumps(
+        {
+            "model": "chat-model",
+            "messages": [{"role": "user", "content": "secret"}],
+            "stream": True,
+        }
+    )
+
+    async with proxy.test_stream(plan=plan, mode=Mode.DRY_RUN, payload=payload) as test_stream:
+        inspection = test_stream.pre().input
+        assert inspection.blocked is False
+        assert inspection.would_have is VerdictAction.BLOCK
+        assert inspection.tier == TIER_MODEL
+    async with proxy.stream(
+        auth=auth,
+        mode=Mode.DRY_RUN,
+        payload=payload,
+        request_id="stream-dry-run",
+    ) as stream:
+        assert stream.status_code == 200
+        assert stream.headers["X-Gardevoir-Action"] == "allow"
+
+    assert len(judge.calls) == 2
+    assert len(upstream.stream_payloads) == 2
+    assert audit.events[0].tier_reached == TIER_MODEL
+    assert audit.events[0].action == "allow"
+    assert orjson.loads(audit.events[0].verdicts)["would_have"] == "block"
+
+
+async def test_disabled_streaming_preserves_pending_and_passes_upstream(caplog) -> None:
+    """모델 티어 disabled 스트리밍은 pending을 보존하고 기존처럼 통과한다."""
+    plan = _plan()
+    upstream = FakeUpstream()
+    audit = FakeAuditSink()
+    proxy = ProxyService(
+        upstream=upstream,
+        upstream_resolver=FakeResolver(),
+        audit=audit,
+        model_tier=None,
+        store_bodies=False,
+        audit_excerpt_max_chars=256,
+        inspector=Inspector(plans=FakePlans(plan)),
+    )
+    auth = AuthenticatedRequest(uuid4(), "app", "model-tier")
+    payload = orjson.dumps(
+        {
+            "model": "chat-model",
+            "messages": [{"role": "user", "content": "secret"}],
+            "stream": True,
+        }
+    )
+
+    async with proxy.test_stream(plan=plan, mode=Mode.ENFORCE, payload=payload) as test_stream:
+        inspection = test_stream.pre().input
+        assert inspection.blocked is False
+        assert inspection.pending_model == ("verdict",)
+        assert inspection.tier == TIER_RULES
+    async with proxy.stream(
+        auth=auth,
+        mode=Mode.ENFORCE,
+        payload=payload,
+        request_id="stream-disabled",
+    ) as stream:
+        assert stream.status_code == 200
+
+    assert len(upstream.stream_payloads) == 2
+    assert audit.events[0].tier_reached == TIER_RULES
+    assert orjson.loads(audit.events[0].verdicts)["pending_model"] == ["verdict"]
+    assert "model tier is disabled" in caplog.text
 
 
 async def test_model_mask_is_applied_before_upstream() -> None:

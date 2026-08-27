@@ -31,6 +31,11 @@ def _derive(password: str, salt: bytes, *, n: int, r: int, p: int) -> bytes:
     )
 
 
+#: ruff 0.16 formatter 가 인라인 except 튜플의 괄호를 지워 파이썬2 문법으로
+#: 만드는 버그가 있다. 별칭으로 두면 formatter 가 손대지 않는다.
+_MALFORMED_HASH_ERRORS = (ValueError, TypeError)
+
+
 @dataclass(frozen=True, slots=True)
 class PasswordHash:
     value: str = field(repr=False)
@@ -50,7 +55,7 @@ class PasswordHash:
             if scheme != _SCHEME:
                 raise ValueError(scheme)
             candidate = _derive(password, _unb64(salt), n=int(n), r=int(r), p=int(p))
-        except ValueError, TypeError:
+        except _MALFORMED_HASH_ERRORS:
             return False
         return secrets.compare_digest(candidate, _unb64(expected))
 
