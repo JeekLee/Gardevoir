@@ -9,9 +9,7 @@
 실행조차 안 된다. 조립 루트는 HTTP 요청을 인자로 받지 않는다.
 """
 
-import asyncio
 import logging
-import pathlib
 from contextlib import asynccontextmanager
 from datetime import timedelta
 
@@ -23,7 +21,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from gateway import health
 from gateway.audit.infrastructure.adapter.clickhouse_sink import ClickHouseAuditSink
-from gateway.audit.infrastructure.schema import apply_clickhouse_schema
 from gateway.audit.presentation import audit_router
 from gateway.guardrail.application.service.registry import PlanRegistry
 from gateway.guardrail.infrastructure.adapter.guardrail_source import (
@@ -68,9 +65,6 @@ logger = logging.getLogger(__name__)
 #: 계약 버전은 URL 접두어가 담당한다 (§7.2). 라우터는 자기 하위 경로만 선언하고, 접두어는
 #: 마운트하는 쪽 일이다. 버전을 올릴 때 고칠 곳이 여기 하나다.
 API_PREFIX = "/v1"
-
-#: 감사 스키마 .sql 디렉터리. src/gateway/app.py -> backend/gateway/clickhouse
-_CLICKHOUSE_SQL_DIR = pathlib.Path(__file__).resolve().parents[2] / "clickhouse"
 
 
 def _register_framework_exception_handlers(app: FastAPI) -> None:
@@ -148,11 +142,6 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
         clickhouse_engine = get_clickhouse_engine(settings.clickhouse)
         app.state.clickhouse_engine = clickhouse_engine
         app.state.clickhouse_session_factory = get_clickhouse_session_factory(clickhouse_engine)
-        # 감사 스키마는 여기서 적용한다. CREATE TABLE IF NOT EXISTS 라 멱등이다.
-        # clickhouse-connect 는 동기라 이벤트 루프를 막지 않게 스레드로 뺀다.
-        applied = await asyncio.to_thread(apply_clickhouse_schema, clickhouse, _CLICKHOUSE_SQL_DIR)
-        if applied:
-            logger.info("clickhouse schema applied: %s", ", ".join(applied))
 
         app.state.audit_sink = ClickHouseAuditSink(
             clickhouse,

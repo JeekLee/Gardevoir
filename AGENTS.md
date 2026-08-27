@@ -76,9 +76,10 @@ caller sees — and `proxy/contract.to_wire_action` is the only place they meet.
 
 **6. Whatever describes a resource, the code that opens it belongs beside.** `DatabaseSettings`
 and `ClickHouseSettings` are shared_kernel's, so `get_session_factory` and
-`get_clickhouse_client` are too — and both are disposed in the same `finally`. Symmetry here
-is what makes a *real* asymmetry visible: Postgres migrates through Alembic, ClickHouse
-applies an idempotent schema in the lifespan, and that difference is intentional (§12).
+`get_clickhouse_client` and `get_clickhouse_engine` are too — and all are disposed in the same
+`finally`. Each database has its own Alembic lineage. The remaining asymmetry is intentional:
+Postgres has transactional DDL through an async engine; ClickHouse has non-transactional DDL
+through its synchronous `clickhousedb` engine (§12).
 
 **7. An adapter owns its transport.** `HttpxUpstream` creates and closes its own
 `AsyncClient`. The composition root imports no driver at all now — no `httpx`, no

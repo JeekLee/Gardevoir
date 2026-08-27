@@ -1,6 +1,9 @@
 """ClickHouse audit table contract tests."""
 
+import importlib.util
 from pathlib import Path
+from types import ModuleType
+from unittest.mock import patch
 
 from gateway.audit.infrastructure.model.audit_event import (
     AUDIT_EVENTS_TABLE,
@@ -9,11 +12,30 @@ from gateway.audit.infrastructure.model.audit_event import (
 from shared_kernel.clickhouse import CLICKHOUSE_METADATA
 from shared_kernel.database import Base
 
-CLICKHOUSE_SCHEMA = Path(__file__).resolve().parents[1] / "clickhouse/001_audit_events.sql"
+CLICKHOUSE_BASELINE = (
+    Path(__file__).resolve().parents[1]
+    / "alembic/clickhouse/versions/260827_create_audit_events.py"
+)
+
+
+def _baseline_module() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("clickhouse_audit_baseline", CLICKHOUSE_BASELINE)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _baseline_ddl() -> str:
+    migration = _baseline_module()
+    with patch.object(migration.op, "execute") as execute:
+        migration.upgrade()
+    execute.assert_called_once()
+    return str(execute.call_args.args[0])
 
 
 def _schema_columns() -> list[tuple[str, str]]:
-    definition = CLICKHOUSE_SCHEMA.read_text().split("(", maxsplit=1)[1]
+    definition = _baseline_ddl().split("(", maxsplit=1)[1]
     definition = definition.split("\n)\nENGINE", maxsplit=1)[0]
     return [
         tuple(line.strip().removesuffix(",").split(maxsplit=1))
@@ -27,11 +49,11 @@ def _compact(value: str) -> str:
 
 
 def _schema_table_options() -> tuple[str, str, str]:
-    definition = CLICKHOUSE_SCHEMA.read_text()
+    definition = _baseline_ddl()
     return (
         definition.split("ENGINE = ", maxsplit=1)[1].splitlines()[0],
         definition.split("PARTITION BY ", maxsplit=1)[1].splitlines()[0],
-        definition.split("ORDER BY ", maxsplit=1)[1].splitlines()[0].removesuffix(";"),
+        definition.split("ORDER BY ", maxsplit=1)[1].splitlines()[0],
     )
 
 

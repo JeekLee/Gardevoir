@@ -1181,8 +1181,8 @@ dataclass 이고 필요한 필드만 복사한다. 이 값에 RE2 오토마톤�
 | 업스트림 호출 | **httpx 0.28.1** | async + 스트리밍 중계 |
 | 상태 DB | **PostgreSQL 17** | 키·가드레일 정의(jsonb)·승인. `LISTEN/NOTIFY` 여지 |
 | 감사 DB | **ClickHouse 25.8** | append-only 고용량 + 분석 질의 (§10, §11.10) |
-| ORM | **SQLAlchemy 2.0.52 (async)** | `postgresql+psycopg://`. Postgres 전용 |
-| 마이그레이션 | **Alembic 1.19.1** (Postgres) + 번호 `.sql` (ClickHouse) | |
+| ORM | **SQLAlchemy 2.0.52** | Postgres는 async `postgresql+psycopg://`, 감사 조회·migration은 sync `clickhousedb+connect://` |
+| 마이그레이션 | **Alembic 1.19.1** (Postgres + ClickHouse, 독립 lineage) | DB별 env로 DDL 의미와 실패 범위를 분리 |
 | DB 드라이버 | **psycopg 3.3.4** (binary), **clickhouse-connect 1.7.0** | |
 | 설정 | **pydantic-settings** | |
 | 감사 ID | **python-ulid** | 시간순 정렬 + 유일 |
@@ -1226,10 +1226,11 @@ Next.js console (Phase 5)     프론트엔드. 우리 서비스가 아님
 **인가는 토폴로지가 아니라 스코프로 한다.** Admin 라우트는 API 키의 `admin` 스코프로
 막는다. 앱 정체성·허용 가드레일·스코프가 전부 크레덴셜에서 온다(§7.2) — 헤더가 아니다.
 
-**감사 경로는 SQLAlchemy를 타지 않는다.** ClickHouse로 분리되면서 두 경로가 완전히
-갈라진다 — SQLAlchemy/Alembic은 Postgres만, `clickhouse-connect`는 감사만.
-핫패스에는 DB 접근이 없으므로(§6) ORM 오버헤드가 판정 지연에 영향을 주지 않는다.
-DB를 타는 것은 키 조회뿐이고 그것은 인메모리 캐시로 덮는다.
+**감사 경로는 Postgres SQLAlchemy를 타지 않는다.** ClickHouse로 분리되면서 두 저장소의
+런타임과 migration lineage가 완전히 갈라진다. 감사 쓰기는 `clickhouse-connect` client,
+관리자 조회와 migration은 `clickhousedb` SQLAlchemy engine을 쓰며, ClickHouse DDL은
+transactional rollback이 없다는 전제로 revision을 작성한다. 핫패스에는 감사 DB 접근이
+없으므로(§6) ORM 오버헤드가 판정 지연에 영향을 주지 않는다.
 
 **쓰지 않는 것:**
 

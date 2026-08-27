@@ -20,7 +20,12 @@ services:
       context: ../..
       dockerfile: infra/dockerfiles/gateway.Dockerfile
     image: gardevoir-gateway:local
-    command: ["alembic", "upgrade", "head"]
+    command:
+      [
+        "sh",
+        "-c",
+        "alembic -n postgres upgrade head && alembic -n clickhouse upgrade head",
+      ]
     environment:
       GARDEVOIR_APP_NAME: gardevoir
       GARDEVOIR_DATABASE__DSN: postgresql+psycopg://gardevoir:gardevoir@postgres:5432/gardevoir
@@ -29,6 +34,8 @@ services:
       GARDEVOIR_JWT_SECRET: ${GARDEVOIR_JWT_SECRET}
     depends_on:
       postgres:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
     restart: "no"
 

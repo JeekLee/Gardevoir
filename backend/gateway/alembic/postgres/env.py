@@ -2,6 +2,7 @@ import asyncio
 import importlib
 import pkgutil
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
@@ -14,6 +15,27 @@ from shared_kernel.database import Base
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+
+def _use_short_year_revision_names() -> None:
+    """Render revision filenames with a two-digit year."""
+    script = context.script
+    original_rev_path = script._rev_path
+
+    def short_year_rev_path(
+        path: str | Path, rev_id: str, message: str | None, create_date
+    ) -> Path:
+        generated = original_rev_path(path, rev_id, message, create_date)
+        long_date = create_date.strftime("%Y%m%d_")
+        short_date = create_date.strftime("%y%m%d_")
+        if generated.name.startswith(long_date):
+            return generated.with_name(short_date + generated.name[len(long_date) :])
+        return generated
+
+    script._rev_path = short_year_rev_path
+
+
+_use_short_year_revision_names()
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

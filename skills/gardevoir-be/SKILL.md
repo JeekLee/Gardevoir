@@ -111,15 +111,17 @@ backend/gateway/src/gateway/
 │   └── presentation/   provider_router.py → /v1/providers (Role.ADMIN)
 │
 └── audit/              AuditEvent (§10). 저장소가 다르다 — ClickHouse
-    ├── application/    port/audit_sink.py · audit_event.py (값 타입이라 층 루트)
-    └── infrastructure/ adapter/clickhouse_sink.py · schema.py (층 루트)
+    ├── application/    model/audit_event.py · port/audit_sink.py · dao/ · result/
+    ├── infrastructure/ adapter/clickhouse_sink.py · model/audit_event.py · dao/
+    └── presentation/   audit_router.py → /v1/audit (Role.ADMIN)
 ```
 
 There is **no `infrastructure/` at the gateway root.** `infrastructure` means one thing —
 the concrete implementations behind a context's application interfaces (repositories, daos,
 ORM models, mappers, port adapters) — and a root directory of the same name holding
 process resources made the word ambiguous. The engine went to `shared_kernel.database` (it
-has no gateway knowledge), and `orm.py` is gone — `alembic/env.py` walks `**/infrastructure/`
+has no gateway knowledge), and `orm.py` is gone — `alembic/postgres/env.py` walks
+`**/infrastructure/`
 instead of trusting a hand-maintained list (see below).
 
 ### `application/` is split by role, and only by role
@@ -153,12 +155,14 @@ Mirroring `application/`: `model/` (ORM classes) · `mapper/` (domain↔model) �
 `HttpxUpstream`, `ClickHouseAuditSink`, `SessionScopedGuardrailSource`). The role is decided by
 **which application interface the class implements**, not by its backend: `RedisRefreshSessionRepository`
 sits in `repository/` next to the SQLAlchemy ones because it implements a repository Protocol,
-even though it has no ORM model or mapper. A file that implements no application interface — the
-`audit/schema.py` DDL helper — stays at the `infrastructure/` root, same rule as `application/`.
+even though it has no ORM model or mapper. A file that implements no application interface stays
+at the `infrastructure/` root, same rule as `application/`.
 
 All `__init__.py` are empty; imports use the full role path (`...infrastructure.repository.user_repository`),
-never a package-level re-export — identical to `application/`. `alembic/env.py` still finds every
-model because it walks for `.infrastructure` in the module name, and the role subdirs keep it.
+never a package-level re-export — identical to `application/`. `alembic/postgres/env.py` still
+finds every Postgres model because it walks for `.infrastructure` in the module name, and the
+role subdirs keep it. ClickHouse uses its isolated `CHBase.metadata` in
+`alembic/clickhouse/env.py`.
 
 **Each context has only the layers it needs.** `audit` has no domain aggregate beyond its event.
 Do not create empty directories to make the contexts look symmetric.
@@ -314,8 +318,9 @@ code that *opens the connection* belongs beside them; neither has any gateway kn
 ClickHouse was the odd one out for a while — `app.py` imported the driver directly, spelled
 the five settings fields out by hand, and never closed the client, so the two stores looked
 different at the same place in the lifespan. Symmetry here is what makes the asymmetry
-visible when it is real (the schema step genuinely differs: Alembic for Postgres, an
-idempotent `CREATE TABLE IF NOT EXISTS` applied in the lifespan for ClickHouse, §12).
+visible when it is real. Both schemas use separate Alembic lineages; Postgres runs transactional
+DDL through its async engine, while ClickHouse runs non-transactional DDL through its synchronous
+`clickhousedb` engine (§12).
 - `exception`: `AppError` + category subclasses
   `ValidationError(422)/NotFoundError(404)/UnauthorizedError(401)/ForbiddenError(403)/ConflictError(409)`,
   `ErrorCatalog` base enum, `ErrorResponse`, `register_exception_handlers(app)`.
@@ -628,14 +633,15 @@ has bitten twice. Reset to the *migrated* state first:
 ```bash
 docker exec gardevoir-postgres-1 psql -U gardevoir -q \
   -c 'DROP TABLE IF EXISTS api_keys CASCADE; DROP TABLE IF EXISTS alembic_version CASCADE;'
-uv run alembic upgrade head          # applies the existing chain only
-uv run alembic revision --autogenerate -m "..."
+uv run alembic -n postgres upgrade head          # applies the existing chain only
+uv run alembic -n postgres revision --autogenerate -m "..."
 ```
 
 Then verify the generated file is not `pass`, apply it, and check the upgrade/downgrade
 round trip.
 
-**A new ORM model needs no registration step.** `alembic/env.py` walks the whole `gateway`
+**A new Postgres ORM model needs no registration step.** `alembic/postgres/env.py` walks the
+whole `gateway`
 package with `pkgutil.walk_packages` and imports every module, so every `Base` subclass reaches
 `Base.metadata` wherever it lives. The model belongs to its context
 (`identity/infrastructure/api_key_model.py`,
@@ -744,9 +750,12 @@ tool_call blocked  HTTP 200 + finish_reason = "content_filter"
 - String-backed `StrEnum` columns.
 - tz-aware UTC. **ClickHouse `DateTime64(3)` takes `datetime` objects only** — passing unix
   seconds as an int is read as milliseconds and silently stores 1970 dates with no error (§11.10).
-- Engine lazy (`shared_kernel.database`), disposed in the app lifespan.
-- Postgres migrations via Alembic; the ClickHouse audit schema via numbered `.sql` files
-  (one append-only table needs no migration tool).
+- Engines lazy (`shared_kernel.database`, `shared_kernel.clickhouse`), disposed in the app
+  lifespan.
+- Postgres and ClickHouse have separate Alembic environments and revision histories. Run them
+  explicitly with `alembic -n postgres ...` and `alembic -n clickhouse ...`.
+- ClickHouse migrations use `CHBase.metadata` for autogenerate, but engine, partition, and
+  sorting-key changes require manual review; explicit `op.execute` is valid for those DDL gaps.
 
 ## Not used here (differs from other internal repos)
 
@@ -770,9 +779,10 @@ Contexts are packages inside `gateway`, not workspace members — they share the
    Whatever fits none of them goes at the `application/` root, not into the nearest directory.
 4. `infrastructure/{model,mapper,repository,dao,adapter}/` — by role, mirroring `application/`:
    `model/` ORM classes · `mapper/` domain↔model · `repository/` write impls · `dao/` read impls ·
-   `adapter/` implementations of `application/port/` Protocols. A misfit (e.g. `audit/schema.py`,
-   a DDL helper) stays at the `infrastructure/` root. No manifest to register the model in —
-   `alembic/env.py` finds it by walking `**/infrastructure/` (the role subdirs still match).
+   `adapter/` implementations of `application/port/` Protocols. A misfit stays at the
+   `infrastructure/` root. No manifest to register a Postgres model in —
+   `alembic/postgres/env.py` finds it by walking `**/infrastructure/` (the role subdirs still
+   match). ClickHouse models inherit `CHBase` and register with its isolated metadata.
 5. `<bc>/composition.py` exporting `provide_*` and nothing else; `presentation/<name>_router.py`
    writing `Annotated[Service, Depends(provide_service)]` in each handler signature; mount the
    router in `app.py`. Process-lifetime resources go in `app.py`'s lifespan, not here.
@@ -790,7 +800,7 @@ files are related" is not one — that is a package.
 | DAO returns domain entities | DAO returns application **result DTOs** |
 | three DTO tiers | **single** application-owned `CamelModel` at the boundary |
 | use cases as loose functions; a class per error | **service classes**; one `ErrorCatalog` enum per aggregate |
-| one `models.py` / one `mappers.py` | per-model file in the owning context's `infrastructure/`; `alembic/env.py` finds them by walking |
+| one `models.py` / one `mappers.py` | per-model file in the owning context's `infrastructure/`; `alembic/postgres/env.py` finds Postgres models by walking |
 | a flat `application/` package | split by role: `service/` `repository/` `dao/` `command/` `result/` `port/`; misfits stay at the layer root |
 | DI in presentation | DI in the context's `composition.py`; presentation never imports infrastructure |
 | one root `composition.py` for every context | one per context — a shared file is a chokepoint every new context edits |

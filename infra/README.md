@@ -120,7 +120,16 @@ curl -X POST localhost:21000/v1/auth/logout -H 'content-type: application/json' 
 키 회수는 즉시 반영될 예정이다 — 키 조회에 캐시가 없고 요청마다 Postgres 를 읽는다
 (1.2 ms, 업스트림 300~2000 ms 의 0.4%). 대가로 **Postgres 가 죽으면 프록시가 서지 못한다.**
 
-ClickHouse 감사 스키마는 기동 시 자동 적용된다 (`CREATE TABLE IF NOT EXISTS` 라 멱등).
+Postgres와 ClickHouse 스키마는 게이트웨이 기동 전에 각 Alembic lineage로 올린다.
+
+```bash
+cd backend/gateway
+uv run alembic -n postgres upgrade head
+uv run alembic -n clickhouse upgrade head
+```
+
+전체 스택의 `migrate` 서비스도 같은 두 명령을 순서대로 실행하며, Postgres와
+ClickHouse가 모두 healthy가 된 뒤 시작한다.
 
 설계 문서 §14 에 미해결 항목으로 기록돼 있다.
 

@@ -1,3 +1,22 @@
+"""Create the audit events table.
+
+Revision ID: 37cad59a5234
+Revises:
+Create Date: 2026-08-27
+
+"""
+
+from collections.abc import Sequence
+
+from alembic import op
+
+revision: str = "37cad59a5234"
+down_revision: str | Sequence[str] | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+CREATE_AUDIT_EVENTS_TABLE = """\
 CREATE TABLE IF NOT EXISTS audit_events (
     id                String,
     created_at        DateTime64(3),
@@ -20,4 +39,14 @@ CREATE TABLE IF NOT EXISTS audit_events (
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(created_at)
-ORDER BY (app_name, created_at, id);
+ORDER BY (app_name, created_at, id)"""
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    op.execute(CREATE_AUDIT_EVENTS_TABLE)
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    op.execute("DROP TABLE IF EXISTS audit_events")
