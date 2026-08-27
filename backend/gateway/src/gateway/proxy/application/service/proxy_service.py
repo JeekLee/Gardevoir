@@ -37,6 +37,7 @@ from gateway.guardrail.application.service.inspector import (
     CHECKPOINT_TOOL_RESULT,
     Inspector,
 )
+from gateway.guardrail.application.service.model_tier import ModelTier
 from gateway.guardrail.application.text import (
     extract_input_text,
     extract_tool_result_text,
@@ -335,6 +336,22 @@ class _Verdicts:
     def evidence(self) -> tuple[dict, ...]:
         return self.tool_call.evidence
 
+    @property
+    def model(self) -> str:
+        for inspection in (self.input, self.tool_result, self.output, self.tool_call):
+            if inspection.model:
+                return inspection.model
+        return ""
+
+    @property
+    def model_judgements(self) -> tuple[dict, ...]:
+        return (
+            self.input.model_judgements
+            + self.tool_result.model_judgements
+            + self.output.model_judgements
+            + self.tool_call.model_judgements
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class _InspectedCompletion:
@@ -352,6 +369,7 @@ class ProxyService:
         upstream: LlmUpstream,
         upstream_resolver: UpstreamResolver,
         audit: AuditSink,
+        model_tier: ModelTier | None,
         inspector: Inspector | None = None,
         holdback_chars: int = 128,
         window_chars: int = 512,
@@ -359,6 +377,9 @@ class ProxyService:
         self._upstream = upstream
         self._upstream_resolver = upstream_resolver
         self._audit = audit
+        # None 은 설정에서 명시적으로 disabled 인 상태다. provide_proxy_service 가 항상
+        # 값을 넘기므로 enabled 배선 누락이 기본값으로 숨지 않는다.
+        self._model_tier = model_tier
         self._inspector = inspector
         self._holdback_chars = holdback_chars
         self._window_chars = window_chars
@@ -707,19 +728,36 @@ class ProxyService:
         ① 이 막으면 ② 는 돌지 않는다. 이미 결론이 났고, 감사 로그가 "어디서 걸렸나"를
         하나로 답할 수 있어야 한다.
         """
+        verdicts = self._inspect_input_before_upstream(plan, decoded, mode)
+        return self._inspect_tool_result_before_upstream(plan, decoded, verdicts)
+
+    def _inspect_input_before_upstream(
+        self, plan: ExecutionPlan | None, decoded: object, mode: Mode
+    ) -> _Verdicts:
         if self._inspector is None:
             return _Verdicts(plan=plan, mode=mode)
-
         tainted = self._inspector.tainted(decoded)
-        first = self._inspector.input(plan, decoded, mode=mode, tainted=tainted)
-        if first.blocked:
-            return _Verdicts(plan=plan, mode=mode, input=first, tainted=tainted)
-        return _Verdicts(
-            plan=plan,
-            mode=mode,
-            input=first,
-            tool_result=self._inspector.tool_result(plan, decoded, mode=mode, tainted=tainted),
-            tainted=tainted,
+        inspection = self._inspector.input(plan, decoded, mode=mode, tainted=tainted)
+        if inspection.pending_model and self._model_tier is None:
+            logger.warning(
+                "model tier is disabled; %d input verdict(s) remain unevaluated",
+                len(inspection.pending_model),
+            )
+        return _Verdicts(plan=plan, mode=mode, input=inspection, tainted=tainted)
+
+    def _inspect_tool_result_before_upstream(
+        self, plan: ExecutionPlan | None, decoded: object, verdicts: _Verdicts
+    ) -> _Verdicts:
+        if self._inspector is None or verdicts.input.blocked:
+            return verdicts
+        return replace(
+            verdicts,
+            tool_result=self._inspector.tool_result(
+                plan,
+                decoded,
+                mode=verdicts.mode,
+                tainted=verdicts.tainted,
+            ),
         )
 
     def _test_request_texts(
@@ -742,7 +780,16 @@ class ProxyService:
     ) -> _InspectedCompletion:
         started = time.perf_counter()
         decoded = _decode(payload)
-        verdicts = self._inspect_before_upstream(plan, decoded, mode)
+        raw_input_text = extract_input_text(decoded)
+        verdicts = self._inspect_input_before_upstream(plan, decoded, mode)
+        if not verdicts.input.blocked:
+            verdicts = await self._inspect_input_model(
+                plan=plan,
+                decoded=decoded,
+                raw_input_text=raw_input_text,
+                verdicts=verdicts,
+            )
+        verdicts = self._inspect_tool_result_before_upstream(plan, decoded, verdicts)
         if verdicts.blocked_before_upstream:
             latency_ms = self._added_latency_ms(started, 0.0)
             return _InspectedCompletion(
@@ -777,6 +824,61 @@ class ProxyService:
             added_latency_ms=self._added_latency_ms(started, result.elapsed_s),
             total_latency_ms=(time.perf_counter() - started) * 1000,
         )
+
+    async def _inspect_input_model(
+        self,
+        *,
+        plan: ExecutionPlan | None,
+        decoded: object,
+        raw_input_text: str,
+        verdicts: _Verdicts,
+    ) -> _Verdicts:
+        """Resolve only ① input for the non-streaming path (Phase 4b scope)."""
+        if not verdicts.input.pending_model or self._model_tier is None:
+            return verdicts
+        if plan is None or self._inspector is None:
+            raise RuntimeError("model-tier input inspection requires a plan and inspector")
+
+        resolved = await self._model_tier.evaluate(
+            inspection=verdicts.input,
+            plan=plan,
+            text=raw_input_text,
+            mode=verdicts.mode,
+        )
+        if resolved.masked and not resolved.blocked and verdicts.mode is not Mode.DRY_RUN:
+            changed = self._inspector.apply_input_mask(
+                plan,
+                decoded,
+                resolved.checks_fired,
+            )
+            program = plan.program_for(CHECKPOINT_INPUT)
+            remaining = (
+                self._inspector.mask_spans(
+                    program,
+                    resolved.checks_fired,
+                    extract_input_text(decoded),
+                )
+                if program is not None
+                else [(0, 0)]
+            )
+            if not changed and remaining:
+                logger.warning("a model mask verdict had a span but could not alter the input")
+                resolved = replace(
+                    resolved,
+                    action=VerdictAction.BLOCK,
+                    masked=False,
+                    model_judgements=tuple(
+                        judgement
+                        | {
+                            "applied_action": str(VerdictAction.BLOCK),
+                            "mask_error": "span_not_applied",
+                        }
+                        if judgement.get("applied_action") == str(VerdictAction.MASK)
+                        else judgement
+                        for judgement in resolved.model_judgements
+                    ),
+                )
+        return replace(verdicts, input=resolved)
 
     async def _blocked_input(
         self,
@@ -923,6 +1025,7 @@ class ProxyService:
                         "would_have": str(would_have) if would_have else None,
                         "masked": verdicts.masked,
                         "pending_model": list(verdicts.pending_model),
+                        "model_judgements": list(verdicts.model_judgements),
                         "inspected": list(verdicts.inspected),
                         # 툴 이름과 인수 **이름** 만. 값은 남기지 않는다 (§10).
                         "evidence": list(verdicts.evidence),
@@ -931,7 +1034,7 @@ class ProxyService:
                 tier_reached=verdicts.tier,
                 tainted=verdicts.tainted,
                 latency_ms=latency_ms,
-                model=model,
+                model=verdicts.model or model,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
             )

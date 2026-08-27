@@ -7,8 +7,8 @@ from gateway.guardrail.domain.models.guardrail import VerdictAction
 #: 가려진 자리에 넣는 문자열. 무엇이 지워졌는지 사용자가 알 수 있어야 한다 (§9).
 MASK_PLACEHOLDER = "[개인정보 삭제됨]"
 
-#: 규칙 티어까지만 돌았다는 표시. Phase 4 가 "model" 을 더한다.
 TIER_RULES = "rules"
+TIER_MODEL = "model"
 TIER_NONE = ""
 
 
@@ -34,6 +34,10 @@ class Inspection:
     would_have: VerdictAction | None = None
     #: ④ 가 막은 이유 — 툴 이름과 인수 **이름**. 값은 담지 않는다 (§10).
     evidence: tuple[dict, ...] = ()
+    #: 판정에 사용한 모델 id와 선택적 revision. 감사의 ``model`` 열로 간다.
+    model: str = ""
+    #: 원문이나 policy는 복제하지 않고 판정 결과만 감사에 남긴다 (§10).
+    model_judgements: tuple[dict, ...] = ()
 
     @property
     def blocked(self) -> bool:

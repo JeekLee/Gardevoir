@@ -75,6 +75,20 @@ class Inspector:
             mode=mode,
         )
 
+    def apply_input_mask(
+        self, plan: ExecutionPlan, payload: object, checks_fired: tuple[str, ...]
+    ) -> bool:
+        """Apply exact input spans selected by a completed model judgement."""
+        program = plan.program_for(CHECKPOINT_INPUT)
+        if program is None:
+            return False
+        return self._mask_request(
+            program,
+            payload,
+            extract_input_texts(payload),
+            checks_fired,
+        )
+
     def tool_result(
         self, plan: ExecutionPlan | None, payload: object, *, mode: Mode, tainted: bool = False
     ) -> Inspection:

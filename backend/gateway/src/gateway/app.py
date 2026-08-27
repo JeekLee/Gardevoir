@@ -26,6 +26,7 @@ from gateway.guardrail.application.service.registry import PlanRegistry
 from gateway.guardrail.infrastructure.adapter.guardrail_source import (
     SessionScopedGuardrailSource,
 )
+from gateway.guardrail.infrastructure.adapter.httpx_model_judge import HttpxModelJudge
 from gateway.guardrail.presentation import guardrail_router
 from gateway.identity.application.service.user_service import UserService
 from gateway.identity.infrastructure.dao.user_dao import SqlAlchemyUserDao
@@ -151,6 +152,18 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
         )
         await app.state.audit_sink.start()
 
+        model_judge = None
+        if settings.model_judge.enabled:
+            model_judge = HttpxModelJudge(
+                endpoint=settings.model_judge.endpoint,
+                model=settings.model_judge.model,
+                revision=settings.model_judge.revision,
+                threshold=settings.model_judge.threshold,
+                timeout_ms=settings.model_judge.timeout_ms,
+            )
+            app.state.model_judge = model_judge
+            logger.info("model tier enabled with %s", settings.model_judge.model)
+
         # 프록시 데이터 플레인: 업스트림 전송 + 요청 model 로의 라우팅.
         app.state.upstream = HttpxUpstream(timeout_s=settings.upstream_timeout_s)
         app.state.upstream_resolver = ProviderUpstreamResolver(factory)
@@ -170,6 +183,8 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
         finally:
             await app.state.plans.stop()
             await app.state.audit_sink.stop()
+            if model_judge is not None:
+                await model_judge.aclose()
             await app.state.upstream.aclose()
             await dispose_redis()
             await dispose_engine()

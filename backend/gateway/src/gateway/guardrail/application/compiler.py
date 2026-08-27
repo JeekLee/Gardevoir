@@ -204,7 +204,7 @@ class _Graph:
                 if self.nodes[node_id].type is NodeType.REGEX
             },
             mask_slots={
-                node_id: tuple(slots[src] for src in self.inputs[node_id] if src in slots)
+                node_id: self._mask_slots(node_id, live, slots)
                 for node_id in order
                 if self.nodes[node_id].type is NodeType.VERDICT
                 and VerdictAction(self.nodes[node_id].config["action"]) is VerdictAction.MASK
@@ -228,6 +228,13 @@ class _Graph:
                 continue
             if VerdictAction(node.config["action"]) is not VerdictAction.MASK:
                 continue
+            # 모델 판정 자체는 위치를 주지 않는다. 모델 티어가 위반으로 판정한 뒤
+            # 아래의 직접 regex 조상에서 span 을 찾고, 없으면 BLOCK 으로 승격한다.
+            # 그러므로 모델-dependent MASK 는 저작 시점에 허용하되 런타임에 fail-safe 한다.
+            if any(
+                self.nodes[ancestor].type is NodeType.MODEL for ancestor in self._ancestors(node_id)
+            ):
+                continue
             for src in self.inputs[node_id]:
                 if src not in live:
                     continue
@@ -237,6 +244,24 @@ class _Graph:
                     f"mask verdict {node_id!r} depends on {src!r}, whose position is unknown",
                     details={"node_id": node_id, "check": src, "type": str(self.nodes[src].type)},
                 )
+
+    def _mask_slots(
+        self, verdict_id: str, live: set[str], slots: dict[str, int]
+    ) -> tuple[int, ...]:
+        ancestors = self._ancestors(verdict_id)
+        if any(self.nodes[node_id].type is NodeType.MODEL for node_id in ancestors):
+            # 선언 순서로 모아 워커별 컴파일 결과가 같게 한다. 모델-only MASK 면 비어
+            # 있고, 그 경우 모델 티어가 정확한 span 부재로 BLOCK 한다 (§3.3).
+            candidates = [
+                node_id
+                for node_id in self.nodes
+                if node_id in live
+                and node_id in ancestors
+                and self._reads_the_extract_directly(node_id)
+            ]
+        else:
+            candidates = [src for src in self.inputs[verdict_id] if src in live]
+        return tuple(slots[node_id] for node_id in candidates if node_id in slots)
 
     def _reads_the_extract_directly(self, node_id: str) -> bool:
         if self.nodes[node_id].type is not NodeType.REGEX:

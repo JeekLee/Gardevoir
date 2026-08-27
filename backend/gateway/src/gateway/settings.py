@@ -5,17 +5,56 @@ gateway's own knobs.
 """
 
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Literal
 
 import orjson
-from pydantic import Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import NoDecode
 
 from shared_kernel.config import BaseAppSettings
 
 
+class ModelJudgeFailModeSettings(BaseModel):
+    """Checkpoint-specific behavior when an enabled judge cannot decide."""
+
+    input: Literal["open", "closed"] = "closed"
+    tool_result: Literal["open", "closed"] = "closed"
+    output: Literal["open", "closed"] = "open"
+    tool_call: Literal["open", "closed"] = "closed"
+
+
+class ModelJudgeSettings(BaseModel):
+    """Shieldstral judgement endpoint settings."""
+
+    enabled: bool = False
+    #: ``/v1/chat/completions`` 까지 포함한 전체 URL. disabled 일 때는 비워도 된다.
+    endpoint: str = ""
+    model: str = "mistralai/Shieldstral-1.0-3B"
+    #: 서빙 쪽에서 고정한 모델 revision. 요청 파라미터가 아니라 감사 식별자다.
+    revision: str = ""
+    threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    timeout_ms: int = Field(default=1_000, gt=0)
+    fail_mode: ModelJudgeFailModeSettings = Field(default_factory=ModelJudgeFailModeSettings)
+
+    @field_validator("endpoint", "model", "revision")
+    @classmethod
+    def _strip_model_judge_strings(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def _validate_enabled_endpoint(self) -> ModelJudgeSettings:
+        if not self.model:
+            raise ValueError("model must be a non-empty string")
+        if self.enabled and not self.endpoint:
+            raise ValueError("endpoint is required when model judge is enabled")
+        if self.endpoint and not self.endpoint.startswith(("http://", "https://")):
+            raise ValueError("endpoint must be an http(s) URL")
+        return self
+
+
 class GatewaySettings(BaseAppSettings):
     upstream_timeout_s: float = Field(default=120.0, gt=0)
+    model_judge: ModelJudgeSettings = Field(default_factory=ModelJudgeSettings)
 
     #: 기본값은 빈 목록이다. 운영 환경에서 설정 누락으로 개발 오리진이 열리는 것보다,
     #: 필요한 오리진을 배포 설정에 명시하게 하는 편이 안전하다.
