@@ -53,9 +53,8 @@ class ModelJudgeSettings(BaseModel):
 
 
 class AuditSettings(BaseModel):
-    """Privacy controls for audit content (§10)."""
+    """Audit content evidence controls (§10)."""
 
-    store_bodies: bool = False
     excerpt_max_chars: int = Field(default=256, ge=32)
 
 

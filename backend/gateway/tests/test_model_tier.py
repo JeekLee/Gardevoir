@@ -312,8 +312,8 @@ async def test_no_pending_verdict_does_not_call_model() -> None:
     assert judge.calls == []
 
 
-async def test_disabled_proxy_preserves_pending_and_allows_with_rules_audit(caplog) -> None:
-    """기본 disabled는 pending을 감사하고 기존처럼 업스트림으로 통과시킨다."""
+async def test_disabled_proxy_preserves_pending_and_always_stores_audit_bodies(caplog) -> None:
+    """모델 티어가 꺼져 있어도 감사 입력·출력 본문은 항상 저장한다."""
     plan = _plan()
     upstream = FakeUpstream()
     audit = FakeAuditSink()
@@ -322,7 +322,6 @@ async def test_disabled_proxy_preserves_pending_and_allows_with_rules_audit(capl
         upstream_resolver=FakeResolver(),
         audit=audit,
         model_tier=None,
-        store_bodies=False,
         audit_excerpt_max_chars=256,
         inspector=Inspector(plans=FakePlans(plan)),
     )
@@ -341,9 +340,9 @@ async def test_disabled_proxy_preserves_pending_and_allows_with_rules_audit(capl
     assert audit.events[0].tier_reached == TIER_RULES
     assert orjson.loads(audit.events[0].verdicts)["pending_model"] == ["verdict"]
     assert len(audit.events[0].content_fingerprint) == 64
-    assert audit.events[0].input_body == ""
-    assert audit.events[0].output_body == ""
-    assert audit.events[0].tool_calls_body == ""
+    assert orjson.loads(audit.events[0].input_body)["messages"][0]["content"] == "secret"
+    assert orjson.loads(audit.events[0].output_body)["choices"][0]["message"]["content"] == "ok"
+    assert orjson.loads(audit.events[0].tool_calls_body) == []
     assert "model tier is disabled" in caplog.text
 
 
@@ -357,7 +356,6 @@ async def test_enabled_failure_blocks_before_upstream_and_audits_model() -> None
         upstream_resolver=FakeResolver(),
         audit=audit,
         model_tier=_model_tier(FakeModelJudge([_judge_result(violated=None, score=None)])),
-        store_bodies=False,
         audit_excerpt_max_chars=256,
         inspector=Inspector(plans=FakePlans(plan)),
     )
@@ -388,7 +386,6 @@ async def test_model_mask_is_applied_before_upstream() -> None:
         upstream_resolver=FakeResolver(),
         audit=audit,
         model_tier=_model_tier(FakeModelJudge([_judge_result(violated=True)])),
-        store_bodies=True,
         audit_excerpt_max_chars=256,
         inspector=Inspector(plans=FakePlans(plan)),
     )

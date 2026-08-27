@@ -102,7 +102,7 @@ class HttpxModelJudge:
                 headers={"content-type": "application/json", "accept": "application/json"},
                 timeout=deadline_ms / 1000,
             )
-        except (httpx.HTTPError, ValueError):
+        except httpx.HTTPError, ValueError:
             return self._failed(request, "transport_error")
 
         if response.status_code >= 400:
