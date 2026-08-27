@@ -56,3 +56,8 @@ class GuardrailError(ErrorCatalog):
         "the guardrail description is invalid",
         ValidationError,
     )
+    MULTIPLE_MODEL_CHECKS = (
+        "GUARDRAIL-017",
+        "a verdict may depend on only one model check",
+        ValidationError,
+    )

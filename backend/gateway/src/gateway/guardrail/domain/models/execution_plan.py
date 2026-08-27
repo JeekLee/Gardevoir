@@ -10,7 +10,7 @@
 
 from dataclasses import dataclass, field
 
-from gateway.guardrail.domain.models.guardrail import Decision, VerdictAction
+from gateway.guardrail.domain.models.guardrail import VerdictAction
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +33,15 @@ class Length:
     out: int
     src: int
     max_chars: int
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCheck:
+    """A model-tier check that produces PENDING during rule execution."""
+
+    src: int
+    out: int
+    node_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +121,6 @@ class Verdict:
     """
 
     srcs: tuple[int, ...]
-    decision: Decision
     action: VerdictAction
     node_id: str
 
@@ -121,6 +129,7 @@ type Instruction = (
     Extract
     | Transform
     | Length
+    | ModelCheck
     | RegexOne
     | RegexSet
     | Taint
@@ -155,6 +164,18 @@ class Program:
 
 
 @dataclass(frozen=True, slots=True)
+class ModelNodeSpec:
+    """A model judgement specification assembled at publish time (§6⑦)."""
+
+    node_id: str
+    checkpoint: str
+    policy: str
+    action: VerdictAction
+    strictness: str
+    model_route: str
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionPlan:
     """가드레일 하나의 컴파일 산출물.
 
@@ -169,6 +190,7 @@ class ExecutionPlan:
     guardrail: str
     version_number: int
     programs: dict[str, Program] = field(default_factory=dict)
+    model_nodes: dict[str, ModelNodeSpec] = field(default_factory=dict)
 
     def program_for(self, checkpoint: str) -> Program | None:
         return self.programs.get(checkpoint)

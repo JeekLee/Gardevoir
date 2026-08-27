@@ -19,6 +19,8 @@ from gateway.guardrail.domain.models.execution_plan import (
     Extract,
     Instruction,
     Length,
+    ModelCheck,
+    ModelNodeSpec,
     Program,
     Provenance,
     RegexOne,
@@ -29,13 +31,15 @@ from gateway.guardrail.domain.models.execution_plan import (
     Verdict,
 )
 from gateway.guardrail.domain.models.guardrail import (
+    DEFAULT_MODEL_STRICTNESS,
     DEFAULT_PROVENANCE_MIN_LENGTH,
-    Decision,
     Guardrail,
     Node,
     NodeType,
     VerdictAction,
 )
+
+_DEFAULT_MODEL_ROUTE = "shieldstral"
 
 #: 미발행(draft) 계획의 버전 번호. 감사 로그가 "발행본이 아니다"를 구별할 수 있어야 한다.
 UNPUBLISHED = 0
@@ -51,7 +55,8 @@ _COST = {
     NodeType.ALL: 1,
     NodeType.TRANSFORM: 2,
     NodeType.REGEX: 3,
-    NodeType.VERDICT: 4,
+    NodeType.MODEL: 4,
+    NodeType.VERDICT: 5,
 }
 
 #: 체크포인트를 고르는 노드 = 부분 그래프의 뿌리. taint 는 텍스트를 읽지 않지만
@@ -66,8 +71,9 @@ SOURCE_TYPES = (
 
 def compile_guardrail(guardrail: Guardrail) -> ExecutionPlan:
     graph = _Graph(guardrail)
+    grouped = graph.by_checkpoint()
     programs = {}
-    for checkpoint, node_ids in graph.by_checkpoint().items():
+    for checkpoint, node_ids in grouped.items():
         program = graph.build_program(checkpoint, node_ids)
         if not program.is_empty:
             programs[checkpoint] = program
@@ -78,6 +84,7 @@ def compile_guardrail(guardrail: Guardrail) -> ExecutionPlan:
             guardrail.version_number if guardrail.version_number is not None else UNPUBLISHED
         ),
         programs=programs,
+        model_nodes=graph.model_nodes(grouped),
     )
 
 
@@ -127,6 +134,48 @@ class _Graph:
                 if nxt not in seen:
                     seen.add(nxt)
                     queue.append(nxt)
+        return seen
+
+    def model_nodes(self, grouped: dict[str, set[str]]) -> dict[str, ModelNodeSpec]:
+        """Assemble each verdict's model prompt at publish time (step ⑦)."""
+        live = set().union(*grouped.values()) if grouped else set()
+        specs: dict[str, ModelNodeSpec] = {}
+        for verdict_id, verdict in self.nodes.items():
+            if verdict.type is not NodeType.VERDICT or verdict_id not in live:
+                continue
+            ancestors = self._ancestors(verdict_id)
+            model_ids = [
+                node_id
+                for node_id, node in self.nodes.items()
+                if node.type is NodeType.MODEL and node_id in ancestors
+            ]
+            if len(model_ids) > 1:
+                GuardrailError.MULTIPLE_MODEL_CHECKS.raise_(
+                    f"verdict {verdict_id!r} depends on multiple model checks",
+                    details={"node_id": verdict_id, "model_nodes": model_ids},
+                )
+            if not model_ids:
+                continue
+            model = self.nodes[model_ids[0]]
+            specs[verdict_id] = ModelNodeSpec(
+                node_id=model.id,
+                checkpoint=model.config["checkpoint"],
+                policy=model.config["policy"],
+                action=VerdictAction(verdict.config["action"]),
+                strictness=model.config.get("strictness", DEFAULT_MODEL_STRICTNESS),
+                model_route=_DEFAULT_MODEL_ROUTE,
+            )
+        return specs
+
+    def _ancestors(self, start: str) -> set[str]:
+        seen: set[str] = set()
+        queue = deque(self.inputs[start])
+        while queue:
+            node_id = queue.popleft()
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            queue.extend(self.inputs[node_id])
         return seen
 
     # -- ③~⑧ ---------------------------------------------------------------
@@ -336,6 +385,12 @@ class _Graph:
                     src=slots[self.inputs[node.id][0]],
                     max_chars=node.config["max_chars"],
                 )
+            case NodeType.MODEL:
+                return ModelCheck(
+                    src=slots[self.inputs[node.id][0]],
+                    out=slots[node.id],
+                    node_id=node.id,
+                )
             case NodeType.REGEX:
                 return RegexOne(
                     out=slots[node.id],
@@ -345,7 +400,6 @@ class _Graph:
             case NodeType.VERDICT:
                 return Verdict(
                     srcs=tuple(slots[src] for src in self.inputs[node.id] if src in slots),
-                    decision=Decision(node.config["decision"]),
                     action=VerdictAction(node.config["action"]),
                     node_id=node.id,
                 )

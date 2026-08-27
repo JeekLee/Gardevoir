@@ -12,6 +12,7 @@ from gateway.guardrail.domain.models.execution_plan import (
     All,
     Extract,
     Length,
+    ModelCheck,
     Program,
     Provenance,
     RegexOne,
@@ -21,7 +22,9 @@ from gateway.guardrail.domain.models.execution_plan import (
     Transform,
     Verdict,
 )
-from gateway.guardrail.domain.models.guardrail import Decision, VerdictAction
+from gateway.guardrail.domain.models.guardrail import VerdictAction
+
+PENDING = object()
 
 #: 강한 판정이 이긴다 (§4). approval_required 는 Phase 6 에서 BLOCK 아래로 들어온다.
 _SEVERITY = {
@@ -108,6 +111,8 @@ def execute(program: Program, subject: Subject, *, collect_all: bool = False) ->
                 slots[instruction.out] = (
                     len(source) > instruction.max_chars if source is not None else False
                 )
+            case ModelCheck():
+                slots[instruction.out] = PENDING
             case RegexOne():
                 source = slots[instruction.src]
                 slots[instruction.out] = (
@@ -123,19 +128,34 @@ def execute(program: Program, subject: Subject, *, collect_all: bool = False) ->
             case Provenance():
                 slots[instruction.out] = bool(subject.foreign_args)
             case All():
-                slots[instruction.out] = all(slots[src] for src in instruction.srcs)
+                has_pending = False
+                for src in instruction.srcs:
+                    value = slots[src]
+                    if value is PENDING:
+                        has_pending = True
+                    elif not value:
+                        slots[instruction.out] = False
+                        break
+                else:
+                    slots[instruction.out] = PENDING if has_pending else True
             case Verdict():
-                if not any(slots[src] for src in instruction.srcs):
-                    continue
-                fired.append(instruction.node_id)
-                if instruction.decision is Decision.CONCLUSIVE:
+                triggered = False
+                has_pending = False
+                for src in instruction.srcs:
+                    value = slots[src]
+                    if value is True:
+                        triggered = True
+                        break
+                    if value is PENDING:
+                        has_pending = True
+                if triggered:
+                    fired.append(instruction.node_id)
                     if _SEVERITY[instruction.action] > _SEVERITY[action]:
                         action = instruction.action
                     if action is VerdictAction.BLOCK and not collect_all:
                         # §6 의 조기 종료. dry-run 에서는 하지 않는다.
                         break
-                else:
-                    # 힌트형·모델형은 규칙만으로 결론이 나지 않는다 (§4).
+                elif has_pending:
                     pending.append(instruction.node_id)
 
     return ExecutionResult(

@@ -24,6 +24,8 @@ MAX_DESCRIPTION_LENGTH = 2000
 #: 고정한다 — 도메인이 감사 모듈을 임포트하면 의존 방향이 뒤집힌다.
 VALID_CHECKPOINTS = frozenset({"input", "output", "tool_result", "tool_call"})
 VALID_TRANSFORMS = frozenset({"lower", "strip"})
+VALID_MODEL_STRICTNESSES = frozenset({"strict", "balanced", "lenient"})
+DEFAULT_MODEL_STRICTNESS = "strict"
 
 #: ④ 전용 노드가 붙을 수 있는 체크포인트. 다른 곳에서는 평가할 tool_call 이 없으므로
 #: 아무 값이나 내면 조용히 통과한다 — 거부하는 편이 낫다.
@@ -74,6 +76,7 @@ def _echo(name: object) -> str:
 class NodeType(StrEnum):
     EXTRACT = "extract"
     REGEX = "regex"
+    MODEL = "model"
     LENGTH = "length"
     TRANSFORM = "transform"
     VERDICT = "verdict"
@@ -87,19 +90,6 @@ class NodeType(StrEnum):
     SIDE_EFFECT = "side_effect"
     #: 인수 값이 외부 데이터(툴 결과)에서 왔는가 (§8 3단계).
     PROVENANCE = "provenance"
-
-
-class Decision(StrEnum):
-    """규칙 티어의 역할. 설계 문서 §4 의 세 유형.
-
-    CONCLUSIVE  규칙만으로 종료. 모델을 부르지 않는다.
-    HINT        규칙에 걸리면 모델로 넘긴다.
-    MODEL_ONLY  규칙 없이 항상 모델.
-    """
-
-    CONCLUSIVE = "conclusive"
-    HINT = "hint"
-    MODEL_ONLY = "model_only"
 
 
 class VerdictAction(StrEnum):
@@ -295,6 +285,7 @@ class Guardrail:
 NODE_ARITY: dict[NodeType, tuple[int, int]] = {
     NodeType.EXTRACT: (0, 0),
     NodeType.REGEX: (1, 1),
+    NodeType.MODEL: (1, 1),
     NodeType.LENGTH: (1, 1),
     NodeType.TRANSFORM: (1, 1),
     NodeType.VERDICT: (1, _MANY),
@@ -433,6 +424,17 @@ def _validate_regex(node: Node) -> None:
         node.fail(f"pattern does not compile: {_reason(exc)}")
 
 
+def _validate_model(node: Node) -> None:
+    policy = node.config.get("policy")
+    if not isinstance(policy, str) or not policy.strip():
+        node.fail("policy must be a non-empty string")
+    if node.config.get("checkpoint") not in VALID_CHECKPOINTS:
+        node.fail(f"checkpoint must be one of {sorted(VALID_CHECKPOINTS)}")
+    strictness = node.config.get("strictness")
+    if strictness is not None and strictness not in VALID_MODEL_STRICTNESSES:
+        node.fail(f"strictness must be one of {sorted(VALID_MODEL_STRICTNESSES)}")
+
+
 def _reason(exc: Exception) -> str:
     """re2 는 이유를 bytes 로 담아 올린다. b'...' 를 그대로 응답에 싣지 않는다."""
     arg = exc.args[0] if exc.args else exc
@@ -451,8 +453,6 @@ def _validate_transform(node: Node) -> None:
 
 
 def _validate_verdict(node: Node) -> None:
-    if node.config.get("decision") not in set(Decision):
-        node.fail(f"decision must be one of {sorted(d.value for d in Decision)}")
     if node.config.get("action") not in set(VerdictAction):
         node.fail(f"action must be one of {sorted(a.value for a in VerdictAction)}")
 
@@ -507,6 +507,7 @@ def _validate_provenance(node: Node) -> None:
 _NODE_VALIDATORS = {
     NodeType.EXTRACT: _validate_extract,
     NodeType.REGEX: _validate_regex,
+    NodeType.MODEL: _validate_model,
     NodeType.LENGTH: _validate_length,
     NodeType.TRANSFORM: _validate_transform,
     NodeType.VERDICT: _validate_verdict,
