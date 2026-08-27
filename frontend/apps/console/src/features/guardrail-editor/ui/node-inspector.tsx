@@ -14,7 +14,10 @@ import {
   incomingRange,
   nodeCatalogByType,
 } from "../model/catalog";
-import { connectionError } from "../model/connections";
+import {
+  connectionError,
+  hasUpstreamNodeType,
+} from "../model/connections";
 import type { EditorGraph, GuardrailFlowNode } from "../model/graph-mapper";
 import styles from "./guardrail-editor.module.css";
 
@@ -131,6 +134,9 @@ function SelectedNodeInspector({
     (target) => !connectionError(graph, node.id, target.id),
   );
   const range = incomingRange(domainNode.type);
+  const modelContributesToVerdict =
+    domainNode.type === "verdict" &&
+    hasUpstreamNodeType(graph, domainNode.id, "model");
 
   function setConfig(key: string, value: unknown) {
     onConfigChange(domainNode.id, { ...domainNode.config, [key]: value });
@@ -167,6 +173,7 @@ function SelectedNodeInspector({
           checkpoint={node.data.checkpoint}
           setConfig={setConfig}
           removeConfig={removeConfig}
+          modelContributesToVerdict={modelContributesToVerdict}
         />
       </fieldset>
 
@@ -257,11 +264,13 @@ function ConfigFields({
   checkpoint,
   setConfig,
   removeConfig,
+  modelContributesToVerdict,
 }: {
   node: GuardrailNode;
   checkpoint: Checkpoint;
   setConfig: (key: string, value: unknown) => void;
   removeConfig: (key: string) => void;
+  modelContributesToVerdict: boolean;
 }) {
   switch (node.type) {
     case "extract":
@@ -343,9 +352,14 @@ function ConfigFields({
               onChange={(event) => setConfig("action", event.target.value)}
             >
               <option value="block">차단</option>
-              <option value="mask">마스킹</option>
+              <option value="mask" disabled={modelContributesToVerdict}>
+                마스킹
+              </option>
               <option value="allow">허용</option>
             </select>
+            {modelContributesToVerdict ? (
+              <small>모델 판정은 위치를 제공하지 않아 마스킹할 수 없습니다.</small>
+            ) : null}
           </label>
           <label>
             <span>입력 조합</span>

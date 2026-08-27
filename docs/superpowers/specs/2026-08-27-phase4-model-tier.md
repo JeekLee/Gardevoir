@@ -2,7 +2,9 @@
 
 - 작성일: 2026-08-27 (KST)
 - 상태: 설계 확정. 구현은 4a(노드 모델 정렬) → 4b(모델 실행) 순.
-- 근거 문서: 본 설계 문서 `2026-08-12-gardevoir-design.md` §4·§5·§6, 조사 `docs/research/2026-08-27-sllm-guardrail-survey.md`.
+- 근거 문서: 본 설계 문서 `2026-08-12-gardevoir-design.md` §4·§5·§6, 조사
+  `docs/research/2026-08-27-sllm-guardrail-survey.md`와
+  [`docs/research/2026-08-27-masking-localizer-survey.md`](../../research/2026-08-27-masking-localizer-survey.md).
 - **파일 경로는 가드레일 BC 평탄화 이후 기준**(`definition/plan/inspection` → 다른 BC처럼 `guardrail/{domain,application,infrastructure,presentation}`). 4a 는 그 평탄화가 머지된 뒤 진행.
 
 ## 0. 이 문서의 위치
@@ -117,7 +119,15 @@ class ModelJudge(Protocol):
 
 ### 5.3 병합 / fail-mode
 - `violated=True` → verdict 선언 action; `False` → 그 노드 allow; `None` → **체크포인트별 명시 fail-mode**.
-- 최종 병합은 기존 `block > mask > allow`. **MASK 는 정확한 span 이 있을 때만**(규칙이 찾은 경우) — 없으면 block(조사 §3.3).
+- **MODEL Check가 기여하는 verdict는 `MASK`를 쓸 수 없다.** Shieldstral은 yes/no 판정만 내고
+  위치를 주지 않으며, span을 내는 PII/GLiNER 모델은 같은 자연어 policy를 받지 못한다. 현재 스택에서
+  자연어 policy 마스킹은 불가능하므로 `Guardrail.validate()`가 저작 시점에 거부하고 컴파일러도
+  `ModelNodeSpec.action`에 싣지 않는다
+  ([localizer 조사](../../research/2026-08-27-masking-localizer-survey.md)).
+- regex Check가 찾은 span의 `MASK`는 유지한다. 최종 병합도 규칙 티어 결과를 포함해 기존
+  `block > mask > allow`를 유지한다.
+- model tier의 span 없는 `MASK`→`BLOCK` 승격은 오래된 계획을 위한 도달 불가 방어선이며, 도달하면
+  경고를 남긴다.
 - fail-mode 기본: 고위험 ①/② fail-closed(block 또는 승인), 저위험 설정형. 시계·기본값 우회 금지, 전부 감사.
 
 ### 5.4 lifespan / DI
@@ -170,6 +180,12 @@ OCR/좌표/redaction/재검증 별도 트랙, 준비 전엔 block/격리만(조�
 각 `all`의 입력을 downstream verdict에 직접 연결하고 `combine=all`을 넣으며, `length(max_chars=N)`은
 기존의 `len(text) > N`과 개행 의미를 보존하는 `regex("(?s).{N+1,}")`로 바꾼다. 콘솔
 `templates.ts`의 AND 템플릿과 길이 템플릿도 같은 형태로 바꾼다.
+
+같은 날 `default` 초안의 `in-model`이 `action=mask`인 `in-model-block`에 기여하는 조합도 확인했다.
+새 제약을 도입하면 이 초안은 저장·발행할 수 없으므로 데이터 마이그레이션이 모든 저장 그래프를
+상류 추적해 해당 verdict의 action을 안전한 방향인 `block`으로 올려 쓴다. 발행본과 초안을 함께
+처리하며 손실 복원이 불가능해 downgrade는 거부한다. 미머지 migration은 공유 개발 DB에 적용하지
+않는다.
 
 ## 10. 단계와 검증
 

@@ -116,6 +116,11 @@ CaMeL 방식(툴 호출 주변에 capability + control-flow 제약)이 AgentDojo
 규칙이 애매한 점수가 아니라 확실한 답만 내므로, "언제 상위 티어로 올릴지"를 판단하는
 교정 문제가 발생하지 않는다.
 
+**MODEL Check는 판정 전용이다.** 현재 Shieldstral은 yes/no만 생성해 마스킹 위치를 주지 않고,
+span을 내는 PII/GLiNER 모델은 자연어 정책을 받지 못한다. 따라서 MODEL이 기여하는 verdict는
+차단 또는 허용만 선언할 수 있고, 마스킹은 regex Check가 맡는다
+([실측과 후보 조사](../../research/2026-08-27-masking-localizer-survey.md)).
+
 ### 체크가 선언하는 역할
 
 정책 작성자가 규칙의 역할을 명시한다.
@@ -169,6 +174,9 @@ Approval           보류된 tool_call. 만료 시간 있음. 1회용.
 발화한다(기존 팬인 OR). `all`은 모든 입력이 참일 때만 발화한다. `(A AND B) OR (C AND D)`는
 같은 action의 verdict 두 개를 각각 `combine=all`로 두어 표현한다. 별도 `all` 노드는 두지
 않는다. 길이 조건도 별도 노드 없이 RE2 패턴 `(?s).{N,}`으로 표현한다.
+
+그래프 상류의 어떤 경로로든 MODEL Check가 verdict에 기여하면 `action=mask`는 저작 시점에
+거부한다. regex Check 기반 마스킹은 위치를 제공하므로 그대로 허용한다.
 
 ### 재사용 전략
 

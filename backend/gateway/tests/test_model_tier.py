@@ -171,6 +171,18 @@ def _judge_result(*, violated: bool | None, score: float | None = 0.8) -> JudgeR
     )
 
 
+def _unreachable_model_mask_plan():
+    plan = _plan()
+    model_spec = plan.model_nodes["verdict"]
+    return replace(
+        plan,
+        model_nodes={
+            **plan.model_nodes,
+            "verdict": replace(model_spec, action=VerdictAction.MASK),
+        },
+    )
+
+
 async def test_violated_model_verdict_applies_declared_action() -> None:
     """위반이면 verdict 선언 action을 적용하고 model tier로 기록한다."""
     judge = FakeModelJudge([_judge_result(violated=True)])
@@ -234,11 +246,11 @@ async def test_failed_judgement_uses_enabled_fail_mode() -> None:
     assert closed.model_judgements[0]["violated"] is None
 
 
-async def test_model_mask_without_rule_span_becomes_block() -> None:
-    """모델-only MASK는 위치를 모르므로 block으로 승격한다."""
+async def test_unreachable_model_mask_without_span_warns_and_becomes_block(caplog) -> None:
+    """오래된 MASK 계획은 경고를 남기고 block으로 승격한다."""
     result = await _model_tier(FakeModelJudge([_judge_result(violated=True)])).evaluate(
         inspection=_inspection(),
-        plan=_plan(action="mask"),
+        plan=_unreachable_model_mask_plan(),
         text="contains a secret",
         mode=Mode.ENFORCE,
     )
@@ -246,24 +258,12 @@ async def test_model_mask_without_rule_span_becomes_block() -> None:
     assert result.action is VerdictAction.BLOCK
     assert result.masked is False
     assert result.model_judgements[0]["applied_action"] == "block"
+    assert "unreachable model MASK verdict" in caplog.text
 
 
-async def test_model_mask_with_rule_span_is_maskable() -> None:
-    """힌트 규칙이 찾은 정확한 span이 있으면 모델 MASK를 허용한다."""
-    result = await _model_tier(FakeModelJudge([_judge_result(violated=True)])).evaluate(
-        inspection=_inspection(),
-        plan=_plan(action="mask", hint=True),
-        text="contains a secret",
-        mode=Mode.ENFORCE,
-    )
-
-    assert result.action is VerdictAction.ALLOW
-    assert result.masked is True
-
-
-async def test_model_actions_merge_block_over_mask_over_allow() -> None:
-    """여러 모델 verdict는 선언 순서와 무관하게 block>mask>allow로 병합한다."""
-    plan = _plan(action="mask", hint=True)
+async def test_model_actions_merge_block_over_allow() -> None:
+    """여러 모델 verdict는 선언 순서와 무관하게 block을 우선한다."""
+    plan = _plan()
     plan = replace(
         plan,
         model_nodes={
@@ -554,37 +554,3 @@ async def test_disabled_streaming_preserves_pending_and_passes_upstream(caplog) 
     assert audit.events[0].tier_reached == TIER_RULES
     assert orjson.loads(audit.events[0].verdicts)["pending_model"] == ["verdict"]
     assert "model tier is disabled" in caplog.text
-
-
-async def test_model_mask_is_applied_before_upstream() -> None:
-    """모델 MASK의 규칙 span은 non-stream input 본문에 실제 적용된다."""
-    plan = _plan(action="mask", hint=True)
-    upstream = FakeUpstream()
-    audit = FakeAuditSink()
-    proxy = ProxyService(
-        upstream=upstream,
-        upstream_resolver=FakeResolver(),
-        audit=audit,
-        model_tier=_model_tier(FakeModelJudge([_judge_result(violated=True)])),
-        audit_excerpt_max_chars=256,
-        inspector=Inspector(plans=FakePlans(plan)),
-    )
-
-    result = await proxy.complete(
-        auth=AuthenticatedRequest(uuid4(), "app", "model-tier"),
-        mode=Mode.ENFORCE,
-        payload=orjson.dumps(
-            {"model": "chat-model", "messages": [{"role": "user", "content": "a secret"}]}
-        ),
-        request_id="request",
-    )
-
-    assert result.status_code == 200
-    sent = orjson.loads(upstream.payloads[0])
-    assert sent["messages"][0]["content"] == "a [개인정보 삭제됨]"
-    event = audit.events[0]
-    assert "secret" not in event.excerpt
-    assert "[개인정보 삭제됨]" in event.excerpt
-    assert orjson.loads(event.input_body)["messages"][0]["content"] == "a secret"
-    assert orjson.loads(event.output_body)["choices"][0]["message"]["content"] == "ok"
-    assert orjson.loads(event.tool_calls_body) == []

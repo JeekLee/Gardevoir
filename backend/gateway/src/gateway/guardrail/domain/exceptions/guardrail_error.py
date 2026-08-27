@@ -61,3 +61,9 @@ class GuardrailError(ErrorCatalog):
         "a verdict may depend on only one model check",
         ValidationError,
     )
+    MODEL_CHECK_CANNOT_MASK = (
+        "GUARDRAIL-018",
+        "model checks do not provide positions to mask; use block or allow, "
+        "or use a regex check for masking",
+        ValidationError,
+    )

@@ -188,8 +188,15 @@ class ModelTier:
         if candidate is VerdictAction.MASK and not self._has_mask_span(
             plan, checkpoint, verdict_id, text
         ):
-            # Shieldstral은 위치를 주지 않는다. 정확한 규칙 span이 없으면 MASK라고
-            # 말하면서 원문을 내보내는 대신 BLOCK 한다 (§3.3).
+            # 저작·컴파일 시점에 거부되므로 도달할 수 없다. 그래도 오래된 계획이나
+            # 계약을 어긴 호출이 원문을 내보내지 않도록 BLOCK 방어선을 유지한다.
+            logger.warning(
+                "unreachable model MASK verdict %r in guardrail %r has no span at %s; "
+                "applying BLOCK",
+                verdict_id,
+                plan.guardrail,
+                checkpoint,
+            )
             return VerdictAction.BLOCK
         return candidate
 

@@ -1,3 +1,5 @@
+import type { GuardrailNodeType } from "@/src/entities/guardrail";
+
 import type { EditorGraph } from "./graph-mapper";
 import { canEmit, incomingRange } from "./catalog";
 
@@ -34,6 +36,29 @@ export function connectionError(
     return "이 연결을 추가하면 그래프에 순환이 생깁니다.";
   }
   return null;
+}
+
+export function hasUpstreamNodeType(
+  graph: EditorGraph,
+  targetId: string,
+  nodeType: GuardrailNodeType,
+): boolean {
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const queue = graph.edges
+    .filter((edge) => edge.target === targetId)
+    .map((edge) => edge.source);
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || visited.has(current)) continue;
+    visited.add(current);
+    if (nodeById.get(current)?.data.domainNode.type === nodeType) return true;
+    graph.edges.forEach((edge) => {
+      if (edge.target === current) queue.push(edge.source);
+    });
+  }
+  return false;
 }
 
 function reaches(graph: EditorGraph, start: string, target: string): boolean {

@@ -205,6 +205,7 @@ class Guardrail:
         self._validate_edges()
         self._validate_acyclic()
         self._validate_arity()
+        self._validate_model_verdict_actions()
 
     def published_as(self, version_number: int) -> Guardrail:
         """Return a published copy. The draft itself is left editable (§6)."""
@@ -280,6 +281,37 @@ class Guardrail:
         if visited != len(self.nodes):
             unresolved = sorted(node for node, degree in indegree.items() if degree > 0)
             GuardrailError.CYCLE.raise_(details={"nodes": unresolved})
+
+    def _validate_model_verdict_actions(self) -> None:
+        """Reject MASK verdicts influenced by MODEL checks."""
+        inputs: dict[str, list[str]] = {node.id: [] for node in self.nodes}
+        for edge in self.edges:
+            inputs[edge.dst].append(edge.src)
+
+        for verdict in self.nodes:
+            if verdict.type is not NodeType.VERDICT:
+                continue
+            if VerdictAction(verdict.config["action"]) is not VerdictAction.MASK:
+                continue
+
+            ancestors: set[str] = set()
+            queue = deque(inputs[verdict.id])
+            while queue:
+                node_id = queue.popleft()
+                if node_id in ancestors:
+                    continue
+                ancestors.add(node_id)
+                queue.extend(inputs[node_id])
+
+            model_ids = [
+                node.id
+                for node in self.nodes
+                if node.type is NodeType.MODEL and node.id in ancestors
+            ]
+            if model_ids:
+                GuardrailError.MODEL_CHECK_CANNOT_MASK.raise_(
+                    details={"node_id": verdict.id, "model_nodes": model_ids}
+                )
 
 
 #: 노드 타입별 허용 입력 개수 (최소, 최대).

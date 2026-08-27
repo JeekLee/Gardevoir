@@ -8,8 +8,8 @@ from gateway.guardrail.domain.models.guardrail import Guardrail, VerdictAction
 from shared_kernel.exception import AppError
 
 
-def _plan(*, nodes: list[dict], edges: list[tuple[str, str]]):
-    guardrail = Guardrail.draft(
+def _guardrail(*, nodes: list[dict], edges: list[tuple[str, str]]) -> Guardrail:
+    return Guardrail.draft(
         name="node-model",
         description="",
         graph={
@@ -17,6 +17,10 @@ def _plan(*, nodes: list[dict], edges: list[tuple[str, str]]):
             "edges": [{"src": src, "dst": dst} for src, dst in edges],
         },
     )
+
+
+def _plan(*, nodes: list[dict], edges: list[tuple[str, str]]):
+    guardrail = _guardrail(nodes=nodes, edges=edges)
     guardrail.validate()
     return compile_guardrail(guardrail)
 
@@ -81,6 +85,74 @@ def test_model_check_compiles_to_pending_without_applying_action() -> None:
     assert result.action is VerdictAction.ALLOW
     assert result.checks_fired == ()
     assert result.pending_model == ("verdict",)
+
+
+@pytest.mark.parametrize(
+    ("extra_nodes", "edges"),
+    [
+        ([], [("extract", "model"), ("model", "verdict")]),
+        (
+            [{"id": "transform", "type": "transform", "config": {"op": "lower"}}],
+            [("extract", "model"), ("model", "transform"), ("transform", "verdict")],
+        ),
+    ],
+)
+def test_model_check_cannot_contribute_to_mask_verdict(
+    extra_nodes: list[dict], edges: list[tuple[str, str]]
+) -> None:
+    """MODEL Check가 직·간접 기여하는 MASK는 저작 시점에 거부한다."""
+    guardrail = _guardrail(
+        nodes=[_extract(), _model(), *extra_nodes, _verdict(action="mask")],
+        edges=edges,
+    )
+
+    with pytest.raises(AppError) as caught:
+        guardrail.validate()
+
+    assert caught.value.code == "GUARDRAIL-018"
+    assert "positions to mask" in caught.value.message
+    assert "block or allow" in caught.value.message
+    assert "regex" in caught.value.message
+    assert caught.value.details == {"node_id": "verdict", "model_nodes": ["model"]}
+
+
+def test_compiler_rejects_model_mask_without_domain_validation() -> None:
+    """도메인 검증을 건너뛴 호출도 MASK ModelNodeSpec을 만들지 못한다."""
+    guardrail = _guardrail(
+        nodes=[_extract(), _model(), _verdict(action="mask")],
+        edges=[("extract", "model"), ("model", "verdict")],
+    )
+
+    with pytest.raises(AppError) as caught:
+        compile_guardrail(guardrail)
+
+    assert caught.value.code == "GUARDRAIL-018"
+
+
+def test_model_check_can_contribute_to_block_verdict() -> None:
+    """MODEL Check의 BLOCK 판정은 계획에 정상적으로 실린다."""
+    plan = _plan(
+        nodes=[_extract(), _model(), _verdict(action="block")],
+        edges=[("extract", "model"), ("model", "verdict")],
+    )
+
+    assert plan.model_nodes["verdict"].action is VerdictAction.BLOCK
+
+
+def test_regex_check_can_contribute_to_mask_verdict() -> None:
+    """위치를 제공하는 regex Check의 MASK는 그대로 동작한다."""
+    plan = _plan(
+        nodes=[
+            _extract(),
+            {"id": "regex", "type": "regex", "config": {"pattern": "secret"}},
+            _verdict(action="mask"),
+        ],
+        edges=[("extract", "regex"), ("regex", "verdict")],
+    )
+    program = plan.program_for("input")
+
+    assert program is not None
+    assert execute(program, Subject(text="contains a secret")).action is VerdictAction.MASK
 
 
 @pytest.mark.parametrize(
