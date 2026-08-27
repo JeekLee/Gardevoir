@@ -1,11 +1,10 @@
-"""Audit privacy setting tests."""
+"""Audit content setting tests."""
 
 from gateway.settings import AuditSettings
 
 
-def test_audit_body_storage_is_disabled_by_default() -> None:
-    """설정 누락으로 원문 저장이 켜지지 않는다."""
+def test_audit_excerpt_limit_has_a_default() -> None:
+    """발췌 길이를 지정하지 않으면 증거를 남길 기본 상한을 쓴다."""
     settings = AuditSettings()
 
-    assert settings.store_bodies is False
     assert settings.excerpt_max_chars == 256

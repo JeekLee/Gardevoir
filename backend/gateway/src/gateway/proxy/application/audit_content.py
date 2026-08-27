@@ -1,4 +1,4 @@
-"""Privacy-aware audit content capture (§10)."""
+"""Audit content capture (§10)."""
 
 from dataclasses import dataclass
 from hashlib import sha256
@@ -39,10 +39,9 @@ def capture_audit_content(
     checkpoint: Checkpoint,
     checks_fired: tuple[str, ...],
     tool_evidence: tuple[dict, ...],
-    store_bodies: bool,
     excerpt_max_chars: int,
 ) -> AuditContent:
-    """Capture the always-on fingerprint/excerpt and optional full bodies."""
+    """Capture the fingerprint, evidence excerpt, and full bodies."""
     request = _decode_body(request_payload)
     response = _decode_body(response_body)
     excerpt = _excerpt(
@@ -54,15 +53,6 @@ def capture_audit_content(
         tool_evidence=tool_evidence,
         max_chars=excerpt_max_chars,
     )
-    if not store_bodies:
-        return AuditContent(
-            content_fingerprint=sha256(request_payload).hexdigest(),
-            excerpt=excerpt,
-            input_body="",
-            output_body="",
-            tool_calls_body="",
-        )
-
     return AuditContent(
         content_fingerprint=sha256(request_payload).hexdigest(),
         excerpt=excerpt,

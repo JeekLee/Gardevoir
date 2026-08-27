@@ -373,7 +373,6 @@ class ProxyService:
         upstream_resolver: UpstreamResolver,
         audit: AuditSink,
         model_tier: ModelTier | None,
-        store_bodies: bool,
         audit_excerpt_max_chars: int,
         inspector: Inspector | None = None,
         holdback_chars: int = 128,
@@ -385,7 +384,6 @@ class ProxyService:
         # None 은 설정에서 명시적으로 disabled 인 상태다. provide_proxy_service 가 항상
         # 값을 넘기므로 enabled 배선 누락이 기본값으로 숨지 않는다.
         self._model_tier = model_tier
-        self._store_bodies = store_bodies
         self._audit_excerpt_max_chars = audit_excerpt_max_chars
         self._inspector = inspector
         self._holdback_chars = holdback_chars
@@ -667,15 +665,14 @@ class ProxyService:
             # 업스트림이 오류를 내면 본문이 SSE 가 아니다. 파싱·합성하면 오류 본문을
             # 망가뜨리므로 그대로 중계한다 — 우리가 응답을 잃는 것이 더 나쁘다.
             relayed = upstream_stream.status_code < 400
-            error_body_parts: list[bytes] | None = [] if self._store_bodies else None
+            error_body_parts: list[bytes] = []
 
             async def chunks() -> AsyncIterator[bytes]:
                 """중계기가 ③④ 를 돌리고, 확장 객체는 판정이 끝난 뒤에 붙는다."""
                 nonlocal verdicts
                 if not relayed:
                     async for chunk in upstream_stream.aiter():
-                        if error_body_parts is not None:
-                            error_body_parts.append(chunk)
+                        error_body_parts.append(chunk)
                         yield chunk
                     yield (
                         _SSE_PREFIX
@@ -721,9 +718,7 @@ class ProxyService:
                     prompt_tokens=int(usage.get("prompt_tokens") or 0),
                     completion_tokens=int(usage.get("completion_tokens") or 0),
                     input_payload=payload,
-                    response_body=(
-                        relay.raw_completion if relayed else b"".join(error_body_parts or ())
-                    ),
+                    response_body=(relay.raw_completion if relayed else b"".join(error_body_parts)),
                 )
 
     # -- 체크포인트 ----------------------------------------------------------
@@ -1044,7 +1039,6 @@ class ProxyService:
             checkpoint=verdicts.checkpoint,
             checks_fired=verdicts.checks,
             tool_evidence=verdicts.evidence,
-            store_bodies=self._store_bodies,
             excerpt_max_chars=self._audit_excerpt_max_chars,
         )
         await self._audit.submit(
@@ -1068,7 +1062,8 @@ class ProxyService:
                         "pending_model": list(verdicts.pending_model),
                         "model_judgements": list(verdicts.model_judgements),
                         "inspected": list(verdicts.inspected),
-                        # 툴 이름과 인수 **이름** 만. 값은 남기지 않는다 (§10).
+                        # verdicts 에는 툴 이름과 인수 **이름** 만 남긴다. 전체 값은
+                        # 상세 감사 본문의 tool_calls_body 가 보존한다 (§10).
                         "evidence": list(verdicts.evidence),
                     }
                 ).decode(),
