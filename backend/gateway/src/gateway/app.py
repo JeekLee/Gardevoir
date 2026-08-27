@@ -25,11 +25,11 @@ from gateway import health
 from gateway.audit.infrastructure.adapter.clickhouse_sink import ClickHouseAuditSink
 from gateway.audit.infrastructure.schema import apply_clickhouse_schema
 from gateway.audit.presentation import audit_router
-from gateway.guardrail.definition.presentation import guardrail_router
-from gateway.guardrail.plan.application.service.registry import PlanRegistry
-from gateway.guardrail.plan.infrastructure.adapter.guardrail_source import (
+from gateway.guardrail.application.service.registry import PlanRegistry
+from gateway.guardrail.infrastructure.adapter.guardrail_source import (
     SessionScopedGuardrailSource,
 )
+from gateway.guardrail.presentation import guardrail_router
 from gateway.identity.application.service.user_service import UserService
 from gateway.identity.infrastructure.dao.user_dao import SqlAlchemyUserDao
 from gateway.identity.infrastructure.repository.redis_refresh_session_repository import (

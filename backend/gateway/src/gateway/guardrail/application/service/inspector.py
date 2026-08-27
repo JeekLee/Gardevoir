@@ -7,20 +7,19 @@ v38 로 검사하면 판정이 앞뒤가 안 맞고 나중에 재현이 불가�
 import logging
 from collections.abc import Callable
 
-from gateway.guardrail.domain.models.guardrail import VerdictAction
-from gateway.guardrail.domain.models.mode import Mode
-from gateway.guardrail.inspection.application.outcome import (
+from gateway.guardrail.application.outcome import (
     MASK_PLACEHOLDER,
     NOT_INSPECTED,
     TIER_RULES,
     Inspection,
 )
-from gateway.guardrail.inspection.application.provenance import (
+from gateway.guardrail.application.provenance import (
     extract_tool_calls,
     foreign_arguments,
     tool_name,
 )
-from gateway.guardrail.inspection.application.text import (
+from gateway.guardrail.application.service.registry import PlanRegistry
+from gateway.guardrail.application.text import (
     MessageTextLocation,
     extract_input_text,
     extract_input_texts,
@@ -31,13 +30,14 @@ from gateway.guardrail.inspection.application.text import (
     is_tainted,
     replace_message_text,
 )
-from gateway.guardrail.plan.application.service.registry import PlanRegistry
-from gateway.guardrail.plan.domain.executor import Subject, execute
-from gateway.guardrail.plan.domain.models.execution_plan import (
+from gateway.guardrail.domain.executor import Subject, execute
+from gateway.guardrail.domain.models.execution_plan import (
     ExecutionPlan,
     Program,
     Provenance,
 )
+from gateway.guardrail.domain.models.guardrail import VerdictAction
+from gateway.guardrail.domain.models.mode import Mode
 
 logger = logging.getLogger(__name__)
 

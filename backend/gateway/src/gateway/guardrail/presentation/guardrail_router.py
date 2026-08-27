@@ -9,16 +9,16 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from gateway.guardrail.composition import provide_guardrail_service
-from gateway.guardrail.definition.application.command.guardrail_command import (
+from gateway.guardrail.application.command.guardrail_command import (
     CreateGuardrail,
     UpdateDraft,
 )
-from gateway.guardrail.definition.application.result.guardrail_result import (
+from gateway.guardrail.application.result.guardrail_result import (
     GuardrailDetail,
     GuardrailSummary,
 )
-from gateway.guardrail.definition.application.service.guardrail_service import GuardrailService
+from gateway.guardrail.application.service.guardrail_service import GuardrailService
+from gateway.guardrail.composition import provide_guardrail_service
 from shared_kernel.api import JsonResponse, Page
 from shared_kernel.auth import AccessTokenClaims, Role, require_role
 

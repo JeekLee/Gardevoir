@@ -10,9 +10,9 @@ The source of truth is the current backend implementation, not a copied TypeScri
 ```text
 backend/gateway/src/gateway/guardrail/domain/models/guardrail.py
 backend/gateway/src/gateway/guardrail/domain/exceptions/guardrail_error.py
-backend/gateway/src/gateway/guardrail/definition/application/command/guardrail_command.py
-backend/gateway/src/gateway/guardrail/definition/application/result/guardrail_result.py
-backend/gateway/src/gateway/guardrail/definition/presentation/guardrail_router.py
+backend/gateway/src/gateway/guardrail/application/command/guardrail_command.py
+backend/gateway/src/gateway/guardrail/application/result/guardrail_result.py
+backend/gateway/src/gateway/guardrail/presentation/guardrail_router.py
 ```
 
 Read `NodeType`, `Decision`, `VerdictAction`, `NODE_ARITY`, per-node validators, serialized parsing,

@@ -8,8 +8,7 @@
 
 from dataclasses import dataclass
 
-from gateway.guardrail.domain.models.guardrail import Decision, VerdictAction
-from gateway.guardrail.plan.domain.models.execution_plan import (
+from gateway.guardrail.domain.models.execution_plan import (
     All,
     Extract,
     Length,
@@ -22,6 +21,7 @@ from gateway.guardrail.plan.domain.models.execution_plan import (
     Transform,
     Verdict,
 )
+from gateway.guardrail.domain.models.guardrail import Decision, VerdictAction
 
 #: 강한 판정이 이긴다 (§4). approval_required 는 Phase 6 에서 BLOCK 아래로 들어온다.
 _SEVERITY = {

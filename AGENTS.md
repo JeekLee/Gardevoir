@@ -20,7 +20,7 @@ code changes.
                       mounts routers, owns API_PREFIX ("/v1")
     settings.py  health.py
     identity/         ApiKey (proxy credential) · User (JWT·Role) (§7.2)
-    guardrail/        CORE DOMAIN — domain/ shared by definition · plan · inspection
+    guardrail/        CORE DOMAIN — flat domain/application/infrastructure/presentation layers
     proxy/            LLM request/response, streaming, the §7 wire contract
     provider/         upstream LLM providers — routed by the request's model
     audit/            AuditEvent — ClickHouse

@@ -257,15 +257,15 @@ OWASP는 외부 웹/파일의 간접 인젝션과 이미지에 숨은 지시의 
 ### 5.1 현재 코드가 제공하는 연결점
 
 현재 `Decision.HINT/MODEL_ONLY`은 규칙 실행 결과의 `pending_model`로 보존된다
-([executor.py](../../backend/gateway/src/gateway/guardrail/plan/domain/executor.py)). `Inspector`는
+([executor.py](../../backend/gateway/src/gateway/guardrail/domain/executor.py)). `Inspector`는
 여전히 `TIER_RULES`만 반환하고
-([outcome.py](../../backend/gateway/src/gateway/guardrail/inspection/application/outcome.py)), proxy는 네
+([outcome.py](../../backend/gateway/src/gateway/guardrail/application/outcome.py)), proxy는 네
 checkpoint의 `pending_model`을 audit에 합칠 뿐 모델을 호출하지 않는다
 ([proxy_service.py](../../backend/gateway/src/gateway/proxy/application/service/proxy_service.py)).
 
 멀티모달 content의 현재 text extractor는 `type == "text"`인 part만 검사하고 이미지 URL의 숫자를
 오탐하지 않도록 image part를 의도적으로 건너뛴다
-([text.py](../../backend/gateway/src/gateway/guardrail/inspection/application/text.py)). 그러므로 모델 티어는
+([text.py](../../backend/gateway/src/gateway/guardrail/application/text.py)). 그러므로 모델 티어는
 이 함수를 억지로 바꾸기보다, 원본 content part를 별도 멀티모달 입력으로 받아야 한다.
 
 ### 5.2 제안 경계

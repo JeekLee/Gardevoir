@@ -6,9 +6,12 @@ from dataclasses import dataclass, field
 
 import orjson
 
-from gateway.guardrail.definition.application.dao.guardrail_dao import GuardrailDao
-from gateway.guardrail.definition.application.result.guardrail_result import GuardrailDetail
+from gateway.guardrail.application.compiler import compile_guardrail
+from gateway.guardrail.application.dao.guardrail_dao import GuardrailDao
+from gateway.guardrail.application.outcome import Inspection
+from gateway.guardrail.application.result.guardrail_result import GuardrailDetail
 from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
+from gateway.guardrail.domain.models.execution_plan import ExecutionPlan
 from gateway.guardrail.domain.models.guardrail import (
     DRAFT_VERSION,
     Guardrail,
@@ -16,9 +19,6 @@ from gateway.guardrail.domain.models.guardrail import (
     VerdictAction,
     require_valid_name,
 )
-from gateway.guardrail.inspection.application.outcome import Inspection
-from gateway.guardrail.plan.application.compiler import compile_guardrail
-from gateway.guardrail.plan.domain.models.execution_plan import ExecutionPlan
 from gateway.proxy.application.command.guardrail_test_command import TestGuardrail
 from gateway.proxy.application.result.guardrail_test_result import (
     GuardrailTestPre,

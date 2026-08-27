@@ -82,23 +82,18 @@ backend/gateway/src/gateway/
 │   ├── presentation/   auth_router.py → /v1/auth/*, user_router.py → /v1/users/*
 │   └── infrastructure/ model/ · mapper/ · repository/ (sqlalchemy + redis) · dao/
 │
-├── guardrail/          CORE DOMAIN. 세 관심사가 domain/ 의 집합체를 공유한다
+├── guardrail/          CORE DOMAIN. 다른 BC와 같은 평평한 레이어 구조를 쓴다
 │   ├── domain/
 │   │   ├── models/         guardrail.py (Guardrail·Node·Edge·VerdictAction·Decision) · mode.py
-│   │   └── exceptions/     guardrail_error.py
-│   ├── definition/     정의·초안·발행·버전 — 컨트롤 플레인 (§5)
-│   │   ├── application/     service/ · repository/ · dao/ · command/ · result/
-│   │   ├── infrastructure/  model/ · mapper/ · repository/ · dao/
-│   │   └── presentation/    guardrail_router.py  → /v1/guardrails
-│   ├── plan/           컴파일 → 명령·슬롯 → 실행 (§6, §11.4)
-│   │   ├── domain/          models/execution_plan.py (Program·instructions·slots)
-│   │   │                    executor.py — 도메인 서비스라 층 루트에 둔다
-│   │   ├── application/     service/registry.py · port/guardrail_source.py
-│   │   │                    compiler.py — 순수 함수라 층 루트
-│   │   └── infrastructure/  adapter/guardrail_source.py (발행본 읽기)
-│   ├── inspection/     체크포인트 ①②③④ → 판정 (§3, §4)
-│   │   └── application/     service/inspector.py
-│   │                        outcome · provenance · text — 값 타입·순수 함수라 층 루트
+│   │   │                   execution_plan.py (Program·instructions·slots)
+│   │   ├── exceptions/     guardrail_error.py
+│   │   └── executor.py      도메인 서비스라 층 루트에 둔다
+│   ├── application/
+│   │   ├── service/         guardrail_service.py · registry.py · inspector.py
+│   │   ├── repository/ · dao/ · command/ · result/ · port/
+│   │   └── compiler.py · outcome.py · provenance.py · text.py
+│   ├── infrastructure/      model/ · mapper/ · repository/ · dao/ · adapter/
+│   ├── presentation/        guardrail_router.py → /v1/guardrails
 │   └── composition.py  request-scoped provide_* (별칭 없음)
 │
 ├── proxy/              LLM 쿼리 입출력 — 데이터 플레인 (§7, §9)
@@ -146,7 +141,7 @@ there did not belong at all, and the layer root is where that became visible:
   concern. Its one caller was `current_claims` (now in `shared_kernel.auth`), i.e. framework glue
   at the edge, so the four lines went inline there and the file is gone.
 
-Do not stretch a role directory to cover a file that does not fit; `plan/domain/`
+Do not stretch a role directory to cover a file that does not fit; `guardrail/domain/`
 already does the same with `executor.py`. A misfiled file is worse than one at the root, because
 the directory name then lies about what is in it.
 
@@ -165,17 +160,17 @@ All `__init__.py` are empty; imports use the full role path (`...infrastructure.
 never a package-level re-export — identical to `application/`. `alembic/env.py` still finds every
 model because it walks for `.infrastructure` in the module name, and the role subdirs keep it.
 
-**Each context has only the layers it needs.** `inspection` is pure logic, so it has no
-infrastructure; `audit` has no domain aggregate beyond its event. Do not create empty
-directories to make the contexts look symmetric.
+**Each context has only the layers it needs.** `audit` has no domain aggregate beyond its event.
+Do not create empty directories to make the contexts look symmetric.
 
 ### Why the boundaries fall here
 
 - **guardrail is the core domain, so it is the big one** (2,713 of 5,588 lines). The other
   three are supporting. A core domain that is smaller than its supporting contexts is the
   signal something is misplaced.
-- **`plan` is separate because the model and the storage both change.** `Guardrail`
-  (nodes·edges, Postgres `jsonb`) → `Program` (instructions·slots, **process memory only**).
+- **The executable plan stays inside the guardrail BC.** `Guardrail` (nodes·edges, Postgres
+  `jsonb`) → `Program` (instructions·slots, **process memory only**) is a projection of the same
+  aggregate. Its roles are expressed by the flat layers rather than a nested `plan` package.
   §11.5: compiled artefacts cannot be serialised, so the plan's "storage" is the process.
 - **`audit` is separate because of storage.** §12: the audit path never touches SQLAlchemy.
 - **`identity` is upstream of both planes** (§7.2) — authorisation comes from the credential.
@@ -442,13 +437,13 @@ In CQRS-lite terms the compiled program is a **read projection** of the guardrai
 exactly like a Dao's Result DTO is a projection of a domain model. It is modelled as one:
 
 ```
-guardrail/domain/guardrail.py                     authored form; pure domain
-guardrail/plan/domain/execution_plan.py           ExecutionPlan · Program · instructions · slots
-guardrail/plan/domain/executor.py                 execute(program, Subject) -> ExecutionResult
-guardrail/plan/application/compiler.py            Guardrail -> ExecutionPlan (once, at publish)
-guardrail/plan/application/service/registry.py    PlanRegistry — in-memory, atomic swap, polling
-guardrail/plan/application/port/guardrail_source.py   Protocol: 발행본 읽기
-guardrail/inspection/application/service/inspector.py 체크포인트별 대상 추출 -> execute -> Inspection
+guardrail/domain/models/guardrail.py              authored form; pure domain
+guardrail/domain/models/execution_plan.py         ExecutionPlan · Program · instructions · slots
+guardrail/domain/executor.py                      execute(program, Subject) -> ExecutionResult
+guardrail/application/compiler.py                 Guardrail -> ExecutionPlan (once, at publish)
+guardrail/application/service/registry.py         PlanRegistry — in-memory, atomic swap, polling
+guardrail/application/port/guardrail_source.py    Protocol: 발행본 읽기
+guardrail/application/service/inspector.py        체크포인트별 대상 추출 -> execute -> Inspection
 ```
 
 Rules that must hold:
@@ -644,7 +639,7 @@ round trip.
 package with `pkgutil.walk_packages` and imports every module, so every `Base` subclass reaches
 `Base.metadata` wherever it lives. The model belongs to its context
 (`identity/infrastructure/api_key_model.py`,
-`guardrail/definition/infrastructure/guardrail_model.py`) and that is the only place it needs
+`guardrail/infrastructure/model/guardrail_model.py`) and that is the only place it needs
 to exist.
 
 There used to be a hand-written manifest (`gateway/orm.py`) whose own docstring warned that a

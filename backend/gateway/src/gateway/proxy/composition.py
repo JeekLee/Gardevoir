@@ -4,8 +4,8 @@ from collections.abc import AsyncIterator
 
 from fastapi import Request
 
-from gateway.guardrail.definition.infrastructure.dao.guardrail_dao import SqlAlchemyGuardrailDao
-from gateway.guardrail.inspection.application.service.inspector import Inspector
+from gateway.guardrail.application.service.inspector import Inspector
+from gateway.guardrail.infrastructure.dao.guardrail_dao import SqlAlchemyGuardrailDao
 from gateway.proxy.application.service.guardrail_test_service import GuardrailTestService
 from gateway.proxy.application.service.proxy_service import ProxyService
 

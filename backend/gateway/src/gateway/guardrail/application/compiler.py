@@ -13,15 +13,7 @@ from collections import defaultdict, deque
 import re2
 
 from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
-from gateway.guardrail.domain.models.guardrail import (
-    DEFAULT_PROVENANCE_MIN_LENGTH,
-    Decision,
-    Guardrail,
-    Node,
-    NodeType,
-    VerdictAction,
-)
-from gateway.guardrail.plan.domain.models.execution_plan import (
+from gateway.guardrail.domain.models.execution_plan import (
     All,
     ExecutionPlan,
     Extract,
@@ -35,6 +27,14 @@ from gateway.guardrail.plan.domain.models.execution_plan import (
     Taint,
     Transform,
     Verdict,
+)
+from gateway.guardrail.domain.models.guardrail import (
+    DEFAULT_PROVENANCE_MIN_LENGTH,
+    Decision,
+    Guardrail,
+    Node,
+    NodeType,
+    VerdictAction,
 )
 
 #: 미발행(draft) 계획의 버전 번호. 감사 로그가 "발행본이 아니다"를 구별할 수 있어야 한다.

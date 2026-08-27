@@ -11,21 +11,21 @@ from typing import Protocol
 
 from ulid import ULID
 
-from gateway.guardrail.definition.application.command.guardrail_command import (
+from gateway.guardrail.application.command.guardrail_command import (
     CreateGuardrail,
     UpdateDraft,
 )
-from gateway.guardrail.definition.application.dao.guardrail_dao import GuardrailDao
-from gateway.guardrail.definition.application.repository.guardrail_repository import (
+from gateway.guardrail.application.compiler import compile_guardrail
+from gateway.guardrail.application.dao.guardrail_dao import GuardrailDao
+from gateway.guardrail.application.repository.guardrail_repository import (
     GuardrailRepository,
 )
-from gateway.guardrail.definition.application.result.guardrail_result import (
+from gateway.guardrail.application.result.guardrail_result import (
     GuardrailDetail,
     GuardrailSummary,
 )
 from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
 from gateway.guardrail.domain.models.guardrail import DRAFT_VERSION, Guardrail, require_valid_name
-from gateway.guardrail.plan.application.compiler import compile_guardrail
 from shared_kernel.api import Page
 from shared_kernel.database import UnitOfWork
 

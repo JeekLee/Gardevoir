@@ -6,17 +6,17 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gateway.guardrail.definition.application.result.guardrail_result import (
+from gateway.guardrail.application.result.guardrail_result import (
     GuardrailDetail,
     GuardrailSummary,
 )
-from gateway.guardrail.definition.infrastructure.model.guardrail_model import GuardrailModel
 from gateway.guardrail.domain.models.guardrail import (
     DRAFT_VERSION,
     VALID_CHECKPOINTS,
     NodeType,
     VerdictAction,
 )
+from gateway.guardrail.infrastructure.model.guardrail_model import GuardrailModel
 
 _CHECKPOINT_ORDER = ("input", "tool_result", "tool_call", "output")
 _ACTION_ORDER = tuple(
