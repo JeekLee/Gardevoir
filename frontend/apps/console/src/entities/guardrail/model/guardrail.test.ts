@@ -37,13 +37,39 @@ describe("guardrail response parsing", () => {
         version: "draft",
         versionNumber: null,
         description: "초안 설명",
-        graph: { nodes: [], edges: [] },
+        graph: {
+          nodes: [
+            {
+              id: "model-check",
+              type: "model",
+              config: {
+                policy: "이 텍스트가 정책을 위반하는가?",
+                strictness: "strict",
+                checkpoint: "input",
+              },
+            },
+          ],
+          edges: [],
+        },
         createdAt: "2026-08-24T00:00:00Z",
         updatedAt: "2026-08-24T00:00:00Z",
       }),
     ).toMatchObject({
       description: "초안 설명",
-      graph: { nodes: [], edges: [] },
+      graph: {
+        nodes: [
+          {
+            id: "model-check",
+            type: "model",
+            config: {
+              policy: "이 텍스트가 정책을 위반하는가?",
+              strictness: "strict",
+              checkpoint: "input",
+            },
+          },
+        ],
+        edges: [],
+      },
     });
   });
 

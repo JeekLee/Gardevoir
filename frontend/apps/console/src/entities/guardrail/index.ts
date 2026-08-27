@@ -7,6 +7,7 @@ export {
 export {
   checkpoints,
   guardrailActions,
+  modelStrictnesses,
   nodeTypes,
   parseGuardrailDetail,
   parseGuardrailGraph,
@@ -20,6 +21,7 @@ export {
   type GuardrailNodeType,
   type GuardrailPage,
   type GuardrailSummary,
+  type ModelStrictness,
 } from "./model/guardrail";
 export {
   guardrailDraftOptions,

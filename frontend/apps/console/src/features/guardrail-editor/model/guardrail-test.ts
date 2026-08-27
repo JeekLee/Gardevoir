@@ -193,10 +193,14 @@ export function testHighlights(
   const fired = new Set(
     graph.nodes
       .filter(
-        (node) =>
-          node.type === "verdict" &&
-          typeof node.config.code === "string" &&
-          codes.has(node.config.code),
+        (node) => {
+          if (node.type !== "verdict") return false;
+          const code =
+            typeof node.config.code === "string" && node.config.code
+              ? node.config.code
+              : node.id;
+          return codes.has(code);
+        },
       )
       .map((node) => node.id),
   );

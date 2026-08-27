@@ -42,78 +42,101 @@ export const checkpointMeta: Record<
 export type NodeCatalogItem = {
   type: GuardrailNodeType;
   label: string;
-  category: "소스" | "검사" | "논리" | "결과" | "액션 통제";
+  category: NodeCatalogRole;
   description: string;
   defaultConfig: (checkpoint: Checkpoint) => Record<string, unknown>;
 };
+
+export type NodeCatalogRole = "Extract" | "Check" | "Verdict";
+
+export type NodeCatalogGroup = {
+  role: NodeCatalogRole;
+  description: string;
+  items: NodeCatalogItem[];
+};
+
+const catalogRoles: ReadonlyArray<
+  Pick<NodeCatalogGroup, "role" | "description">
+> = [
+  { role: "Extract", description: "무엇을 볼지" },
+  { role: "Check", description: "어떻게 볼지" },
+  { role: "Verdict", description: "어떤 결론을 낼지" },
+];
 
 export const nodeCatalog: NodeCatalogItem[] = [
   {
     type: "extract",
     label: "텍스트 추출",
-    category: "소스",
+    category: "Extract",
     description: "이 검사 지점의 텍스트를 읽습니다.",
     defaultConfig: (checkpoint) => ({ checkpoint }),
   },
   {
     type: "regex",
     label: "정규식",
-    category: "검사",
+    category: "Check",
     description: "RE2 정책 패턴과 일치하는지 검사합니다.",
     defaultConfig: () => ({ pattern: "" }),
   },
   {
     type: "length",
     label: "길이",
-    category: "검사",
+    category: "Check",
     description: "최대 글자 수를 검사합니다.",
     defaultConfig: () => ({ max_chars: 1_000 }),
   },
   {
     type: "transform",
     label: "텍스트 변환",
-    category: "검사",
+    category: "Check",
     description: "다른 검사 전에 텍스트를 정규화합니다.",
     defaultConfig: () => ({ op: "lower" }),
   },
   {
-    type: "verdict",
-    label: "판정",
-    category: "결과",
-    description: "입력이 일치하면 차단, 마스킹 또는 허용으로 판정합니다.",
-    defaultConfig: () => ({
-      action: "block",
-      code: "policy-match",
-      decision: "conclusive",
-    }),
-  },
-  {
     type: "taint",
     label: "오염 추적",
-    category: "액션 통제",
+    category: "Check",
     description: "툴 데이터가 대화에 들어왔는지 추적합니다.",
     defaultConfig: (checkpoint) => ({ checkpoint }),
   },
   {
     type: "all",
     label: "모두 일치",
-    category: "논리",
+    category: "Check",
     description: "연결된 모든 검사가 일치해야 통과합니다.",
     defaultConfig: () => ({}),
   },
   {
     type: "side_effect",
     label: "부작용 툴",
-    category: "액션 통제",
+    category: "Check",
     description: "읽기 전용 목록에 없는 모든 툴을 위험한 액션으로 처리합니다.",
     defaultConfig: () => ({ checkpoint: "tool_call", read_only: [] }),
   },
   {
     type: "provenance",
     label: "인수 출처",
-    category: "액션 통제",
+    category: "Check",
     description: "신뢰하지 않는 툴 결과에서 가져온 호출 인수를 찾습니다.",
     defaultConfig: () => ({ checkpoint: "tool_call" }),
+  },
+  {
+    type: "model",
+    label: "MODEL 검사",
+    category: "Check",
+    description: "자연어 정책 질의로 모델 판정을 요청합니다.",
+    defaultConfig: (checkpoint) => ({
+      policy: "",
+      strictness: "strict",
+      checkpoint,
+    }),
+  },
+  {
+    type: "verdict",
+    label: "판정",
+    category: "Verdict",
+    description: "입력이 일치하면 차단, 마스킹 또는 허용으로 판정합니다.",
+    defaultConfig: () => ({ action: "block" }),
   },
 ];
 
@@ -125,17 +148,42 @@ const catalogTypesByCheckpoint: Record<
   Checkpoint,
   readonly GuardrailNodeType[]
 > = {
-  input: ["extract", "regex", "length", "transform", "verdict"],
+  input: [
+    "extract",
+    "regex",
+    "length",
+    "transform",
+    "model",
+    "all",
+    "verdict",
+  ],
   tool_result: [
     "extract",
     "regex",
     "length",
     "transform",
-    "verdict",
     "taint",
+    "model",
+    "all",
+    "verdict",
   ],
-  tool_call: ["taint", "side_effect", "provenance", "all", "verdict"],
-  output: ["extract", "regex", "length", "transform", "verdict"],
+  tool_call: [
+    "taint",
+    "side_effect",
+    "provenance",
+    "model",
+    "all",
+    "verdict",
+  ],
+  output: [
+    "extract",
+    "regex",
+    "length",
+    "transform",
+    "model",
+    "all",
+    "verdict",
+  ],
 };
 
 export function catalogForCheckpoint(
@@ -144,6 +192,16 @@ export function catalogForCheckpoint(
   return catalogTypesByCheckpoint[checkpoint].map(
     (type) => nodeCatalogByType[type],
   );
+}
+
+export function catalogGroupsForCheckpoint(
+  checkpoint: Checkpoint,
+): NodeCatalogGroup[] {
+  const catalog = catalogForCheckpoint(checkpoint);
+  return catalogRoles.flatMap((group) => {
+    const items = catalog.filter((item) => item.category === group.role);
+    return items.length > 0 ? [{ ...group, items }] : [];
+  });
 }
 
 export function createCatalogNode(
@@ -168,14 +226,18 @@ export function nodeSummary(node: GuardrailNode): string {
       return checkpointName(node.config.checkpoint);
     case "regex":
       return stringConfig(node, "pattern") || "패턴 미설정";
+    case "model": {
+      const policy = stringConfig(node, "policy")?.trim();
+      return policy
+        ? `${strictnessName(stringConfig(node, "strictness"))} · ${policy}`
+        : "정책 미설정";
+    }
     case "length":
       return `최대 ${numberConfig(node, "max_chars") ?? "?"}자`;
     case "transform":
       return transformName(stringConfig(node, "op"));
     case "verdict":
-      return `${actionName(stringConfig(node, "action"))} · ${decisionName(
-        stringConfig(node, "decision"),
-      )}`;
+      return actionName(stringConfig(node, "action"));
     case "all":
       return "모든 입력이 일치해야 함";
     case "side_effect": {
@@ -199,6 +261,7 @@ export function incomingRange(type: GuardrailNodeType): {
     case "provenance":
       return { min: 0, max: 0 };
     case "regex":
+    case "model":
     case "length":
     case "transform":
       return { min: 1, max: 1 };
@@ -234,11 +297,10 @@ function actionName(value: string | null): string {
   return "판정 미설정";
 }
 
-function decisionName(value: string | null): string {
-  if (value === "conclusive") return "결론형";
-  if (value === "hint") return "힌트형";
-  if (value === "model_only") return "모델형";
-  return "역할 미설정";
+function strictnessName(value: string | null): string {
+  if (value === "balanced") return "균형";
+  if (value === "lenient") return "관대";
+  return "엄격";
 }
 
 function stringConfig(node: GuardrailNode, key: string): string | null {

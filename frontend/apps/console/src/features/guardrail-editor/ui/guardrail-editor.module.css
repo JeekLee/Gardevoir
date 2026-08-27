@@ -792,6 +792,7 @@
 .nodeCatalog {
   background: color-mix(in srgb, var(--surface-subtle) 72%, var(--surface));
   border-bottom: 1px solid var(--border);
+  overflow-x: auto;
   padding: 0.7rem;
 }
 
@@ -835,15 +836,52 @@
   padding: 0 0.65rem;
 }
 
-.nodeCatalog > div {
+.catalogGroups {
+  align-items: stretch;
   display: flex;
-  gap: 0.42rem;
-  min-width: 0;
-  overflow-x: auto;
+  gap: 0.55rem;
+  min-width: max-content;
   padding-bottom: 0.1rem;
 }
 
-.nodeCatalog > div > button {
+.catalogGroup {
+  background: color-mix(in srgb, var(--surface) 76%, var(--surface-subtle));
+  border: 1px solid var(--border);
+  border-radius: 0.72rem;
+  display: grid;
+  flex: 0 0 auto;
+  gap: 0.42rem;
+  padding: 0.45rem;
+}
+
+.catalogGroup[data-role="Check"] {
+  border-color: color-mix(in srgb, var(--brand) 24%, var(--border));
+}
+
+.catalogGroupHeader {
+  align-items: baseline;
+  display: flex;
+  gap: 0.42rem;
+  padding-inline: 0.12rem;
+}
+
+.catalogGroupHeader h3 {
+  color: var(--brand-deep);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+}
+
+.catalogGroupHeader span {
+  color: var(--muted);
+  font-size: 0.57rem;
+}
+
+.catalogItems {
+  display: flex;
+  gap: 0.38rem;
+}
+
+.catalogItem {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 0.62rem;
@@ -857,24 +895,22 @@
   text-align: left;
 }
 
-.nodeCatalog > div > button:hover {
+.catalogItem:hover,
+.catalogItem:focus-visible {
   border-color: var(--brand);
   box-shadow: 0 0 0 3px var(--brand-soft);
+  outline: none;
 }
 
-.nodeCatalog > div > button span {
+.catalogItem span {
   font-size: 0.68rem;
   font-weight: 800;
 }
 
-.nodeCatalog > div > button small {
+.catalogItem small {
   color: var(--muted);
+  font-family: var(--font-mono);
   font-size: 0.6rem;
-}
-
-.nodeCatalog > div > .actionCatalogItem {
-  background: var(--brand-soft);
-  border-color: color-mix(in srgb, var(--brand) 28%, var(--border));
 }
 
 .canvas {
@@ -1267,6 +1303,16 @@
   color: var(--muted);
   font-size: 0.6rem;
   line-height: 1.4;
+}
+
+.configFields [aria-invalid="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.configFields .fieldError {
+  color: var(--danger-strong);
+  font-weight: 750;
 }
 
 .noConfig,

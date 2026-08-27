@@ -40,7 +40,7 @@ import { randomId } from "@/src/shared/lib";
 import { ConfirmDialog } from "@/src/shared/ui/confirm-dialog";
 
 import {
-  catalogForCheckpoint,
+  catalogGroupsForCheckpoint,
   checkpointMeta,
   createCatalogNode,
   nodeCatalogByType,
@@ -65,12 +65,14 @@ import {
 import {
   graphFingerprint,
   mergeCanonicalGraph,
+  normalizeGuardrailGraph,
   toEditorGraph,
   toGuardrailGraph,
   type EditorGraph,
   type GuardrailFlowEdge,
   type GuardrailFlowNode,
 } from "../model/graph-mapper";
+import { validateEditorGraph } from "../model/graph-validation";
 import type { GuardrailTemplate } from "../model/templates";
 import { EditorTabs } from "./editor-tabs";
 import styles from "./guardrail-editor.module.css";
@@ -143,7 +145,7 @@ export function GuardrailEditor({
   );
   const [baseline, setBaseline] = useState({
     description: detail.description,
-    graph: detail.graph,
+    graph: normalizeGuardrailGraph(detail.graph),
   });
   const [activeTab, setActiveTab] = useState<EditorTab>("overview");
   const [tabFocusRequest, setTabFocusRequest] = useState(0);
@@ -478,7 +480,38 @@ export function GuardrailEditor({
     setStatus("가드레일 설명을 변경했습니다. 초안을 저장하면 그래프와 함께 반영됩니다.");
   }
 
+  function validateGraphBeforeWrite(): boolean {
+    const errors = validateEditorGraph(graph);
+    if (errors.length === 0) return true;
+
+    const errorsByNode = new Map(
+      errors.map((error) => [error.nodeId, error.message] as const),
+    );
+    setGraph((current) => ({
+      ...current,
+      nodes: current.nodes.map((node) => {
+        const message = errorsByNode.get(node.id);
+        return message
+          ? {
+              ...node,
+              data: { ...node.data, validationMessage: message },
+            }
+          : node;
+      }),
+    }));
+
+    const first = errors[0];
+    selectAndFocusNode(first.nodeId);
+    setGraphError({ message: first.message });
+    setStatus(
+      `초안을 저장하기 전에 MODEL 검사 ${errors.length}개의 필수 정책 질의를 입력하세요.`,
+    );
+    return false;
+  }
+
   async function saveDraft(): Promise<GuardrailDetail | null> {
+    if (!validateGraphBeforeWrite()) return null;
+
     setGraphError(null);
     setStatus("초안을 저장하는 중…");
     try {
@@ -488,7 +521,10 @@ export function GuardrailEditor({
       });
       setGraph((current) => mergeCanonicalGraph(saved.graph, current));
       setDescription(saved.description);
-      setBaseline({ description: saved.description, graph: saved.graph });
+      setBaseline({
+        description: saved.description,
+        graph: normalizeGuardrailGraph(saved.graph),
+      });
       queryClient.setQueryData(guardrailKeys.draft(detail.name), saved);
       void queryClient.invalidateQueries({ queryKey: guardrailKeys.list() });
       setStatus("초안을 저장했습니다. 게이트웨이 검증을 통과했습니다.");
@@ -503,6 +539,8 @@ export function GuardrailEditor({
     if (dirty) {
       const saved = await saveDraft();
       if (!saved) return;
+    } else if (!validateGraphBeforeWrite()) {
+      return;
     }
 
     setGraphError(null);
@@ -754,23 +792,38 @@ export function GuardrailEditor({
                     className={styles.nodeCatalog}
                     aria-label={`${checkpointMeta[activeTab].label} 노드 카탈로그`}
                   >
-                    <div>
-                      {catalogForCheckpoint(activeTab).map((item) => (
-                        <button
-                          key={item.type}
-                          className={
-                            item.category === "액션 통제"
-                              ? styles.actionCatalogItem
-                              : undefined
-                          }
-                          type="button"
-                          onClick={() => addNode(item.type)}
-                          title={item.description}
-                        >
-                          <span>{item.label}</span>
-                          <small>{item.category}</small>
-                        </button>
-                      ))}
+                    <div className={styles.catalogGroups}>
+                      {catalogGroupsForCheckpoint(activeTab).map((group) => {
+                        const headingId = `catalog-${activeTab}-${group.role.toLowerCase()}`;
+                        return (
+                          <section
+                            key={group.role}
+                            className={styles.catalogGroup}
+                            data-role={group.role}
+                            aria-labelledby={headingId}
+                          >
+                            <div className={styles.catalogGroupHeader}>
+                              <h3 id={headingId}>{group.role}</h3>
+                              <span>{group.description}</span>
+                            </div>
+                            <div className={styles.catalogItems}>
+                              {group.items.map((item) => (
+                                <button
+                                  key={item.type}
+                                  className={styles.catalogItem}
+                                  type="button"
+                                  onClick={() => addNode(item.type)}
+                                  title={item.description}
+                                  aria-label={`${item.label} ${group.role} 노드 추가`}
+                                >
+                                  <span>{item.label}</span>
+                                  <small>{item.type}</small>
+                                </button>
+                              ))}
+                            </div>
+                          </section>
+                        );
+                      })}
                     </div>
                   </div>
                   {connectionRejection ? (

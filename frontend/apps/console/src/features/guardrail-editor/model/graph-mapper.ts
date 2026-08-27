@@ -69,6 +69,13 @@ export function toGuardrailGraph(graph: EditorGraph): GuardrailGraph {
   };
 }
 
+export function normalizeGuardrailGraph(graph: GuardrailGraph): GuardrailGraph {
+  return {
+    nodes: graph.nodes.map(cloneNode),
+    edges: graph.edges.map((edge) => ({ ...edge })),
+  };
+}
+
 export function mergeCanonicalGraph(
   graph: GuardrailGraph,
   current: EditorGraph,
@@ -177,9 +184,12 @@ function readCheckpoint(value: unknown): Checkpoint | null {
 }
 
 function cloneNode(node: GuardrailNode): GuardrailNode {
+  const config = { ...node.config };
+  if (node.type === "verdict") delete config.decision;
+
   return {
     id: node.id,
     type: node.type,
-    config: { ...node.config },
+    config,
   };
 }

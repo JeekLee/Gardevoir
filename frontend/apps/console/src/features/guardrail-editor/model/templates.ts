@@ -33,11 +33,7 @@ export const guardrailTemplates: GuardrailTemplate[] = [
         {
           id: "block",
           type: "verdict",
-          config: {
-            action: "block",
-            decision: "conclusive",
-            code: "tainted-side-effect",
-          },
+          config: { action: "block" },
         },
       ],
       edges: [
@@ -67,11 +63,7 @@ export const guardrailTemplates: GuardrailTemplate[] = [
         {
           id: "mask",
           type: "verdict",
-          config: {
-            action: "mask",
-            decision: "conclusive",
-            code: "pii-output",
-          },
+          config: { action: "mask" },
         },
       ],
       edges: [
@@ -96,11 +88,7 @@ export const guardrailTemplates: GuardrailTemplate[] = [
         {
           id: "block",
           type: "verdict",
-          config: {
-            action: "block",
-            decision: "conclusive",
-            code: "input-too-long",
-          },
+          config: { action: "block" },
         },
       ],
       edges: [
@@ -124,11 +112,7 @@ export const guardrailTemplates: GuardrailTemplate[] = [
         {
           id: "block",
           type: "verdict",
-          config: {
-            action: "block",
-            decision: "conclusive",
-            code: "external-argument",
-          },
+          config: { action: "block" },
         },
       ],
       edges: [{ src: "external-arg", dst: "block" }],

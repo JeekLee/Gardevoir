@@ -186,12 +186,12 @@ describe("guardrail test result", () => {
         {
           id: "decision",
           type: "verdict",
-          config: { action: "block", decision: "conclusive", code: "secret-found" },
+          config: { action: "block", code: "secret-found" },
         },
         {
           id: "other",
           type: "verdict",
-          config: { action: "allow", decision: "conclusive", code: "other" },
+          config: { action: "allow", code: "other" },
         },
       ],
       edges: [
@@ -202,6 +202,30 @@ describe("guardrail test result", () => {
 
     expect(testHighlights(graph, ["secret-found"])).toEqual({
       fired: ["decision"],
+      upstream: ["check", "source"],
+    });
+
+    expect(testHighlights(graph, ["decision"])).toEqual({
+      fired: [],
+      upstream: [],
+    });
+  });
+
+  it("action만 있는 verdict는 노드 ID로 테스트 발동 경로를 찾는다", () => {
+    const graph: GuardrailGraph = {
+      nodes: [
+        { id: "source", type: "extract", config: { checkpoint: "input" } },
+        { id: "check", type: "regex", config: { pattern: "secret" } },
+        { id: "block", type: "verdict", config: { action: "block" } },
+      ],
+      edges: [
+        { src: "source", dst: "check" },
+        { src: "check", dst: "block" },
+      ],
+    };
+
+    expect(testHighlights(graph, ["block"])).toEqual({
+      fired: ["block"],
       upstream: ["check", "source"],
     });
   });

@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { GuardrailGraph } from "@/src/entities/guardrail";
 
-import { catalogForCheckpoint, createCatalogNode } from "./catalog";
+import {
+  catalogForCheckpoint,
+  catalogGroupsForCheckpoint,
+  createCatalogNode,
+} from "./catalog";
 import {
   checkpointForNode,
   editorTabAfterKey,
@@ -18,13 +22,13 @@ const graph: GuardrailGraph = {
     {
       id: "input-verdict",
       type: "verdict",
-      config: { action: "block", decision: "conclusive", code: "input" },
+      config: { action: "block" },
     },
     { id: "output", type: "extract", config: { checkpoint: "output" } },
     {
       id: "output-verdict",
       type: "verdict",
-      config: { action: "mask", decision: "conclusive", code: "output" },
+      config: { action: "mask" },
     },
   ],
   edges: [
@@ -89,6 +93,8 @@ describe("checkpoint editor view", () => {
       "regex",
       "length",
       "transform",
+      "model",
+      "all",
       "verdict",
     ]);
     expect(catalogForCheckpoint("tool_result").map((item) => item.type)).toEqual([
@@ -96,13 +102,16 @@ describe("checkpoint editor view", () => {
       "regex",
       "length",
       "transform",
-      "verdict",
       "taint",
+      "model",
+      "all",
+      "verdict",
     ]);
     expect(catalogForCheckpoint("tool_call").map((item) => item.type)).toEqual([
       "taint",
       "side_effect",
       "provenance",
+      "model",
       "all",
       "verdict",
     ]);
@@ -111,9 +120,31 @@ describe("checkpoint editor view", () => {
       type: "extract",
       config: { checkpoint: "output" },
     });
+    expect(createCatalogNode("model", "output", "new-model")).toEqual({
+      id: "new-model",
+      type: "model",
+      config: {
+        policy: "",
+        strictness: "strict",
+        checkpoint: "output",
+      },
+    });
     expect(() => createCatalogNode("regex", "tool_call", "invalid")).toThrow(
       "regex is not available at tool_call",
     );
+    expect(
+      catalogGroupsForCheckpoint("input").map((group) => ({
+        role: group.role,
+        types: group.items.map((item) => item.type),
+      })),
+    ).toEqual([
+      { role: "Extract", types: ["extract"] },
+      {
+        role: "Check",
+        types: ["regex", "length", "transform", "model", "all"],
+      },
+      { role: "Verdict", types: ["verdict"] },
+    ]);
   });
 
   it("방향키와 Home·End 키로 탭 포커스 순서를 순환한다", () => {

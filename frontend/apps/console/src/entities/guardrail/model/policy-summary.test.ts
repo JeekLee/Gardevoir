@@ -20,7 +20,7 @@ describe("guardrail policy copy", () => {
         {
           id: "block",
           type: "verdict",
-          config: { action: "block", decision: "conclusive" },
+          config: { action: "block" },
         },
       ],
       edges: [],

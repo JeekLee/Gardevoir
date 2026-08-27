@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 
-import { type Checkpoint, type GuardrailNode } from "@/src/entities/guardrail";
+import {
+  modelStrictnesses,
+  type Checkpoint,
+  type GuardrailNode,
+  type ModelStrictness,
+} from "@/src/entities/guardrail";
 
 import {
   checkpointMeta,
@@ -12,6 +17,12 @@ import {
 import { connectionError } from "../model/connections";
 import type { EditorGraph, GuardrailFlowNode } from "../model/graph-mapper";
 import styles from "./guardrail-editor.module.css";
+
+const strictnessLabels: Record<ModelStrictness, string> = {
+  strict: "strict · 엄격",
+  balanced: "balanced · 균형",
+  lenient: "lenient · 관대",
+};
 
 export function NodeInspector({
   graph,
@@ -145,7 +156,7 @@ function SelectedNodeInspector({
 
       {node.data.validationMessage ? (
         <div className={styles.nodeError} role="alert">
-          <strong>게이트웨이 검증</strong>
+          <strong>노드 검증</strong>
           <span>{node.data.validationMessage}</span>
         </div>
       ) : null}
@@ -271,6 +282,45 @@ function ConfigFields({
           <small>저장할 때 게이트웨이가 패턴 문법을 검증합니다.</small>
         </label>
       );
+    case "model": {
+      const policy = stringValue(node.config.policy);
+      return (
+        <>
+          <label>
+            <span>자연어 정책 질의</span>
+            <textarea
+              value={policy}
+              onChange={(event) => setConfig("policy", event.target.value)}
+              rows={7}
+              required
+              aria-invalid={!policy.trim()}
+              placeholder="이 텍스트가 개인의 민감한 건강 정보를 노출하는가?"
+            />
+            {!policy.trim() ? (
+              <small className={styles.fieldError} role="alert">
+                정책 질의는 필수입니다.
+              </small>
+            ) : (
+              <small>모델이 위반 여부를 판단할 수 있는 질문으로 작성하세요.</small>
+            )}
+          </label>
+          <label>
+            <span>판정 엄격도</span>
+            <select
+              value={stringValue(node.config.strictness) || "strict"}
+              onChange={(event) => setConfig("strictness", event.target.value)}
+            >
+              {modelStrictnesses.map((strictness) => (
+                <option key={strictness} value={strictness}>
+                  {strictnessLabels[strictness]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <FixedCheckpoint checkpoint={checkpoint} />
+        </>
+      );
+    }
     case "length":
       return (
         <NumberField
@@ -294,38 +344,17 @@ function ConfigFields({
       );
     case "verdict":
       return (
-        <>
-          <label>
-            <span>판정</span>
-            <select
-              value={stringValue(node.config.action) || "block"}
-              onChange={(event) => setConfig("action", event.target.value)}
-            >
-              <option value="block">차단</option>
-              <option value="mask">마스킹</option>
-              <option value="allow">허용</option>
-            </select>
-          </label>
-          <label>
-            <span>판정 역할</span>
-            <select
-              value={stringValue(node.config.decision) || "conclusive"}
-              onChange={(event) => setConfig("decision", event.target.value)}
-            >
-              <option value="conclusive">결론형</option>
-              <option value="hint">힌트형</option>
-              <option value="model_only">모델형</option>
-            </select>
-          </label>
-          <label>
-            <span>정책 코드</span>
-            <input
-              value={stringValue(node.config.code)}
-              onChange={(event) => setConfig("code", event.target.value)}
-              placeholder="policy-match"
-            />
-          </label>
-        </>
+        <label>
+          <span>판정</span>
+          <select
+            value={stringValue(node.config.action) || "block"}
+            onChange={(event) => setConfig("action", event.target.value)}
+          >
+            <option value="block">차단</option>
+            <option value="mask">마스킹</option>
+            <option value="allow">허용</option>
+          </select>
+        </label>
       );
     case "all":
       return <p className={styles.noConfig}>이 노드는 설정할 항목이 없습니다.</p>;
