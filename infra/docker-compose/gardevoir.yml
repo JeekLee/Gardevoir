@@ -78,6 +78,11 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
+    # spark-inference-net 에 붙어 모델 티어 가드(shieldstral-1.0-3b:8001)에 컨테이너
+    # 별칭으로 직접 도달한다. pg/redis/ch 는 default 로 유지.
+    networks:
+      - default
+      - spark-inference-net
 
   console:
     build:
@@ -93,3 +98,8 @@ services:
       gateway:
         condition: service_healthy
     restart: unless-stopped
+
+networks:
+  default:
+  spark-inference-net:
+    external: true
