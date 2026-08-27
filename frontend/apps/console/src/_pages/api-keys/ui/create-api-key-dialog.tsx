@@ -112,9 +112,7 @@ export function CreateApiKeyDialog({
       setErrorReference(consoleErrorReference(error));
       return;
     }
-    setFormError(
-      "API 키를 만들지 못했습니다. 입력 내용과 연결 상태를 확인한 뒤 다시 시도하세요.",
-    );
+    setFormError("API 키를 만들지 못했습니다.");
   }
 
   async function copyKey() {
@@ -188,7 +186,7 @@ export function CreateApiKeyDialog({
 
           <div className={styles.dialogActions}>
             <button className={styles.primaryButton} type="button" onClick={close}>
-              키를 저장했습니다
+              닫기
             </button>
           </div>
         </div>
@@ -196,7 +194,6 @@ export function CreateApiKeyDialog({
         <form className={styles.dialogForm} onSubmit={handleSubmit}>
           <div className={styles.dialogHeader}>
             <div>
-              <p className={styles.eyebrow}>새 앱 크레덴셜</p>
               <h2 id="create-api-key-title">새 API 키</h2>
               <p>용도를 알아볼 수 있는 이름과 선택 만료 시각을 지정하세요.</p>
             </div>

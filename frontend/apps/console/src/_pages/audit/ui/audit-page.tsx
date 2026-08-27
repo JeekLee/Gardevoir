@@ -114,17 +114,7 @@ function AuditWorkspace({ accessToken }: { accessToken: string }) {
       lang="ko"
     >
       <header className={styles.pageHeader}>
-        <div>
-          <p className={styles.eyebrow}>감사 · 관측</p>
-          <h1 id="audit-title">요청이 어떻게 판정됐는지 확인하세요</h1>
-          <p>
-            앱별 가드레일 동작과 지연을 살피고, 걸린 검사와 판정 근거까지
-            추적합니다.
-          </p>
-        </div>
-        <span className={styles.liveStatus}>
-          <i aria-hidden="true" /> ClickHouse 실시간 조회
-        </span>
+        <h1 id="audit-title">감사</h1>
       </header>
 
       <SummaryStrip
@@ -144,7 +134,6 @@ function AuditWorkspace({ accessToken }: { accessToken: string }) {
       <section className={styles.events} aria-labelledby="events-title">
         <div className={styles.sectionHeader}>
           <div>
-            <p className={styles.eyebrow}>이벤트</p>
             <h2 id="events-title">감사 기록</h2>
           </div>
           <p className={styles.resultStatus} aria-live="polite">
@@ -180,9 +169,7 @@ function AuditWorkspace({ accessToken }: { accessToken: string }) {
                       : "더 보기"}
                   </button>
                 </div>
-              ) : (
-                <p className={styles.endOfList}>마지막 기록입니다.</p>
-              )}
+              ) : null}
             </>
           ) : null}
         </div>
@@ -331,10 +318,7 @@ function AuditFilterBar({
   return (
     <form className={styles.filters} onSubmit={submit} aria-label="감사 필터">
       <div className={styles.filterHeading}>
-        <div>
-          <p className={styles.eyebrow}>필터</p>
-          <h2>범위 좁히기</h2>
-        </div>
+        <h2>필터</h2>
         <div className={styles.filterActions}>
           <button className={styles.resetButton} type="button" onClick={onReset}>
             초기화
@@ -563,7 +547,6 @@ function AuditDetailDialog({
       ref={setDialog}
       className={styles.detailDialog}
       aria-labelledby="audit-detail-title"
-      aria-describedby="audit-detail-description"
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -571,11 +554,7 @@ function AuditDetailDialog({
     >
       <header className={styles.detailHeader}>
         <div>
-          <p className={styles.eyebrow}>이벤트 상세</p>
-          <h2 id="audit-detail-title">판정 근거 드릴다운</h2>
-          <p id="audit-detail-description">
-            요청 식별자와 검사 결과를 함께 확인합니다.
-          </p>
+          <h2 id="audit-detail-title">감사 이벤트</h2>
         </div>
         <button type="button" onClick={onClose} aria-label="감사 상세 닫기" autoFocus>
           ×
@@ -634,10 +613,7 @@ function AuditDetailContent({ detail }: { detail: AuditEventDetail }) {
       </section>
 
       <section className={styles.detailSection}>
-        <div className={styles.detailSectionHeading}>
-          <h3>판정 근거</h3>
-          <span>원본 판정 필드</span>
-        </div>
+        <h3>판정 근거</h3>
         <JsonValueView value={detail.verdicts} />
       </section>
     </>
@@ -684,9 +660,7 @@ function JsonValueView({ value }: { value: JsonValue }) {
 function EmptyState() {
   return (
     <div className={styles.emptyState}>
-      <span aria-hidden="true">◎</span>
-      <h3>아직 감사 이벤트 없음</h3>
-      <p>프록시로 요청이 흐르면 여기 쌓입니다.</p>
+      <h3>감사 이벤트 없음</h3>
     </div>
   );
 }
@@ -710,7 +684,7 @@ function ErrorState({
             ? "게이트웨이가 실행 중이고 콘솔 오리진이 허용됐는지 확인하세요."
             : error instanceof ConsoleApiError
               ? consoleErrorMessage(error)
-              : "감사 기록을 불러오지 못했습니다. 잠시 후 다시 시도하세요."}
+              : "감사 기록을 불러오지 못했습니다."}
         </p>
         {error instanceof ConsoleApiError ? (
           <code>{consoleErrorReference(error)}</code>

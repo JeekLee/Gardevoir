@@ -165,7 +165,7 @@ export function GuardrailEditor({
       ? `발행 버전 ${detail.versionNumber}은 읽기 전용입니다.`
       : recoveredDraft
         ? "로그인 후 저장하지 않은 초안을 복원했습니다. 내용을 확인한 뒤 저장하세요."
-        : "초안을 불러왔습니다. 저장하기 전 변경 내용은 현재 편집 세션에만 유지됩니다.",
+        : "",
   );
   const [publishedVersion, setPublishedVersion] = useState<number | null>(
     readOnly ? detail.versionNumber : latestPublishedVersion,
@@ -477,7 +477,7 @@ export function GuardrailEditor({
   function changeDescription(nextDescription: string) {
     setDescription(nextDescription);
     setGraphError(null);
-    setStatus("가드레일 설명을 변경했습니다. 초안을 저장하면 그래프와 함께 반영됩니다.");
+    setStatus("설명 변경됨");
   }
 
   function validateGraphBeforeWrite(): boolean {
@@ -527,7 +527,7 @@ export function GuardrailEditor({
       });
       queryClient.setQueryData(guardrailKeys.draft(detail.name), saved);
       void queryClient.invalidateQueries({ queryKey: guardrailKeys.list() });
-      setStatus("초안을 저장했습니다. 게이트웨이 검증을 통과했습니다.");
+      setStatus("저장됨");
       return saved;
     } catch (error) {
       handleGatewayError(error, "초안을 저장하지 못했습니다.");
@@ -555,9 +555,7 @@ export function GuardrailEditor({
         );
       }
       void queryClient.invalidateQueries({ queryKey: guardrailKeys.list() });
-      setStatus(
-        `버전 ${published.versionNumber}을 발행했습니다. 초안은 계속 편집할 수 있습니다.`,
-      );
+      setStatus(`v${published.versionNumber} 발행됨`);
     } catch (error) {
       handleGatewayError(error, "초안을 발행하지 못했습니다.");
     }
@@ -650,8 +648,8 @@ export function GuardrailEditor({
     setTestHighlight(highlights);
     setStatus(
       highlights.fired.length > 0
-        ? `판정 노드 ${highlights.fired.length}개가 실제 호출 테스트에서 발동했습니다.`
-        : `실제 호출 테스트 완료: ${actionLabel(result.overallAction)}.`,
+        ? `판정 노드 ${highlights.fired.length}개 발동`
+        : `테스트 완료 · ${actionLabel(result.overallAction)}`,
     );
   }
 
@@ -718,15 +716,8 @@ export function GuardrailEditor({
       />
 
       <div className={styles.editorStatus} aria-live="polite">
-        <span
-          className={graphError ? styles.errorDot : styles.statusDot}
-          aria-hidden="true"
-        />
-        <p>{status}</p>
-        <small>
-          자유 배치는 현재 편집 세션에만 유지됩니다. 저장된 정책은 노드 순서를
-          보존하는 하나의 그래프입니다.
-        </small>
+        {status ? <p>{status}</p> : null}
+        <small>노드 배치는 저장되지 않습니다.</small>
       </div>
 
       {graphError ? (
@@ -776,11 +767,7 @@ export function GuardrailEditor({
                 <div>
                   <p>{checkpointMeta[activeTab].shortLabel}</p>
                   <h2>{checkpointMeta[activeTab].label}</h2>
-                  <small>{checkpointMeta[activeTab].description}</small>
                 </div>
-                <small className={styles.checkpointOrderNote}>
-                  번호는 검사 지점 ID이며, 탭 순서는 실제 요청 실행 순서입니다.
-                </small>
                 <strong>
                   노드 {checkpointGraph.nodes.length}개
                 </strong>
@@ -804,7 +791,6 @@ export function GuardrailEditor({
                           >
                             <div className={styles.catalogGroupHeader}>
                               <h3 id={headingId}>{group.role}</h3>
-                              <span>{group.description}</span>
                             </div>
                             <div className={styles.catalogItems}>
                               {group.items.map((item) => (
@@ -813,7 +799,6 @@ export function GuardrailEditor({
                                   className={styles.catalogItem}
                                   type="button"
                                   onClick={() => addNode(item.type)}
-                                  title={item.description}
                                   aria-label={`${item.label} ${group.role} 노드 추가`}
                                 >
                                   <span>{item.label}</span>
@@ -924,7 +909,7 @@ export function GuardrailEditor({
           onGatewayError={(error) =>
             handleGatewayError(
               error,
-              "실제 호출 테스트를 완료하지 못했습니다.",
+              "테스트를 완료하지 못했습니다.",
             )
           }
           onResult={handleTestResult}

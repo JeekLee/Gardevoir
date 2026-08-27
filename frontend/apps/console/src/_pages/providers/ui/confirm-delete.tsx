@@ -46,9 +46,7 @@ export function ConfirmDelete({
         setError(consoleErrorMessage(caught));
         setErrorReference(consoleErrorReference(caught));
       } else {
-        setError(
-          "프로바이더를 삭제하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.",
-        );
+        setError("프로바이더를 삭제하지 못했습니다.");
       }
     } finally {
       setIsSubmitting(false);

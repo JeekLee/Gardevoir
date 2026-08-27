@@ -104,9 +104,7 @@ export function EditApiKeyDialog({
       setErrorReference(consoleErrorReference(error));
       return;
     }
-    setFormError(
-      "API 키를 수정하지 못했습니다. 입력 내용과 연결 상태를 확인한 뒤 다시 시도하세요.",
-    );
+    setFormError("API 키를 수정하지 못했습니다.");
   }
 
   return (

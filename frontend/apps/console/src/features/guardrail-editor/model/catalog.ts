@@ -10,32 +10,27 @@ export const checkpointMeta: Record<
     index: "①" | "②" | "④" | "③";
     label: string;
     shortLabel: string;
-    description: string;
   }
 > = {
   input: {
     index: "①",
     label: "입력",
     shortLabel: "사용자 메시지",
-    description: "사용자 의도를 검사합니다",
   },
   tool_result: {
     index: "②",
     label: "툴 결과",
     shortLabel: "신뢰하지 않는 데이터",
-    description: "외부에서 들어온 데이터를 검사합니다",
   },
   tool_call: {
     index: "④",
     label: "툴 호출",
     shortLabel: "에이전트 액션",
-    description: "외부에 영향을 주는 액션을 검사합니다",
   },
   output: {
     index: "③",
     label: "출력",
     shortLabel: "모델 응답",
-    description: "사용자에게 돌아갈 응답을 검사합니다",
   },
 };
 
@@ -43,7 +38,6 @@ export type NodeCatalogItem = {
   type: GuardrailNodeType;
   label: string;
   category: NodeCatalogRole;
-  description: string;
   defaultConfig: (checkpoint: Checkpoint) => Record<string, unknown>;
 };
 
@@ -51,17 +45,14 @@ export type NodeCatalogRole = "Extract" | "Transform" | "Check" | "Verdict";
 
 export type NodeCatalogGroup = {
   role: NodeCatalogRole;
-  description: string;
   items: NodeCatalogItem[];
 };
 
-const catalogRoles: ReadonlyArray<
-  Pick<NodeCatalogGroup, "role" | "description">
-> = [
-  { role: "Extract", description: "무엇을 볼지" },
-  { role: "Transform", description: "입력을 다듬는다" },
-  { role: "Check", description: "조건을 확인한다" },
-  { role: "Verdict", description: "결론과 조합을 정한다" },
+const catalogRoles: ReadonlyArray<Pick<NodeCatalogGroup, "role">> = [
+  { role: "Extract" },
+  { role: "Transform" },
+  { role: "Check" },
+  { role: "Verdict" },
 ];
 
 export const nodeCatalog: NodeCatalogItem[] = [
@@ -69,49 +60,43 @@ export const nodeCatalog: NodeCatalogItem[] = [
     type: "extract",
     label: "텍스트 추출",
     category: "Extract",
-    description: "이 검사 지점의 텍스트를 읽습니다.",
     defaultConfig: (checkpoint) => ({ checkpoint }),
   },
   {
     type: "regex",
     label: "정규식",
     category: "Check",
-    description: "RE2 정책 패턴과 일치하는지 검사합니다.",
     defaultConfig: () => ({ pattern: "" }),
   },
   {
     type: "transform",
     label: "텍스트 변환",
     category: "Transform",
-    description: "다른 검사 전에 텍스트를 정규화합니다.",
     defaultConfig: () => ({ op: "lower" }),
   },
   {
     type: "taint",
     label: "오염 추적",
     category: "Check",
-    description: "툴 데이터가 대화에 들어왔는지 추적합니다.",
     defaultConfig: (checkpoint) => ({ checkpoint }),
   },
   {
+
     type: "side_effect",
     label: "부작용 툴",
     category: "Check",
-    description: "읽기 전용 목록에 없는 모든 툴을 위험한 액션으로 처리합니다.",
     defaultConfig: () => ({ checkpoint: "tool_call", read_only: [] }),
   },
   {
     type: "provenance",
     label: "인수 출처",
     category: "Check",
-    description: "신뢰하지 않는 툴 결과에서 가져온 호출 인수를 찾습니다.",
     defaultConfig: () => ({ checkpoint: "tool_call" }),
   },
   {
     type: "model",
     label: "MODEL 검사",
     category: "Check",
-    description: "자연어 정책 질의로 모델 판정을 요청합니다.",
     defaultConfig: (checkpoint) => ({
       policy: "",
       strictness: "strict",
@@ -122,7 +107,6 @@ export const nodeCatalog: NodeCatalogItem[] = [
     type: "verdict",
     label: "판정",
     category: "Verdict",
-    description: "입력이 일치하면 차단, 마스킹 또는 허용으로 판정합니다.",
     defaultConfig: () => ({ action: "block", combine: "any" }),
   },
 ];

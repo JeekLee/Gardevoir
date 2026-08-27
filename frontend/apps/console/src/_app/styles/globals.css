@@ -64,9 +64,7 @@ html {
 }
 
 body {
-  background:
-    radial-gradient(circle at 90% -10%, var(--brand-soft), transparent 30rem),
-    var(--bg);
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
   margin: 0;

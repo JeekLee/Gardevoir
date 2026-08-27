@@ -28,19 +28,14 @@ export function GuardrailsPage() {
   if (!session) return null;
 
   return (
-    <GuardrailWorkspace
-      accessToken={session.tokens.accessToken}
-      operatorName={session.user.name}
-    />
+    <GuardrailWorkspace accessToken={session.tokens.accessToken} />
   );
 }
 
 function GuardrailWorkspace({
   accessToken,
-  operatorName,
 }: {
   accessToken: string;
-  operatorName: string;
 }) {
   const router = useRouter();
   const { endSession } = useSession();
@@ -81,19 +76,13 @@ function GuardrailWorkspace({
     <section className={styles.page} aria-labelledby="guardrails-title">
       <div className={styles.pageHeader}>
         <div className={styles.headingBlock}>
-          <p className={styles.eyebrow}>정책 통제 영역</p>
           <h1 id="guardrails-title">가드레일</h1>
-          <p>
-            입력부터 툴 오염, 에이전트 액션, 출력까지 하나의 그래프로
-            설계하세요. 게이트웨이가 전체 초안을 검증한 뒤에만 발행합니다.
-          </p>
         </div>
         <button
           className={styles.primaryButton}
           type="button"
           onClick={() => setIsCreating(true)}
         >
-          <span aria-hidden="true">＋</span>
           새 가드레일
         </button>
       </div>
@@ -113,19 +102,14 @@ function GuardrailWorkspace({
 
       <div className={styles.statusBar}>
         <div className={styles.routeStatus}>
-          <span className={styles.liveDot} aria-hidden="true" />
           <span>
             가드레일 <strong>{data?.total ?? 0}</strong>개
           </span>
         </div>
-        <p>
-          로그인 사용자 <strong>{operatorName}</strong>
-        </p>
       </div>
 
       {notice ? (
         <div className={styles.notice} role="status">
-          <span aria-hidden="true">✓</span>
           {notice}
           <button type="button" onClick={() => setNotice(null)} aria-label="알림 닫기">
             ×
@@ -143,11 +127,10 @@ function GuardrailWorkspace({
         ) : null}
         {!query.isPending && !visibleError && data && data.items.length > 0 ? (
           <div className={styles.guardrailGrid}>
-            {data.items.map((guardrail, index) => (
+            {data.items.map((guardrail) => (
               <GuardrailCard
                 key={guardrail.name}
                 guardrail={guardrail}
-                order={index + 1}
                 onDelete={() => {
                   setNotice(null);
                   setDeleting(guardrail);
@@ -174,7 +157,7 @@ function GuardrailWorkspace({
           onClose={() => setDeleting(null)}
           onDeleted={() => {
             setDeleting(null);
-            setNotice(`${deleting.name} 가드레일을 삭제했습니다.`);
+            setNotice(`${deleting.name} 가드레일 삭제됨`);
           }}
           onAuthorizationError={handleAuthorizationError}
         />
@@ -207,23 +190,17 @@ function Checkpoint({
 
 function GuardrailCard({
   guardrail,
-  order,
   onDelete,
 }: {
   guardrail: GuardrailSummary;
-  order: number;
   onDelete: () => void;
 }) {
   const description = guardrail.description.trim();
 
   return (
     <article className={styles.guardrailCard}>
-      <span className={styles.cardIndex} aria-hidden="true">
-        {String(order).padStart(2, "0")}
-      </span>
       <div className={styles.cardHeader}>
         <div>
-          <p>정책 그래프</p>
           <h2>{guardrail.name}</h2>
         </div>
         <div className={styles.badges} aria-label="가드레일 상태">
@@ -357,17 +334,9 @@ function actionLabel(action: GuardrailAction): string {
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className={styles.emptyState}>
-      <div className={styles.emptyFlow} aria-hidden="true">
-        <span>①</span><i /><span>②</span><i /><span>④</span><i /><span>③</span>
-      </div>
-      <p className={styles.eyebrow}>아직 정책 그래프가 없습니다</p>
-      <h2>에이전트가 읽고 실행할 범위를 통제하세요</h2>
-      <p>
-        초안을 만들고 네 검사 지점에 검사를 연결한 뒤 변경할 수 없는
-        발행본을 만드세요.
-      </p>
+      <h2>가드레일 없음</h2>
       <button className={styles.primaryButton} type="button" onClick={onCreate}>
-        첫 가드레일 만들기
+        새 가드레일
       </button>
     </div>
   );
@@ -391,7 +360,7 @@ function ErrorState({
             ? "게이트웨이가 실행 중이고 이 콘솔에서 연결할 수 있는지 확인하세요."
             : error instanceof ConsoleApiError
               ? consoleErrorMessage(error)
-              : "가드레일 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요."}
+              : "가드레일 목록을 불러오지 못했습니다."}
         </p>
         {error instanceof ConsoleApiError ? (
           <code>{consoleErrorReference(error)}</code>

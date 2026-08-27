@@ -54,9 +54,7 @@ export function DeleteGuardrailDialog({
         setError(consoleErrorMessage(caught));
         setErrorReference(consoleErrorReference(caught));
       } else {
-        setError(
-          "가드레일을 삭제하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.",
-        );
+        setError("가드레일을 삭제하지 못했습니다.");
       }
     }
   }

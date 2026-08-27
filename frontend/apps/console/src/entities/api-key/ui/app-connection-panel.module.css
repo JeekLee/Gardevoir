@@ -1,13 +1,10 @@
 .panel {
-  background:
-    radial-gradient(circle at 96% 0%, var(--brand-soft), transparent 28rem),
-    var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 1.1rem;
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   display: grid;
   gap: 1rem;
   min-width: 0;
-  padding: 1.35rem;
+  padding: 1.1rem 0;
 }
 
 .heading {
@@ -20,15 +17,6 @@
 .heading > div {
   display: grid;
   gap: 0.28rem;
-}
-
-.heading p {
-  color: var(--brand-strong);
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  font-weight: 850;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 
 .heading h2 {
@@ -46,7 +34,7 @@
 .heading > code {
   background: var(--surface-subtle);
   border: 1px solid var(--border);
-  border-radius: 0.65rem;
+  border-radius: 0.25rem;
   color: var(--brand-deep);
   font-family: var(--font-mono);
   font-size: 0.66rem;
@@ -79,7 +67,7 @@
 .fixedValue code {
   background: var(--field);
   border: 1px solid var(--border);
-  border-radius: 0.68rem;
+  border-radius: 0.25rem;
   color: var(--text);
   font-family: var(--font-mono);
   font-size: 0.7rem;
@@ -107,7 +95,7 @@
 .readiness {
   background: var(--warn-soft);
   border: 1px solid color-mix(in srgb, var(--warn) 30%, var(--border));
-  border-radius: 0.65rem;
+  border-radius: 0.25rem;
   color: color-mix(in srgb, var(--warn) 76%, var(--text));
   font-size: 0.7rem;
   font-weight: 700;
@@ -117,7 +105,7 @@
 .snippet {
   background: #101815;
   border: 1px solid color-mix(in srgb, var(--brand) 24%, #101815);
-  border-radius: 0.85rem;
+  border-radius: 0.25rem;
   min-width: 0;
   overflow: hidden;
   position: relative;
@@ -138,7 +126,7 @@
 .snippet button {
   background: rgb(255 255 255 / 9%);
   border: 1px solid rgb(255 255 255 / 16%);
-  border-radius: 0.58rem;
+  border-radius: 0.25rem;
   color: #e9f7f1;
   cursor: pointer;
   font-size: 0.66rem;
@@ -149,13 +137,11 @@
   right: 0.75rem;
   top: 0.7rem;
   transition:
-    background 150ms ease,
-    transform 150ms ease;
+    background 150ms ease;
 }
 
 .snippet button:hover {
   background: rgb(255 255 255 / 15%);
-  transform: translateY(-1px);
 }
 
 .copyStatus {
@@ -219,7 +205,4 @@
     transition: none;
   }
 
-  .snippet button:hover {
-    transform: none;
-  }
 }

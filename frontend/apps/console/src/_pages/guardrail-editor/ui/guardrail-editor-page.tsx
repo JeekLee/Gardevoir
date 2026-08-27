@@ -203,5 +203,5 @@ function errorMessage(error: Error, readOnly: boolean): string {
     return "게이트웨이에 연결할 수 없습니다. 게이트웨이 상태와 네트워크 설정을 확인하세요.";
   }
   if (error instanceof ConsoleApiError) return consoleErrorMessage(error);
-  return "정책 그래프를 불러오지 못했습니다. 잠시 후 다시 시도하세요.";
+  return "정책 그래프를 불러오지 못했습니다.";
 }

@@ -61,10 +61,7 @@ export function EditorTabs({
             onKeyDown={onKeyDown}
           >
             {tab === "overview" ? (
-              <>
-                <span aria-hidden="true">⌂</span>
-                개요
-              </>
+              "개요"
             ) : (
               <>
                 <span>{checkpointMeta[tab].index}</span>
@@ -74,9 +71,6 @@ export function EditorTabs({
           </button>
         ))}
       </div>
-      <p className={styles.tabOrderNote}>
-        번호는 검사 지점 ID이며, 탭 순서는 실제 요청 실행 순서입니다.
-      </p>
     </div>
   );
 }
