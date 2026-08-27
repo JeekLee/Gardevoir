@@ -120,12 +120,14 @@ export function GuardrailEditor({
   accessToken,
   readOnly,
   latestPublishedVersion,
+  onDelete,
   onAuthorizationError,
 }: {
   detail: GuardrailDetail;
   accessToken: string;
   readOnly: boolean;
   latestPublishedVersion: number | null;
+  onDelete: () => void;
   onAuthorizationError: (error: ConsoleApiError) => void;
 }) {
   const queryClient = useQueryClient();
@@ -722,6 +724,7 @@ export function GuardrailEditor({
             dirty={dirty}
             isBusy={isBusy}
             isPublishing={publishMutation.isPending}
+            onDelete={onDelete}
             onOpenCheckpoint={openCheckpoint}
             onDescriptionChange={changeDescription}
             onPublish={() => void publishDraft()}

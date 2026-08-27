@@ -1,5 +1,6 @@
 export {
   createGuardrail,
+  deleteGuardrail,
   publishGuardrail,
   updateGuardrailDraft,
 } from "./api/guardrail-api";

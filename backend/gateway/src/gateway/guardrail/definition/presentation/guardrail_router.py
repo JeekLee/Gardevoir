@@ -42,6 +42,15 @@ async def list_guardrails(
     return await service.list()
 
 
+@router.delete("/{name}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_guardrail(
+    name: str,
+    _: Annotated[AccessTokenClaims, Depends(require_role(Role.ADMIN))],
+    service: Annotated[GuardrailService, Depends(provide_guardrail_service)],
+) -> None:
+    await service.delete(name)
+
+
 @router.get("/{name}")
 async def get_guardrail(
     name: str,

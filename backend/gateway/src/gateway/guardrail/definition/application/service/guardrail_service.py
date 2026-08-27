@@ -40,6 +40,8 @@ class PlanRefresher(Protocol):
 
     async def refresh(self, name: str) -> object | None: ...
 
+    def evict(self, name: str) -> bool: ...
+
 
 class GuardrailService:
     def __init__(
@@ -48,7 +50,7 @@ class GuardrailService:
         guardrail_repository: GuardrailRepository,
         guardrail_dao: GuardrailDao,
         unit_of_work: UnitOfWork,
-        plan_refresher: PlanRefresher | None = None,
+        plan_refresher: PlanRefresher,
     ) -> None:
         self._guardrail_repository = guardrail_repository
         self._guardrail_dao = guardrail_dao
@@ -123,6 +125,14 @@ class GuardrailService:
         items, total = await self._guardrail_dao.list_summaries()
         return Page[GuardrailSummary](items=items, total=total)
 
+    async def delete(self, name: str) -> None:
+        require_valid_name(name)
+        async with self._unit_of_work:
+            if not await self._guardrail_repository.exists(name):
+                GuardrailError.NOT_FOUND.raise_(details={"name": name})
+            await self._guardrail_repository.delete(name)
+        self._plan_refresher.evict(name)
+
     # -- helpers ------------------------------------------------------------
 
     async def _recompile(self, name: str) -> None:
@@ -135,8 +145,6 @@ class GuardrailService:
         컴파일 가능성은 쓰기 전에 이미 확인했으므로(``_validate``) 여기서 실패하는
         것은 예상 밖의 일이다.
         """
-        if self._plan_refresher is None:
-            return
         try:
             await self._plan_refresher.refresh(name)
         except Exception:

@@ -48,17 +48,30 @@ class PlanRegistry:
         versions = await self._source.latest_versions()
         version_number = versions.get(name)
         if version_number is None:
+            self.evict(name)
             return None
         return await self._compile_into(name, version_number)
 
     async def load_all(self) -> int:
         """기동 시 1회. §11.6 실측으로 50개 271 ms 였다."""
         versions = await self._source.latest_versions()
+        self._evict_missing(versions)
         loaded = 0
         for name, version_number in versions.items():
             if await self._compile_into(name, version_number) is not None:
                 loaded += 1
         return loaded
+
+    def evict(self, name: str) -> bool:
+        plan = self._plans.pop(name, None)
+        if plan is None:
+            return False
+        logger.info("guardrail %r v%s evicted", name, plan.version_number)
+        return True
+
+    def _evict_missing(self, versions: dict[str, int]) -> None:
+        for name in self.loaded.difference(versions):
+            self.evict(name)
 
     async def _compile_into(self, name: str, version_number: int) -> ExecutionPlan | None:
         current = self._plans.get(name)
@@ -115,7 +128,9 @@ class PlanRegistry:
         while True:
             await asyncio.sleep(self._poll_interval_s)
             try:
-                for name, version_number in (await self._source.latest_versions()).items():
+                versions = await self._source.latest_versions()
+                self._evict_missing(versions)
+                for name, version_number in versions.items():
                     await self._compile_into(name, version_number)
             except asyncio.CancelledError:
                 raise

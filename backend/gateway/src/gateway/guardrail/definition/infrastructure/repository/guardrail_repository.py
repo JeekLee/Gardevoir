@@ -1,6 +1,6 @@
 """SQLAlchemy Guardrail repository."""
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,6 +78,10 @@ class SqlAlchemyGuardrailRepository:
             )
         ).scalar_one()
         return (highest or 0) + 1
+
+    async def delete(self, name: str) -> None:
+        await self._session.execute(delete(GuardrailModel).where(GuardrailModel.name == name))
+        await self._session.flush()
 
     # -- helpers ------------------------------------------------------------
 

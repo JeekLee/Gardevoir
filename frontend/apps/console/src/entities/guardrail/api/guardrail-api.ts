@@ -64,6 +64,14 @@ export function publishGuardrail(accessToken: string, name: string) {
   });
 }
 
+export function deleteGuardrail(accessToken: string, name: string) {
+  return apiRequest({
+    path: `/guardrails/${encodeURIComponent(name)}`,
+    method: "DELETE",
+    accessToken,
+  });
+}
+
 export function getGuardrailVersion(
   accessToken: string,
   name: string,

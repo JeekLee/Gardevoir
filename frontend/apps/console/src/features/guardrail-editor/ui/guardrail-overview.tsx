@@ -27,6 +27,7 @@ export function GuardrailOverview({
   dirty,
   isBusy,
   isPublishing,
+  onDelete,
   onOpenCheckpoint,
   onDescriptionChange,
   onPublish,
@@ -41,6 +42,7 @@ export function GuardrailOverview({
   dirty: boolean;
   isBusy: boolean;
   isPublishing: boolean;
+  onDelete: () => void;
   onOpenCheckpoint: (checkpoint: Checkpoint) => void;
   onDescriptionChange: (description: string) => void;
   onPublish: () => void;
@@ -154,14 +156,32 @@ export function GuardrailOverview({
         <footer className={styles.overviewFooter}>
           <div className={styles.overviewActions}>
             {readOnly ? (
-              <Link
-                className={styles.primaryAction}
-                href={`/guardrails/${encodeURIComponent(name)}`}
-              >
-                초안으로 돌아가기
-              </Link>
+              <>
+                <button
+                  className={styles.dangerAction}
+                  type="button"
+                  disabled={isBusy}
+                  onClick={onDelete}
+                >
+                  가드레일 삭제
+                </button>
+                <Link
+                  className={styles.primaryAction}
+                  href={`/guardrails/${encodeURIComponent(name)}`}
+                >
+                  초안으로 돌아가기
+                </Link>
+              </>
             ) : (
               <>
+                <button
+                  className={styles.dangerAction}
+                  type="button"
+                  disabled={isBusy}
+                  onClick={onDelete}
+                >
+                  가드레일 삭제
+                </button>
                 <button
                   className={styles.secondaryAction}
                   type="button"

@@ -13,6 +13,7 @@ import {
   type GuardrailSummary,
 } from "@/src/entities/guardrail";
 import { useSession } from "@/src/entities/session";
+import { DeleteGuardrailDialog } from "@/src/features/delete-guardrail";
 import {
   ConsoleApiError,
   consoleErrorMessage,
@@ -44,6 +45,8 @@ function GuardrailWorkspace({
   const router = useRouter();
   const { endSession } = useSession();
   const [isCreating, setIsCreating] = useState(false);
+  const [deleting, setDeleting] = useState<GuardrailSummary | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const query = useQuery(guardrailListOptions(accessToken));
 
   const handleAuthorizationError = useCallback(
@@ -120,6 +123,16 @@ function GuardrailWorkspace({
         </p>
       </div>
 
+      {notice ? (
+        <div className={styles.notice} role="status">
+          <span aria-hidden="true">✓</span>
+          {notice}
+          <button type="button" onClick={() => setNotice(null)} aria-label="알림 닫기">
+            ×
+          </button>
+        </div>
+      ) : null}
+
       <div className={styles.content} aria-busy={query.isPending}>
         {query.isPending ? <GuardrailSkeleton /> : null}
         {!query.isPending && visibleError ? (
@@ -135,6 +148,10 @@ function GuardrailWorkspace({
                 key={guardrail.name}
                 guardrail={guardrail}
                 order={index + 1}
+                onDelete={() => {
+                  setNotice(null);
+                  setDeleting(guardrail);
+                }}
               />
             ))}
           </div>
@@ -145,6 +162,20 @@ function GuardrailWorkspace({
         <CreateGuardrailDialog
           accessToken={accessToken}
           onClose={() => setIsCreating(false)}
+          onAuthorizationError={handleAuthorizationError}
+        />
+      ) : null}
+
+      {deleting ? (
+        <DeleteGuardrailDialog
+          key={deleting.name}
+          accessToken={accessToken}
+          name={deleting.name}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null);
+            setNotice(`${deleting.name} 가드레일을 삭제했습니다.`);
+          }}
           onAuthorizationError={handleAuthorizationError}
         />
       ) : null}
@@ -177,9 +208,11 @@ function Checkpoint({
 function GuardrailCard({
   guardrail,
   order,
+  onDelete,
 }: {
   guardrail: GuardrailSummary;
   order: number;
+  onDelete: () => void;
 }) {
   const description = guardrail.description.trim();
 
@@ -241,6 +274,14 @@ function GuardrailCard({
           수정 <time dateTime={guardrail.updatedAt}>{formatDate(guardrail.updatedAt)}</time>
         </p>
         <div className={styles.cardActions}>
+          <button
+            className={styles.deleteAction}
+            type="button"
+            onClick={onDelete}
+            aria-label={`${guardrail.name} 가드레일 삭제`}
+          >
+            삭제
+          </button>
           {guardrail.latestVersionNumber !== null ? (
             <Link
               className={styles.secondaryLink}

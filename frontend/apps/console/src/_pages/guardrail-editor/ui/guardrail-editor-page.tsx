@@ -3,7 +3,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   guardrailDraftOptions,
@@ -12,6 +12,7 @@ import {
   type GuardrailDetail,
 } from "@/src/entities/guardrail";
 import { useSession } from "@/src/entities/session";
+import { DeleteGuardrailDialog } from "@/src/features/delete-guardrail";
 import { GuardrailEditor } from "@/src/features/guardrail-editor";
 import {
   ConsoleApiError,
@@ -103,6 +104,7 @@ function EditorQueryBoundary({
 }) {
   const router = useRouter();
   const { endSession } = useSession();
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleAuthorizationError = useCallback(
     (error: ConsoleApiError) => {
@@ -169,13 +171,25 @@ function EditorQueryBoundary({
   }
 
   return (
-    <GuardrailEditor
-      detail={query.data}
-      accessToken={accessToken}
-      readOnly={readOnly}
-      latestPublishedVersion={latestPublishedVersion}
-      onAuthorizationError={handleAuthorizationError}
-    />
+    <>
+      <GuardrailEditor
+        detail={query.data}
+        accessToken={accessToken}
+        readOnly={readOnly}
+        latestPublishedVersion={latestPublishedVersion}
+        onDelete={() => setIsDeleting(true)}
+        onAuthorizationError={handleAuthorizationError}
+      />
+      {isDeleting ? (
+        <DeleteGuardrailDialog
+          accessToken={accessToken}
+          name={name}
+          onClose={() => setIsDeleting(false)}
+          onDeleted={() => router.replace("/guardrails")}
+          onAuthorizationError={handleAuthorizationError}
+        />
+      ) : null}
+    </>
   );
 }
 

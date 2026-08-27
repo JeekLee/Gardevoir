@@ -9,6 +9,7 @@ import {
 export const guardrailKeys = {
   all: ["guardrails"] as const,
   list: () => ["guardrails", "list"] as const,
+  item: (name: string) => ["guardrails", name] as const,
   draft: (name: string) => ["guardrails", name, "draft"] as const,
   version: (name: string, versionNumber: number) =>
     ["guardrails", name, "version", versionNumber] as const,

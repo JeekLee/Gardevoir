@@ -153,7 +153,8 @@
 }
 
 .primaryAction,
-.secondaryAction {
+.secondaryAction,
+.dangerAction {
   align-items: center;
   border-radius: 0.72rem;
   cursor: pointer;
@@ -182,13 +183,21 @@
   color: var(--muted-strong);
 }
 
+.dangerAction {
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, var(--border));
+  color: var(--danger-strong);
+}
+
 .primaryAction:hover:not(:disabled),
-.secondaryAction:hover:not(:disabled) {
+.secondaryAction:hover:not(:disabled),
+.dangerAction:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
 .primaryAction:disabled,
-.secondaryAction:disabled {
+.secondaryAction:disabled,
+.dangerAction:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -1554,10 +1563,12 @@
 @media (prefers-reduced-motion: reduce) {
   .primaryAction,
   .secondaryAction,
+  .dangerAction,
   .graphNode,
   .checkpointCards > button { transition: none; }
   .primaryAction:hover:not(:disabled),
   .secondaryAction:hover:not(:disabled),
+  .dangerAction:hover:not(:disabled),
   .checkpointCards > button:hover,
   .checkpointCards > button:focus-visible { transform: none; }
   .canvas :global(.react-flow__edge-path) { animation: none !important; }
