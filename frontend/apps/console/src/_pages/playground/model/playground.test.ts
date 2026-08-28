@@ -7,10 +7,12 @@ import type {
 } from "@/src/entities/guardrail";
 
 import {
+  addToolDefinitionPreset,
   actionForCheckpoint,
   blockedCheckpoint,
   diffText,
   firedNodeTraces,
+  parseToolDefinitionsJson,
 } from "./playground";
 
 const graph: GuardrailGraph = {
@@ -118,6 +120,27 @@ describe("playground result projection", () => {
     expect(
       diff.applied.filter((part) => part.changed).map((part) => part.text),
     ).toEqual(["[개인정보 삭제됨]", "[개인정보 삭제됨]"]);
+  });
+});
+
+describe("playground tool scenarios", () => {
+  it("툴 프리셋을 OpenAI tools 배열로 조립한다", () => {
+    const withEmail = addToolDefinitionPreset("", "send_email");
+    const withFile = addToolDefinitionPreset(withEmail, "read_file");
+    const parsed = parseToolDefinitionsJson(withFile);
+
+    expect(parsed.error).toBeNull();
+    expect(parsed.names).toEqual(["send_email", "read_file"]);
+    expect(parsed.tools).toHaveLength(2);
+  });
+
+  it("잘못된 JSON과 툴 스키마를 요청 전에 거부한다", () => {
+    expect(parseToolDefinitionsJson("[").error).toBe(
+      "툴 정의 JSON을 확인하세요.",
+    );
+    expect(parseToolDefinitionsJson('[{"type":"function"}]').error).toBe(
+      "각 툴에 function.name이 필요합니다.",
+    );
   });
 });
 

@@ -25,5 +25,16 @@ function validateNode(node: GuardrailNode): NodeValidationError[] {
       },
     ];
   }
+  if (
+    node.type === "tool_extract" &&
+    (typeof node.config.field !== "string" || !node.config.field.trim())
+  ) {
+    return [
+      {
+        nodeId: node.id,
+        message: "툴 필드 또는 인수 경로를 입력하세요.",
+      },
+    ];
+  }
   return [];
 }

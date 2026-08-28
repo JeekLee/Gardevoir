@@ -60,13 +60,16 @@ export const nodeCatalog: NodeCatalogItem[] = [
     type: "extract",
     label: "텍스트 추출",
     category: "Extract",
-    defaultConfig: (checkpoint) => ({ checkpoint }),
+    defaultConfig: (checkpoint) => ({
+      from: defaultExtractSource(checkpoint),
+      at: checkpoint,
+    }),
   },
   {
-    type: "regex",
-    label: "정규식",
-    category: "Check",
-    defaultConfig: () => ({ pattern: "" }),
+    type: "tool_extract",
+    label: "툴 필드 추출",
+    category: "Extract",
+    defaultConfig: () => ({ tools: { exclude: [] }, field: "name" }),
   },
   {
     type: "transform",
@@ -75,23 +78,16 @@ export const nodeCatalog: NodeCatalogItem[] = [
     defaultConfig: () => ({ op: "lower" }),
   },
   {
-    type: "taint",
-    label: "오염 추적",
+    type: "regex",
+    label: "정규식",
     category: "Check",
-    defaultConfig: (checkpoint) => ({ checkpoint }),
+    defaultConfig: () => ({ pattern: "" }),
   },
   {
-
-    type: "side_effect",
-    label: "부작용 툴",
+    type: "not",
+    label: "NOT",
     category: "Check",
-    defaultConfig: () => ({ checkpoint: "tool_call", read_only: [] }),
-  },
-  {
-    type: "provenance",
-    label: "인수 출처",
-    category: "Check",
-    defaultConfig: () => ({ checkpoint: "tool_call" }),
+    defaultConfig: () => ({}),
   },
   {
     type: "model",
@@ -119,17 +115,18 @@ const catalogTypesByCheckpoint: Record<
   Checkpoint,
   readonly GuardrailNodeType[]
 > = {
-  input: ["extract", "transform", "regex", "model", "verdict"],
-  tool_result: [
+  input: ["extract", "transform", "regex", "model", "not", "verdict"],
+  tool_result: ["extract", "transform", "regex", "model", "not", "verdict"],
+  tool_call: [
     "extract",
+    "tool_extract",
     "transform",
     "regex",
-    "taint",
     "model",
+    "not",
     "verdict",
   ],
-  tool_call: ["taint", "side_effect", "provenance", "model", "verdict"],
-  output: ["extract", "transform", "regex", "model", "verdict"],
+  output: ["extract", "transform", "regex", "model", "not", "verdict"],
 };
 
 export function catalogForCheckpoint(
@@ -167,9 +164,15 @@ export function createCatalogNode(
 
 export function nodeSummary(node: GuardrailNode): string {
   switch (node.type) {
-    case "extract":
-    case "taint":
-      return checkpointName(node.config.checkpoint);
+    case "extract": {
+      const at = node.config.at ?? node.config.checkpoint;
+      const source = node.config.from ?? legacyExtractSource(node.config.checkpoint);
+      return `${extractSourceName(source)} → ${checkpointName(at)}`;
+    }
+    case "tool_extract": {
+      const selector = toolSelector(node.config.tools);
+      return `${selector.label} ${selector.names.length}개 · ${stringConfig(node, "field") || "필드 미설정"}`;
+    }
     case "regex":
       return stringConfig(node, "pattern") || "패턴 미설정";
     case "model": {
@@ -184,13 +187,8 @@ export function nodeSummary(node: GuardrailNode): string {
       return `${actionName(stringConfig(node, "action"))} · ${combineName(
         stringConfig(node, "combine"),
       )}`;
-    case "side_effect": {
-      const readOnly = node.config.read_only;
-      const count = Array.isArray(readOnly) ? readOnly.length : 0;
-      return `읽기 전용 툴 ${count}개`;
-    }
-    case "provenance":
-      return `최소 ${numberConfig(node, "min_length") ?? 8}자`;
+    case "not":
+      return "입력 부정";
   }
 }
 
@@ -200,12 +198,11 @@ export function incomingRange(type: GuardrailNodeType): {
 } {
   switch (type) {
     case "extract":
-    case "taint":
-    case "side_effect":
-    case "provenance":
+    case "tool_extract":
       return { min: 0, max: 0 };
     case "regex":
     case "model":
+    case "not":
     case "transform":
       return { min: 1, max: 1 };
     case "verdict":
@@ -248,10 +245,50 @@ function strictnessName(value: string | null): string {
   return "엄격";
 }
 
+function defaultExtractSource(checkpoint: Checkpoint): string {
+  if (checkpoint === "input") return "user_text";
+  if (checkpoint === "output") return "output_text";
+  return "tool_result";
+}
+
+function legacyExtractSource(value: unknown): unknown {
+  if (value === "input") return "user_text";
+  if (value === "tool_result") return "tool_result";
+  if (value === "output") return "output_text";
+  return null;
+}
+
+function extractSourceName(value: unknown): string {
+  if (value === "user_text") return "사용자 텍스트";
+  if (value === "tool_result") return "툴 결과";
+  if (value === "trusted_text") return "신뢰 텍스트";
+  if (value === "output_text") return "출력 텍스트";
+  return "추출 대상 미설정";
+}
+
+function toolSelector(value: unknown): {
+  label: "제외" | "포함";
+  names: string[];
+} {
+  if (isRecord(value) && Array.isArray(value.include)) {
+    return {
+      label: "포함",
+      names: value.include.filter((name): name is string => typeof name === "string"),
+    };
+  }
+  return {
+    label: "제외",
+    names:
+      isRecord(value) && Array.isArray(value.exclude)
+        ? value.exclude.filter((name): name is string => typeof name === "string")
+        : [],
+  };
+}
+
 function stringConfig(node: GuardrailNode, key: string): string | null {
   return typeof node.config[key] === "string" ? node.config[key] : null;
 }
 
-function numberConfig(node: GuardrailNode, key: string): number | null {
-  return typeof node.config[key] === "number" ? node.config[key] : null;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

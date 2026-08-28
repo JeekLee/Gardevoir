@@ -104,4 +104,50 @@ describe("guardrail graph mapper", () => {
       futureField: true,
     });
   });
+
+  it("새 from·at 문법과 tool_extract를 tool_call 탭에 배치한다", () => {
+    const redesigned: GuardrailGraph = {
+      nodes: [
+        {
+          id: "tool-history",
+          type: "extract",
+          config: { from: "tool_result", at: "tool_call" },
+        },
+        {
+          id: "tool-field",
+          type: "tool_extract",
+          config: { tools: { exclude: ["read_file"] }, field: "to" },
+        },
+        { id: "check", type: "regex", config: { pattern: "." } },
+      ],
+      edges: [{ src: "tool-field", dst: "check" }],
+    };
+
+    const editor = toEditorGraph(redesigned);
+
+    expect(editor.nodes.map((node) => node.data.checkpoint)).toEqual([
+      "tool_call",
+      "tool_call",
+      "tool_call",
+    ]);
+    expect(toGuardrailGraph(editor)).toEqual(redesigned);
+  });
+
+  it("옛 extract checkpoint 그래프를 열고 왕복 보존한다", () => {
+    const legacy: GuardrailGraph = {
+      nodes: [
+        {
+          id: "legacy-source",
+          type: "extract",
+          config: { checkpoint: "input", futureField: true },
+        },
+      ],
+      edges: [],
+    };
+
+    const editor = toEditorGraph(legacy);
+
+    expect(editor.nodes[0].data.checkpoint).toBe("input");
+    expect(toGuardrailGraph(editor)).toEqual(legacy);
+  });
 });

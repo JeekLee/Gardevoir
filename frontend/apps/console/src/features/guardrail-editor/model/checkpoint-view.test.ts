@@ -14,6 +14,7 @@ import {
   summarizeCheckpointGraphs,
 } from "./checkpoint-view";
 import { toEditorGraph } from "./graph-mapper";
+import { guardrailTemplates } from "./templates";
 
 const graph: GuardrailGraph = {
   nodes: [
@@ -93,27 +94,30 @@ describe("checkpoint editor view", () => {
       "transform",
       "regex",
       "model",
+      "not",
       "verdict",
     ]);
     expect(catalogForCheckpoint("tool_result").map((item) => item.type)).toEqual([
       "extract",
       "transform",
       "regex",
-      "taint",
       "model",
+      "not",
       "verdict",
     ]);
     expect(catalogForCheckpoint("tool_call").map((item) => item.type)).toEqual([
-      "taint",
-      "side_effect",
-      "provenance",
+      "extract",
+      "tool_extract",
+      "transform",
+      "regex",
       "model",
+      "not",
       "verdict",
     ]);
     expect(createCatalogNode("extract", "output", "new-source")).toEqual({
       id: "new-source",
       type: "extract",
-      config: { checkpoint: "output" },
+      config: { from: "output_text", at: "output" },
     });
     expect(createCatalogNode("model", "output", "new-model")).toEqual({
       id: "new-model",
@@ -124,8 +128,8 @@ describe("checkpoint editor view", () => {
         checkpoint: "output",
       },
     });
-    expect(() => createCatalogNode("regex", "tool_call", "invalid")).toThrow(
-      "regex is not available at tool_call",
+    expect(() => createCatalogNode("tool_extract", "input", "invalid")).toThrow(
+      "tool_extract is not available at input",
     );
     expect(
       catalogGroupsForCheckpoint("input").map((group) => ({
@@ -135,7 +139,7 @@ describe("checkpoint editor view", () => {
     ).toEqual([
       { role: "Extract", types: ["extract"] },
       { role: "Transform", types: ["transform"] },
-      { role: "Check", types: ["regex", "model"] },
+      { role: "Check", types: ["regex", "model", "not"] },
       { role: "Verdict", types: ["verdict"] },
     ]);
   });
@@ -146,5 +150,21 @@ describe("checkpoint editor view", () => {
     expect(editorTabAfterKey("tool_result", "Home")).toBe("overview");
     expect(editorTabAfterKey("tool_result", "End")).toBe("output");
     expect(editorTabAfterKey("input", "Enter")).toBeNull();
+  });
+
+  it("§8 템플릿을 새 일반 노드 문법으로 제공한다", () => {
+    expect(guardrailTemplates.map((template) => template.name)).toContain(
+      "외부 데이터 유입 후 부작용 툴",
+    );
+    expect(guardrailTemplates.map((template) => template.name)).toContain(
+      "허용 도메인 외 발신 차단",
+    );
+    expect(
+      guardrailTemplates.flatMap((template) =>
+        template.graph.nodes.map((node) => node.type),
+      ),
+    ).not.toEqual(
+      expect.arrayContaining(["taint", "side_effect", "provenance"]),
+    );
   });
 });

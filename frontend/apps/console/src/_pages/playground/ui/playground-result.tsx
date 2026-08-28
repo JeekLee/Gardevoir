@@ -30,12 +30,11 @@ const checkpoints: Array<{
 
 const nodeLabels: Record<GuardrailNode["type"], string> = {
   extract: "텍스트 추출",
+  tool_extract: "툴 필드 추출",
   transform: "텍스트 변환",
   regex: "정규식",
   model: "MODEL 검사",
-  taint: "오염 추적",
-  side_effect: "부작용 툴",
-  provenance: "인수 출처",
+  not: "NOT",
   verdict: "판정",
 };
 
@@ -208,6 +207,27 @@ export function PlaygroundResult({ run }: { run: PlaygroundRun }) {
         </section>
       ) : null}
 
+      {run.result.toolCalls.length > 0 ? (
+        <section className={styles.resultSection} aria-labelledby="tool-calls-title">
+          <SectionHeader id="tool-calls-title">모델 툴 호출</SectionHeader>
+          <div className={styles.toolCallList}>
+            {run.result.toolCalls.map((call, index) => {
+              const view = toolCallView(call, index);
+              return (
+                <article key={view.key}>
+                  <header>
+                    <strong>{view.name}</strong>
+                    <code>{view.id}</code>
+                  </header>
+                  <span>arguments</span>
+                  <pre>{view.arguments}</pre>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
       <section className={styles.resultSection} aria-labelledby="response-title">
         <SectionHeader id="response-title">최종 응답</SectionHeader>
         <TextDiffPair
@@ -217,12 +237,6 @@ export function PlaygroundResult({ run }: { run: PlaygroundRun }) {
           rawLabel="rawContent"
           appliedLabel="appliedContent"
         />
-        {run.result.toolCalls.length > 0 ? (
-          <div className={styles.toolCalls}>
-            <span>toolCalls</span>
-            <pre>{JSON.stringify(run.result.toolCalls, null, 2)}</pre>
-          </div>
-        ) : null}
       </section>
     </section>
   );
@@ -433,8 +447,17 @@ function nodeFacts(node: GuardrailNode): Array<{ label: string; value: string }>
   const config = node.config;
   switch (node.type) {
     case "extract":
-    case "taint":
-      return textFact("checkpoint", config.checkpoint);
+      return [
+        ...textFact("from", config.from ?? legacyExtractSource(config.checkpoint)),
+        ...textFact("at", config.at ?? config.checkpoint),
+      ];
+    case "tool_extract": {
+      const selector = toolSelectorFact(config.tools);
+      return [
+        { label: "tools", value: selector },
+        ...textFact("field", config.field),
+      ];
+    }
     case "transform":
       return textFact("op", config.op);
     case "regex":
@@ -445,24 +468,8 @@ function nodeFacts(node: GuardrailNode): Array<{ label: string; value: string }>
         ...textFact("strictness", config.strictness),
         ...textFact("checkpoint", config.checkpoint),
       ];
-    case "side_effect":
-      return [
-        ...textFact("checkpoint", config.checkpoint),
-        {
-          label: "read_only",
-          value: Array.isArray(config.read_only)
-            ? config.read_only.filter((item) => typeof item === "string").join(", ") || "—"
-            : "—",
-        },
-      ];
-    case "provenance":
-      return [
-        ...textFact("checkpoint", config.checkpoint),
-        {
-          label: "min_length",
-          value: typeof config.min_length === "number" ? String(config.min_length) : "8",
-        },
-      ];
+    case "not":
+      return [];
     case "verdict":
       return [
         ...textFact("action", config.action),
@@ -491,4 +498,45 @@ function tierLabel(tier: string): string {
   if (tier === "rule" || tier === "rules") return "rules";
   if (tier === "model") return "model";
   return tier || "—";
+}
+
+function toolCallView(call: Record<string, unknown>, index: number) {
+  const definition = isRecord(call.function) ? call.function : {};
+  const id = typeof call.id === "string" ? call.id : `tool-call-${index + 1}`;
+  const name =
+    typeof definition.name === "string" ? definition.name : "이름 없는 툴";
+  const args = definition.arguments;
+  return {
+    key: `${id}-${index}`,
+    id,
+    name,
+    arguments:
+      typeof args === "string"
+        ? args
+        : args === undefined
+          ? "(없음)"
+          : JSON.stringify(args, null, 2),
+  };
+}
+
+function legacyExtractSource(value: unknown): unknown {
+  if (value === "input") return "user_text";
+  if (value === "tool_result") return "tool_result";
+  if (value === "output") return "output_text";
+  return value;
+}
+
+function toolSelectorFact(value: unknown): string {
+  if (!isRecord(value)) return "exclude: []";
+  for (const mode of ["exclude", "include"] as const) {
+    const names = value[mode];
+    if (Array.isArray(names)) {
+      return `${mode}: [${names.filter((name) => typeof name === "string").join(", ")}]`;
+    }
+  }
+  return "exclude: []";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

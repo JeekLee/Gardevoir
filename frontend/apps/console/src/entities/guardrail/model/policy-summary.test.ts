@@ -7,14 +7,19 @@ import {
 } from "./policy-summary";
 
 describe("guardrail policy copy", () => {
-  it("explains tainted side effects in operator language", () => {
+  it("explains tool-result side effects in operator language", () => {
     const graph: GuardrailGraph = {
       nodes: [
-        { id: "tainted", type: "taint", config: { checkpoint: "tool_call" } },
+        {
+          id: "tainted",
+          type: "extract",
+          config: { from: "tool_result", at: "tool_call" },
+        },
+        { id: "tainted-check", type: "regex", config: { pattern: "." } },
         {
           id: "side-effect",
-          type: "side_effect",
-          config: { checkpoint: "tool_call", read_only: [] },
+          type: "tool_extract",
+          config: { tools: { exclude: [] }, field: "name" },
         },
         {
           id: "block",
@@ -33,7 +38,11 @@ describe("guardrail policy copy", () => {
   it("explains output pattern masking", () => {
     const graph: GuardrailGraph = {
       nodes: [
-        { id: "output", type: "extract", config: { checkpoint: "output" } },
+        {
+          id: "output",
+          type: "extract",
+          config: { from: "output_text", at: "output" },
+        },
         { id: "pattern", type: "regex", config: { pattern: "secret" } },
         { id: "mask", type: "verdict", config: { action: "mask" } },
       ],

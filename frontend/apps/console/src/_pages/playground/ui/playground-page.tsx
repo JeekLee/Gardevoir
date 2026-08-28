@@ -20,6 +20,7 @@ import {
   testGuardrail,
   type GuardrailGraph,
   type GuardrailTestInput,
+  type GuardrailTestMessage,
   type GuardrailTestMode,
 } from "@/src/entities/guardrail";
 import { useProviders } from "@/src/entities/provider";
@@ -32,7 +33,12 @@ import {
 import { randomId } from "@/src/shared/lib";
 
 import {
+  addToolDefinitionPreset,
+  injectionScenario,
+  parseToolDefinitionsJson,
   providerModelOptions,
+  toolDefinitionPresets,
+  type ToolDefinitionPreset,
   type PlaygroundRun,
 } from "../model/playground";
 import { PlaygroundResult } from "./playground-result";
@@ -52,6 +58,12 @@ type RunVariables = {
   input: GuardrailTestInput;
 };
 
+type ToolResultDraft = {
+  id: string;
+  toolCallId: string;
+  content: string;
+};
+
 export function PlaygroundPage() {
   const { session } = useSession();
   if (!session) return null;
@@ -67,6 +79,9 @@ function PlaygroundWorkspace({ accessToken }: { accessToken: string }) {
   const [mode, setMode] = useState<GuardrailTestMode>("enforce");
   const [message, setMessage] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [toolsJson, setToolsJson] = useState("");
+  const [toolChoice, setToolChoice] = useState("auto");
+  const [toolResults, setToolResults] = useState<ToolResultDraft[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
   const [runError, setRunError] = useState<ConsoleApiError | null>(null);
   const [run, setRun] = useState<PlaygroundRun | null>(null);
@@ -125,6 +140,13 @@ function PlaygroundWorkspace({ accessToken }: { accessToken: string }) {
   const selectedModel = modelOptions.some((option) => option.model === model)
     ? model
     : (modelOptions[0]?.model ?? "");
+  const parsedTools = useMemo(
+    () => parseToolDefinitionsJson(toolsJson),
+    [toolsJson],
+  );
+  const selectedToolChoice = parsedTools.names.includes(toolChoice)
+    ? toolChoice
+    : "auto";
 
   const mutation = useMutation({
     mutationFn: async ({ name, input, graph, mode: runMode }: RunVariables) => ({
@@ -162,13 +184,27 @@ function PlaygroundWorkspace({ accessToken }: { accessToken: string }) {
       selectedVersion === null ||
       !selectedModel ||
       !detailQuery.data ||
-      (!message.trim() && images.length === 0)
+      (!message.trim() && images.length === 0 && toolResults.length === 0) ||
+      parsedTools.error ||
+      toolResults.some(
+        (result) => !result.toolCallId.trim() || !result.content.trim(),
+      )
     ) {
       return;
     }
 
     setRunError(null);
-    const content = requestContent(message, images);
+    const messages: GuardrailTestMessage[] = [];
+    if (message.trim() || images.length > 0) {
+      messages.push({ role: "user", content: requestContent(message, images) });
+    }
+    messages.push(
+      ...toolResults.map((result) => ({
+        role: "tool" as const,
+        content: result.content,
+        tool_call_id: result.toolCallId.trim(),
+      })),
+    );
     try {
       const next = await mutation.mutateAsync({
         name: selectedGuardrail,
@@ -176,9 +212,19 @@ function PlaygroundWorkspace({ accessToken }: { accessToken: string }) {
         mode,
         input: {
           model: selectedModel,
-          messages: [{ role: "user", content }],
+          messages,
           version: String(selectedVersion),
           mode,
+          tools: parsedTools.tools.length > 0 ? parsedTools.tools : undefined,
+          toolChoice:
+            parsedTools.tools.length === 0
+              ? undefined
+              : selectedToolChoice === "auto"
+                ? "auto"
+                : {
+                    type: "function",
+                    function: { name: selectedToolChoice },
+                  },
         },
       });
       setRun(next);
@@ -208,10 +254,51 @@ function PlaygroundWorkspace({ accessToken }: { accessToken: string }) {
     }
   }
 
+  function addToolPreset(presetId: ToolDefinitionPreset["id"]) {
+    setToolsJson((current) => addToolDefinitionPreset(current, presetId));
+    setRun(null);
+  }
+
+  function addToolResult() {
+    setToolResults((current) => [
+      ...current,
+      { id: randomId(), toolCallId: "", content: "" },
+    ]);
+  }
+
+  function updateToolResult(
+    id: string,
+    field: "toolCallId" | "content",
+    value: string,
+  ) {
+    setToolResults((current) =>
+      current.map((result) =>
+        result.id === id ? { ...result, [field]: value } : result,
+      ),
+    );
+  }
+
+  function applyInjectionScenario() {
+    setMessage(injectionScenario.message);
+    setImages([]);
+    setToolsJson(addToolDefinitionPreset("", "send_email"));
+    setToolChoice(injectionScenario.toolChoice);
+    setToolResults([
+      {
+        id: randomId(),
+        toolCallId: injectionScenario.toolCallId,
+        content: injectionScenario.toolResult,
+      },
+    ]);
+    setRun(null);
+    setRunError(null);
+  }
+
   const listError = visibleError(guardrailsQuery.error);
   const versionsError = visibleError(versionsQuery.error);
   const detailError = visibleError(detailQuery.error);
-  const hasInput = message.trim().length > 0 || images.length > 0;
+  const hasInput =
+    message.trim().length > 0 || images.length > 0 || toolResults.length > 0;
   const isBusy = mutation.isPending;
 
   return (
@@ -392,6 +479,138 @@ function PlaygroundWorkspace({ accessToken }: { accessToken: string }) {
             ) : null}
           </div>
 
+          <section className={styles.toolScenario} aria-labelledby="tool-scenario-title">
+            <div className={styles.toolScenarioHeader}>
+              <h2 id="tool-scenario-title">툴 시나리오</h2>
+              <button
+                type="button"
+                onClick={applyInjectionScenario}
+                disabled={isBusy}
+              >
+                인젝션 시연
+              </button>
+            </div>
+
+            <div className={styles.toolDefinitions}>
+              <span id="tool-definitions-label">툴 정의</span>
+              <div className={styles.toolPresets} aria-label="툴 정의 프리셋">
+                {toolDefinitionPresets.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => addToolPreset(preset.id)}
+                    disabled={isBusy}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={toolsJson}
+                onChange={(event) => {
+                  setToolsJson(event.target.value);
+                  setRun(null);
+                }}
+                rows={12}
+                spellCheck={false}
+                disabled={isBusy}
+                aria-invalid={Boolean(parsedTools.error)}
+                aria-labelledby="tool-definitions-label"
+                placeholder="[]"
+              />
+              {parsedTools.error ? (
+                <small className={styles.scenarioError} role="alert">
+                  {parsedTools.error}
+                </small>
+              ) : null}
+            </div>
+
+            <label className={styles.toolChoice}>
+              <span>tool_choice</span>
+              <select
+                value={selectedToolChoice}
+                onChange={(event) => {
+                  setToolChoice(event.target.value);
+                  setRun(null);
+                }}
+                disabled={isBusy || parsedTools.names.length === 0}
+              >
+                <option value="auto">auto</option>
+                {parsedTools.names.map((name) => (
+                  <option key={name} value={name}>
+                    {name} 강제
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className={styles.toolResults}>
+              <div className={styles.toolResultsHeader}>
+                <span>이전 툴 결과</span>
+                <button type="button" onClick={addToolResult} disabled={isBusy}>
+                  결과 추가
+                </button>
+              </div>
+              {toolResults.length === 0 ? (
+                <p>없음</p>
+              ) : (
+                <ul>
+                  {toolResults.map((result, index) => (
+                    <li key={result.id}>
+                      <div>
+                        <strong>role: tool · {index + 1}</strong>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setToolResults((current) =>
+                              current.filter((item) => item.id !== result.id),
+                            )
+                          }
+                          disabled={isBusy}
+                          aria-label={`이전 툴 결과 ${index + 1} 삭제`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <label>
+                        <span>tool_call_id</span>
+                        <input
+                          value={result.toolCallId}
+                          onChange={(event) =>
+                            updateToolResult(
+                              result.id,
+                              "toolCallId",
+                              event.target.value,
+                            )
+                          }
+                          required
+                          disabled={isBusy}
+                          placeholder="call_..."
+                        />
+                      </label>
+                      <label>
+                        <span>내용</span>
+                        <textarea
+                          value={result.content}
+                          onChange={(event) =>
+                            updateToolResult(
+                              result.id,
+                              "content",
+                              event.target.value,
+                            )
+                          }
+                          rows={4}
+                          required
+                          disabled={isBusy}
+                        />
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+
           {runError ? (
             <div className={styles.runError} role="alert">
               <span>{runError.message}</span>
@@ -408,7 +627,11 @@ function PlaygroundWorkspace({ accessToken }: { accessToken: string }) {
               !selectedGuardrail ||
               selectedVersion === null ||
               !selectedModel ||
-              !detailQuery.data
+              !detailQuery.data ||
+              Boolean(parsedTools.error) ||
+              toolResults.some(
+                (result) => !result.toolCallId.trim() || !result.content.trim(),
+              )
             }
           >
             {isBusy ? "판정 중…" : "실행"}

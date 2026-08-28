@@ -142,10 +142,8 @@ function SelectedNodeInspector({
     onConfigChange(domainNode.id, { ...domainNode.config, [key]: value });
   }
 
-  function removeConfig(key: string) {
-    const next = { ...domainNode.config };
-    delete next[key];
-    onConfigChange(domainNode.id, next);
+  function replaceConfig(config: Record<string, unknown>) {
+    onConfigChange(domainNode.id, config);
   }
 
   return (
@@ -172,7 +170,7 @@ function SelectedNodeInspector({
           node={domainNode}
           checkpoint={node.data.checkpoint}
           setConfig={setConfig}
-          removeConfig={removeConfig}
+          replaceConfig={replaceConfig}
           modelContributesToVerdict={modelContributesToVerdict}
         />
       </fieldset>
@@ -263,19 +261,127 @@ function ConfigFields({
   node,
   checkpoint,
   setConfig,
-  removeConfig,
+  replaceConfig,
   modelContributesToVerdict,
 }: {
   node: GuardrailNode;
   checkpoint: Checkpoint;
   setConfig: (key: string, value: unknown) => void;
-  removeConfig: (key: string) => void;
+  replaceConfig: (config: Record<string, unknown>) => void;
   modelContributesToVerdict: boolean;
 }) {
   switch (node.type) {
-    case "extract":
-    case "taint":
-      return <FixedCheckpoint checkpoint={checkpoint} />;
+    case "extract": {
+      const from = extractSource(node.config);
+      const at = checkpointValue(node.config.at) ?? checkpointValue(node.config.checkpoint) ?? checkpoint;
+      const setExtractConfig = (key: "from" | "at", value: string) => {
+        const next = { ...node.config, from, at, [key]: value };
+        delete next.checkpoint;
+        replaceConfig(next);
+      };
+      return (
+        <>
+          <label>
+            <span>추출 대상</span>
+            <select
+              value={from}
+              onChange={(event) => setExtractConfig("from", event.target.value)}
+            >
+              <option value="user_text">user_text · 사용자 텍스트</option>
+              <option value="tool_result">tool_result · 툴 결과</option>
+              <option value="trusted_text">trusted_text · 신뢰 텍스트</option>
+              <option value="output_text">output_text · 출력 텍스트</option>
+            </select>
+          </label>
+          <label>
+            <span>검사 지점</span>
+            <select
+              value={at}
+              onChange={(event) => setExtractConfig("at", event.target.value)}
+            >
+              <option value="input">① input · 입력</option>
+              <option value="tool_result">② tool_result · 툴 결과</option>
+              <option value="output">③ output · 출력</option>
+              <option value="tool_call">④ tool_call · 툴 호출</option>
+            </select>
+          </label>
+        </>
+      );
+    }
+    case "tool_extract": {
+      const selector = toolSelector(node.config.tools);
+      const field = stringValue(node.config.field);
+      const fieldMode = field === "name" || field === "arguments" ? field : "path";
+      return (
+        <>
+          <FixedCheckpoint checkpoint="tool_call" />
+          <label>
+            <span>툴 선택</span>
+            <select
+              value={selector.mode}
+              onChange={(event) =>
+                setConfig("tools", {
+                  [event.target.value]: selector.names,
+                })
+              }
+            >
+              <option value="exclude">exclude · 제외</option>
+              <option value="include">include · 포함</option>
+            </select>
+            <small>
+              {selector.mode === "exclude"
+                ? "기본값 · 목록에 없는 툴이 검사 대상입니다."
+                : "목록에 있는 툴만 검사 대상입니다."}
+            </small>
+          </label>
+          <label>
+            <span>툴 이름 목록</span>
+            <textarea
+              value={selector.names.join("\n")}
+              onChange={(event) =>
+                setConfig("tools", {
+                  [selector.mode]: splitToolNames(event.target.value),
+                })
+              }
+              rows={5}
+              spellCheck={false}
+              placeholder={"read_file\nweb_search"}
+            />
+          </label>
+          <label>
+            <span>필드</span>
+            <select
+              value={fieldMode}
+              onChange={(event) => {
+                const value = event.target.value;
+                setConfig("field", value === "path" ? "" : value);
+              }}
+            >
+              <option value="name">name · 툴 이름</option>
+              <option value="arguments">arguments · 전체 인수</option>
+              <option value="path">경로 직접 입력</option>
+            </select>
+          </label>
+          {fieldMode === "path" ? (
+            <label>
+              <span>인수 경로</span>
+              <input
+                value={field}
+                onChange={(event) => setConfig("field", event.target.value)}
+                spellCheck={false}
+                aria-invalid={!field.trim()}
+                placeholder="to · payload.meta.id · cc[*]"
+              />
+              {!field.trim() ? (
+                <small className={styles.fieldError} role="alert">
+                  인수 경로는 필수입니다.
+                </small>
+              ) : null}
+            </label>
+          ) : null}
+        </>
+      );
+    }
     case "regex":
       return (
         <label>
@@ -342,6 +448,8 @@ function ConfigFields({
           </select>
         </label>
       );
+    case "not":
+      return <span>설정 없음</span>;
     case "verdict":
       return (
         <>
@@ -371,52 +479,6 @@ function ConfigFields({
               <option value="all">모두 충족(AND)</option>
             </select>
             <small>연결된 Check가 판정을 발동하는 방식을 선택합니다.</small>
-          </label>
-        </>
-      );
-    case "side_effect":
-      return (
-        <>
-          <FixedCheckpoint checkpoint={checkpoint} />
-          <label>
-            <span>읽기 전용 툴</span>
-            <textarea
-              value={stringList(node.config.read_only).join("\n")}
-              onChange={(event) =>
-                setConfig("read_only", splitToolNames(event.target.value))
-              }
-              rows={5}
-              spellCheck={false}
-              placeholder={"read_file\nweb_search"}
-            />
-            <small>
-              한 줄에 툴 하나를 입력하세요. 목록에 없는 툴은 부작용이 있는
-              것으로 처리합니다.
-            </small>
-          </label>
-        </>
-      );
-    case "provenance":
-      return (
-        <>
-          <FixedCheckpoint checkpoint={checkpoint} />
-          <label>
-            <span>최소 인수 길이</span>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={optionalNumberValue(node.config.min_length)}
-              onChange={(event) => {
-                if (!event.target.value) {
-                  removeConfig("min_length");
-                  return;
-                }
-                setConfig("min_length", Number(event.target.value));
-              }}
-              placeholder="8"
-            />
-            <small>비워 두면 게이트웨이 기본값인 8자를 사용합니다.</small>
           </label>
         </>
       );
@@ -466,19 +528,55 @@ function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-function optionalNumberValue(value: unknown): number | "" {
-  return typeof value === "number" ? value : "";
-}
-
-function stringList(value: unknown): string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string")
-    ? value
-    : [];
-}
-
 function splitToolNames(value: string): string[] {
   return value
     .split(/[\n,]/)
     .map((name) => name.trim())
     .filter(Boolean);
+}
+
+function extractSource(config: Record<string, unknown>): string {
+  if (
+    config.from === "user_text" ||
+    config.from === "tool_result" ||
+    config.from === "trusted_text" ||
+    config.from === "output_text"
+  ) {
+    return config.from;
+  }
+  if (config.checkpoint === "input") return "user_text";
+  if (config.checkpoint === "output") return "output_text";
+  return "tool_result";
+}
+
+function checkpointValue(value: unknown): Checkpoint | null {
+  return value === "input" ||
+    value === "tool_result" ||
+    value === "tool_call" ||
+    value === "output"
+    ? value
+    : null;
+}
+
+function toolSelector(value: unknown): {
+  mode: "exclude" | "include";
+  names: string[];
+} {
+  if (isRecord(value) && Array.isArray(value.include)) {
+    return {
+      mode: "include",
+      names: value.include.filter((name): name is string => typeof name === "string"),
+    };
+  }
+  return {
+    mode: "exclude",
+    names:
+      isRecord(value) && Array.isArray(value.exclude)
+        ? value.exclude.filter((name): name is string => typeof name === "string")
+        : [],
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

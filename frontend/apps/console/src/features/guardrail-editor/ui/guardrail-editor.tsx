@@ -23,6 +23,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  checkpoints,
   guardrailKeys,
   publishGuardrail,
   updateGuardrailDraft,
@@ -66,6 +67,7 @@ import {
   graphFingerprint,
   mergeCanonicalGraph,
   normalizeGuardrailGraph,
+  refreshEditorCheckpoints,
   toEditorGraph,
   toGuardrailGraph,
   type EditorGraph,
@@ -348,21 +350,29 @@ export function GuardrailEditor({
   }
 
   function updateNodeConfig(nodeId: string, config: Record<string, unknown>) {
-    setGraph((current) => ({
-      ...current,
-      nodes: current.nodes.map((node) =>
-        node.id === nodeId
-          ? {
-              ...node,
-              data: {
-                ...node.data,
-                domainNode: { ...node.data.domainNode, config },
-                validationMessage: undefined,
-              },
-            }
-          : node,
-      ),
-    }));
+    setGraph((current) =>
+      refreshEditorCheckpoints({
+        ...current,
+        nodes: current.nodes.map((node) =>
+          node.id === nodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  domainNode: { ...node.data.domainNode, config },
+                  validationMessage: undefined,
+                },
+              }
+            : node,
+        ),
+      }),
+    );
+    if (
+      typeof config.at === "string" &&
+      checkpoints.some((checkpoint) => checkpoint === config.at)
+    ) {
+      setActiveTab(config.at as Checkpoint);
+    }
     setGraphError(null);
   }
 
@@ -503,9 +513,7 @@ export function GuardrailEditor({
     const first = errors[0];
     selectAndFocusNode(first.nodeId);
     setGraphError({ message: first.message });
-    setStatus(
-      `초안을 저장하기 전에 MODEL 검사 ${errors.length}개의 필수 정책 질의를 입력하세요.`,
-    );
+    setStatus(`초안을 저장하기 전에 노드 설정 ${errors.length}개를 확인하세요.`);
     return false;
   }
 

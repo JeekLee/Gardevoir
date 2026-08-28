@@ -14,20 +14,33 @@ export type GuardrailTemplate = {
 export const guardrailTemplates: GuardrailTemplate[] = [
   {
     id: "tainted-side-effect",
-    name: "오염 데이터에서 행동 차단",
-    description: "외부(툴 결과) 데이터가 섞인 대화에서 부작용 툴 호출을 차단합니다.",
+    name: "외부 데이터 유입 후 부작용 툴",
+    description: "툴 결과가 들어온 뒤 부작용 툴 호출을 차단합니다.",
     checkpoints: ["tool_result", "tool_call"],
     graph: {
       nodes: [
         {
-          id: "tainted",
-          type: "taint",
-          config: { checkpoint: "tool_call" },
+          id: "tool-result-history",
+          type: "extract",
+          config: { from: "tool_result", at: "tool_call" },
         },
         {
-          id: "side-effect",
-          type: "side_effect",
-          config: { checkpoint: "tool_call", read_only: [] },
+          id: "has-tool-result",
+          type: "regex",
+          config: { pattern: "." },
+        },
+        {
+          id: "side-effect-tool",
+          type: "tool_extract",
+          config: {
+            tools: { exclude: ["read_file", "web_search"] },
+            field: "name",
+          },
+        },
+        {
+          id: "has-side-effect-tool",
+          type: "regex",
+          config: { pattern: "." },
         },
         {
           id: "block",
@@ -36,8 +49,10 @@ export const guardrailTemplates: GuardrailTemplate[] = [
         },
       ],
       edges: [
-        { src: "tainted", dst: "block" },
-        { src: "side-effect", dst: "block" },
+        { src: "tool-result-history", dst: "has-tool-result" },
+        { src: "has-tool-result", dst: "block" },
+        { src: "side-effect-tool", dst: "has-side-effect-tool" },
+        { src: "has-side-effect-tool", dst: "block" },
       ],
     },
   },
@@ -51,7 +66,7 @@ export const guardrailTemplates: GuardrailTemplate[] = [
         {
           id: "output-text",
           type: "extract",
-          config: { checkpoint: "output" },
+          config: { from: "output_text", at: "output" },
         },
         {
           id: "ssn",
@@ -80,7 +95,7 @@ export const guardrailTemplates: GuardrailTemplate[] = [
         {
           id: "input-text",
           type: "extract",
-          config: { checkpoint: "input" },
+          config: { from: "user_text", at: "input" },
         },
         {
           id: "too-long",
@@ -100,16 +115,29 @@ export const guardrailTemplates: GuardrailTemplate[] = [
     },
   },
   {
-    id: "external-argument",
-    name: "외부 인수 출처 차단",
-    description: "툴 호출 인수가 외부 툴 결과에서 온 것이면 차단합니다.",
-    checkpoints: ["tool_result", "tool_call"],
+    id: "external-email-domain",
+    name: "허용 도메인 외 발신 차단",
+    description: "사내 도메인 밖의 수신 주소를 차단합니다.",
+    checkpoints: ["tool_call"],
     graph: {
       nodes: [
         {
-          id: "external-arg",
-          type: "provenance",
-          config: { checkpoint: "tool_call", min_length: 8 },
+          id: "email-to",
+          type: "tool_extract",
+          config: {
+            tools: { exclude: ["read_file", "web_search"] },
+            field: "to",
+          },
+        },
+        {
+          id: "company-domain",
+          type: "regex",
+          config: { pattern: "@company\\.com$" },
+        },
+        {
+          id: "outside-company",
+          type: "not",
+          config: {},
         },
         {
           id: "block",
@@ -117,7 +145,11 @@ export const guardrailTemplates: GuardrailTemplate[] = [
           config: { action: "block", combine: "any" },
         },
       ],
-      edges: [{ src: "external-arg", dst: "block" }],
+      edges: [
+        { src: "email-to", dst: "company-domain" },
+        { src: "company-domain", dst: "outside-company" },
+        { src: "outside-company", dst: "block" },
+      ],
     },
   },
 ];

@@ -12,3 +12,5 @@ class TestGuardrail(CamelModel):
     messages: list[dict] = Field(min_length=1)
     version: str = DRAFT_VERSION
     mode: Mode = Mode.ENFORCE
+    tools: list[dict] | None = None
+    tool_choice: dict | str | None = None

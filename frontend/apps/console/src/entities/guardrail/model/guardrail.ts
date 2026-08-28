@@ -21,13 +21,12 @@ export type ModelStrictness = (typeof modelStrictnesses)[number];
 
 export const nodeTypes = [
   "extract",
+  "tool_extract",
   "regex",
   "model",
+  "not",
   "transform",
   "verdict",
-  "taint",
-  "side_effect",
-  "provenance",
 ] as const;
 
 export type GuardrailNodeType = (typeof nodeTypes)[number];

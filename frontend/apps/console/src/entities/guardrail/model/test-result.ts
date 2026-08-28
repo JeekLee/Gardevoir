@@ -55,14 +55,32 @@ export type GuardrailTestContentPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string } };
 
+export type GuardrailTestMessage =
+  | {
+      role: "user";
+      content: string | GuardrailTestContentPart[];
+    }
+  | {
+      role: "tool";
+      content: string;
+      tool_call_id: string;
+    };
+
+export type GuardrailTestToolChoice =
+  | "auto"
+  | "none"
+  | {
+      type: "function";
+      function: { name: string };
+    };
+
 export type GuardrailTestInput = {
   model: string;
-  messages: Array<{
-    role: "user";
-    content: string | GuardrailTestContentPart[];
-  }>;
+  messages: GuardrailTestMessage[];
   version: string;
   mode: GuardrailTestMode;
+  tools?: Record<string, unknown>[];
+  toolChoice?: GuardrailTestToolChoice;
 };
 
 export function parseGuardrailTestResult(value: unknown): GuardrailTestResult {

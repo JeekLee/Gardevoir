@@ -1,19 +1,25 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
-import { canEmit, checkpointMeta, incomingRange, nodeCatalogByType, nodeSummary } from "../model/catalog";
+import {
+  canEmit,
+  checkpointMeta,
+  incomingRange,
+  nodeCatalogByType,
+  nodeSummary,
+} from "../model/catalog";
 import type { GuardrailFlowNode } from "../model/graph-mapper";
 import styles from "./guardrail-editor.module.css";
 
-export function GuardrailNodeCard({ data, selected }: NodeProps<GuardrailFlowNode>) {
+export function GuardrailNodeCard({
+  data,
+  selected,
+}: NodeProps<GuardrailFlowNode>) {
   const { domainNode } = data;
   const catalog = nodeCatalogByType[domainNode.type];
   const acceptsInput = incomingRange(domainNode.type).max !== 0;
   const hasError = Boolean(data.validationMessage);
   const testHighlight = data.testHighlight;
-  const actionNode =
-    domainNode.type === "taint" ||
-    domainNode.type === "side_effect" ||
-    domainNode.type === "provenance";
+  const actionNode = domainNode.type === "tool_extract";
 
   return (
     <article

@@ -68,7 +68,7 @@ class GuardrailTestService:
         completion = await self._proxy_service.test(
             plan=plan,
             mode=cmd.mode,
-            payload=orjson.dumps({"model": cmd.model, "messages": cmd.messages, "stream": False}),
+            payload=orjson.dumps(_payload(cmd, stream=False)),
         )
 
         blocked = completion.blocked_before_upstream or completion.blocked_after_upstream
@@ -94,13 +94,7 @@ class GuardrailTestService:
     async def stream(self, name: str, cmd: TestGuardrail) -> AsyncIterator[GuardrailTestStream]:
         """Compile before opening SSE, then relay the draft through the requested mode."""
         detail, guardrail, plan = await self._prepare(name, cmd.version)
-        payload = orjson.dumps(
-            {
-                "model": cmd.model,
-                "messages": cmd.messages,
-                "stream": True,
-            }
-        )
+        payload = orjson.dumps(_payload(cmd, stream=True))
         cm = self._proxy_service.test_stream(plan=plan, mode=cmd.mode, payload=payload)
         proxy_stream = await cm.__aenter__()
         try:
@@ -139,6 +133,15 @@ class GuardrailTestService:
         )
         guardrail.validate()
         return detail, guardrail, compile_guardrail(guardrail)
+
+
+def _payload(cmd: TestGuardrail, *, stream: bool) -> dict:
+    payload = {"model": cmd.model, "messages": cmd.messages, "stream": stream}
+    if cmd.tools is not None:
+        payload["tools"] = cmd.tools
+    if cmd.tool_choice is not None:
+        payload["tool_choice"] = cmd.tool_choice
+    return payload
 
 
 def _stream_pre(*, guardrail: Guardrail, pre: GuardrailTestStreamingPre) -> GuardrailTestPre:

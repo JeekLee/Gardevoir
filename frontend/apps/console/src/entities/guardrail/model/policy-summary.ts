@@ -30,11 +30,16 @@ export function describeGuardrailGraph(graph: GuardrailGraph): string {
   const { coveredCheckpoints, actions } = projectGraph(graph);
   const action = actionPhrase(actions);
 
-  if (nodeTypes.has("taint") && nodeTypes.has("side_effect")) {
+  if (
+    nodeTypes.has("tool_extract") &&
+    graph.nodes.some(
+      (node) =>
+        node.type === "extract" &&
+        node.config.from === "tool_result" &&
+        node.config.at === "tool_call",
+    )
+  ) {
     return `오염된 대화에서 부작용 툴 호출을 ${action}합니다 (② → ④).`;
-  }
-  if (nodeTypes.has("provenance")) {
-    return `외부 툴 결과에서 온 인수의 툴 호출을 ${action}합니다 (② → ④).`;
   }
   if (nodeTypes.has("regex") && coveredCheckpoints.includes("output")) {
     return `출력에서 패턴이 매칭되면 ${action}합니다 (③).`;
@@ -79,8 +84,10 @@ function projectGraph(graph: GuardrailGraph): {
   const actions = new Set<GuardrailAction>();
 
   for (const node of graph.nodes) {
-    if (node.type === "side_effect" || node.type === "provenance") {
+    if (node.type === "tool_extract") {
       covered.add("tool_call");
+    } else if (isCheckpoint(node.config.at)) {
+      covered.add(node.config.at);
     } else if (isCheckpoint(node.config.checkpoint)) {
       covered.add(node.config.checkpoint);
     }

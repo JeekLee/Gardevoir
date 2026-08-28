@@ -47,7 +47,11 @@
 .queryField > span,
 .imageFieldHeader > span,
 .diffBlock > span,
-.toolCalls > span {
+.toolDefinitions > span,
+.toolChoice > span,
+.toolResultsHeader > span,
+.toolResults label > span,
+.toolCallList article > span {
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 0.62rem;
@@ -204,6 +208,161 @@
 .imageError {
   color: var(--danger-strong);
   font-size: 0.68rem;
+}
+
+.toolScenario {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+  padding-top: 0.9rem;
+}
+
+.toolScenarioHeader,
+.toolResultsHeader {
+  align-items: center;
+  display: flex;
+  gap: 0.65rem;
+  justify-content: space-between;
+}
+
+.toolScenarioHeader h2 {
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  letter-spacing: -0.02em;
+}
+
+.toolScenarioHeader button,
+.toolPresets button,
+.toolResultsHeader button {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.3rem;
+  color: var(--muted-strong);
+  cursor: pointer;
+  font-size: 0.63rem;
+  font-weight: 800;
+  min-height: 2rem;
+  padding: 0 0.55rem;
+}
+
+.toolScenarioHeader button:hover:not(:disabled),
+.toolPresets button:hover:not(:disabled),
+.toolResultsHeader button:hover:not(:disabled) {
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.toolScenario button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.toolDefinitions,
+.toolChoice,
+.toolResults label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.toolDefinitions textarea,
+.toolChoice select,
+.toolResults input,
+.toolResults textarea {
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  min-width: 0;
+  padding: 0.65rem 0.7rem;
+  width: 100%;
+}
+
+.toolDefinitions textarea,
+.toolResults textarea {
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+
+.toolChoice select,
+.toolResults input {
+  min-height: 2.55rem;
+}
+
+.toolDefinitions textarea:focus,
+.toolChoice select:focus,
+.toolResults input:focus,
+.toolResults textarea:focus {
+  border-color: var(--brand);
+}
+
+.toolPresets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.scenarioError {
+  color: var(--danger-strong);
+  font-size: 0.66rem;
+}
+
+.toolResults {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.toolResults > p {
+  color: var(--placeholder);
+  font-size: 0.66rem;
+}
+
+.toolResults ul {
+  display: grid;
+  gap: 0.55rem;
+  list-style: none;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.toolResults li {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.65rem;
+}
+
+.toolResults li > div {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.toolResults li strong {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+}
+
+.toolResults li > div button {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.toolResults li > div button:hover:not(:disabled) {
+  color: var(--danger-strong);
 }
 
 .runButton {
@@ -689,7 +848,7 @@
 }
 
 .diffBlock pre,
-.toolCalls pre {
+.toolCallList pre {
   color: var(--text);
   font-family: var(--font-mono);
   font-size: 0.66rem;
@@ -767,12 +926,39 @@
   font-family: var(--font-mono);
 }
 
-.toolCalls {
-  border-top: 1px solid var(--border);
+.toolCallList {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.toolCallList article {
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: 0.3rem;
   display: grid;
   gap: 0.45rem;
   min-width: 0;
-  padding-top: 0.7rem;
+  padding: 0.7rem;
+}
+
+.toolCallList article > header {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.toolCallList article > header strong {
+  font-size: 0.72rem;
+}
+
+.toolCallList article > header code {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 1120px) {
@@ -845,5 +1031,14 @@
 
   .imageButton {
     justify-content: center;
+  }
+
+  .toolScenarioHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .toolScenarioHeader button {
+    width: 100%;
   }
 }

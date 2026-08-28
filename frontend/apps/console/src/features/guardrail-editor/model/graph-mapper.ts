@@ -86,6 +86,20 @@ export function mergeCanonicalGraph(
   return toEditorGraph(graph, positions);
 }
 
+export function refreshEditorCheckpoints(graph: EditorGraph): EditorGraph {
+  const resolved = resolveCheckpoints(toGuardrailGraph(graph));
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        checkpoint: resolved.get(node.id) ?? node.data.checkpoint,
+      },
+    })),
+  };
+}
+
 export function graphFingerprint(graph: GuardrailGraph): string {
   return JSON.stringify(graph);
 }
@@ -105,7 +119,7 @@ function resolveCheckpoints(graph: GuardrailGraph): Map<string, Checkpoint> {
 
     const node = nodeById.get(nodeId);
     if (!node) return null;
-    const configured = readCheckpoint(node.config.checkpoint);
+    const configured = configuredCheckpoint(node);
     if (configured) {
       resolved.set(nodeId, configured);
       return configured;
@@ -174,6 +188,11 @@ function layoutPositions(
     });
   }
   return positions;
+}
+
+function configuredCheckpoint(node: GuardrailNode): Checkpoint | null {
+  if (node.type === "tool_extract") return "tool_call";
+  return readCheckpoint(node.config.at) ?? readCheckpoint(node.config.checkpoint);
 }
 
 function readCheckpoint(value: unknown): Checkpoint | null {

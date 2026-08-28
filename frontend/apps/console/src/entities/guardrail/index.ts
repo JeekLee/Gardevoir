@@ -37,9 +37,11 @@ export {
   type GuardrailTestContentPart,
   type GuardrailTestEvidence,
   type GuardrailTestInput,
+  type GuardrailTestMessage,
   type GuardrailTestMode,
   type GuardrailTestPre,
   type GuardrailTestResult,
+  type GuardrailTestToolChoice,
 } from "./model/test-result";
 export {
   guardrailDraftOptions,
