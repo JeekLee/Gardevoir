@@ -23,6 +23,7 @@ from gateway.guardrail.application.repository.guardrail_repository import (
 from gateway.guardrail.application.result.guardrail_result import (
     GuardrailDetail,
     GuardrailSummary,
+    GuardrailVersionSummary,
 )
 from gateway.guardrail.domain.exceptions.guardrail_error import GuardrailError
 from gateway.guardrail.domain.models.guardrail import DRAFT_VERSION, Guardrail, require_valid_name
@@ -124,6 +125,11 @@ class GuardrailService:
     async def list(self) -> Page[GuardrailSummary]:
         items, total = await self._guardrail_dao.list_summaries()
         return Page[GuardrailSummary](items=items, total=total)
+
+    async def list_versions(self, name: str) -> Page[GuardrailVersionSummary]:
+        require_valid_name(name)
+        items, total = await self._guardrail_dao.list_versions(name)
+        return Page[GuardrailVersionSummary](items=items, total=total)
 
     async def delete(self, name: str) -> None:
         require_valid_name(name)

@@ -2,6 +2,7 @@ export {
   createGuardrail,
   deleteGuardrail,
   publishGuardrail,
+  testGuardrail,
   updateGuardrailDraft,
 } from "./api/guardrail-api";
 export {
@@ -13,6 +14,7 @@ export {
   parseGuardrailDetail,
   parseGuardrailGraph,
   parseGuardrailPage,
+  parseGuardrailVersionPage,
   type Checkpoint,
   type GuardrailDetail,
   type GuardrailAction,
@@ -22,14 +24,29 @@ export {
   type GuardrailNodeType,
   type GuardrailPage,
   type GuardrailSummary,
+  type GuardrailVersionPage,
+  type GuardrailVersionSummary,
   type ModelStrictness,
   type VerdictCombine,
 } from "./model/guardrail";
+export {
+  parseGuardrailTestPre,
+  parseGuardrailTestResult,
+  type GuardrailTestCheckpoint,
+  type GuardrailTestCheckpointName,
+  type GuardrailTestContentPart,
+  type GuardrailTestEvidence,
+  type GuardrailTestInput,
+  type GuardrailTestMode,
+  type GuardrailTestPre,
+  type GuardrailTestResult,
+} from "./model/test-result";
 export {
   guardrailDraftOptions,
   guardrailKeys,
   guardrailListOptions,
   guardrailVersionOptions,
+  guardrailVersionsOptions,
 } from "./model/queries";
 export {
   describeGuardrailGraph,

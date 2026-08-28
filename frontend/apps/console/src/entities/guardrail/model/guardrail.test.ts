@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseGuardrailDetail, parseGuardrailPage } from "./guardrail";
+import {
+  parseGuardrailDetail,
+  parseGuardrailPage,
+  parseGuardrailVersionPage,
+} from "./guardrail";
 
 describe("guardrail response parsing", () => {
   it("parses camelCase list and detail responses", () => {
@@ -92,6 +96,29 @@ describe("guardrail response parsing", () => {
       actions: [],
       checkCount: 0,
       verdictCount: 0,
+    });
+  });
+
+  it("그래프 없이 발행 버전 요약 목록을 파싱한다", () => {
+    expect(
+      parseGuardrailVersionPage({
+        items: [
+          {
+            versionNumber: 5,
+            publishedAt: "2026-08-28T01:00:00Z",
+            description: "기본 정책",
+            nodeCount: 12,
+            verdictCount: 4,
+          },
+        ],
+        total: 1,
+      }).items[0],
+    ).toEqual({
+      versionNumber: 5,
+      publishedAt: "2026-08-28T01:00:00Z",
+      description: "기본 정책",
+      nodeCount: 12,
+      verdictCount: 4,
     });
   });
 

@@ -3,8 +3,13 @@ import { apiRequest } from "@/src/shared/api";
 import {
   parseGuardrailDetail,
   parseGuardrailPage,
+  parseGuardrailVersionPage,
   type GuardrailGraph,
 } from "../model/guardrail";
+import {
+  parseGuardrailTestResult,
+  type GuardrailTestInput,
+} from "../model/test-result";
 
 export function listGuardrails(accessToken: string, signal?: AbortSignal) {
   return apiRequest({
@@ -83,5 +88,33 @@ export function getGuardrailVersion(
     accessToken,
     signal,
     parse: parseGuardrailDetail,
+  });
+}
+
+export function listGuardrailVersions(
+  accessToken: string,
+  name: string,
+  signal?: AbortSignal,
+) {
+  return apiRequest({
+    path: `/guardrails/${encodeURIComponent(name)}/versions`,
+    accessToken,
+    signal,
+    parse: parseGuardrailVersionPage,
+  });
+}
+
+export function testGuardrail(
+  accessToken: string,
+  name: string,
+  input: GuardrailTestInput,
+) {
+  return apiRequest({
+    path: `/guardrails/${encodeURIComponent(name)}/test`,
+    method: "POST",
+    accessToken,
+    body: input,
+    parse: parseGuardrailTestResult,
+    timeoutMs: 120_000,
   });
 }

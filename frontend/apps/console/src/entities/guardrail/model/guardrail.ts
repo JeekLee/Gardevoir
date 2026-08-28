@@ -65,6 +65,19 @@ export type GuardrailPage = {
   total: number;
 };
 
+export type GuardrailVersionSummary = {
+  versionNumber: number;
+  publishedAt: string;
+  description: string;
+  nodeCount: number;
+  verdictCount: number;
+};
+
+export type GuardrailVersionPage = {
+  items: GuardrailVersionSummary[];
+  total: number;
+};
+
 export type GuardrailDetail = {
   name: string;
   version: string;
@@ -114,6 +127,20 @@ export function parseGuardrailDetail(value: unknown): GuardrailDetail {
   };
 }
 
+export function parseGuardrailVersionPage(value: unknown): GuardrailVersionPage {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.items) ||
+    typeof value.total !== "number"
+  ) {
+    throw new Error("Invalid guardrail version list response");
+  }
+  return {
+    items: value.items.map(parseGuardrailVersionSummary),
+    total: value.total,
+  };
+}
+
 export function parseGuardrailGraph(value: unknown): GuardrailGraph {
   if (
     !isRecord(value) ||
@@ -152,6 +179,28 @@ function parseGuardrailSummary(value: unknown): GuardrailSummary {
     actions: parseActions(value.actions),
     checkCount: parseCount(value.checkCount),
     verdictCount: parseCount(value.verdictCount),
+  };
+}
+
+function parseGuardrailVersionSummary(value: unknown): GuardrailVersionSummary {
+  if (
+    !isRecord(value) ||
+    !Number.isInteger(value.versionNumber) ||
+    typeof value.versionNumber !== "number" ||
+    value.versionNumber < 1 ||
+    typeof value.publishedAt !== "string" ||
+    typeof value.description !== "string" ||
+    !isNonNegativeInteger(value.nodeCount) ||
+    !isNonNegativeInteger(value.verdictCount)
+  ) {
+    throw new Error("Invalid guardrail version summary response");
+  }
+  return {
+    versionNumber: value.versionNumber,
+    publishedAt: value.publishedAt,
+    description: value.description,
+    nodeCount: value.nodeCount,
+    verdictCount: value.verdictCount,
   };
 }
 
@@ -210,6 +259,10 @@ function parseCount(value: unknown): number {
     throw new Error("Invalid guardrail summary count");
   }
   return value;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
 function isCheckpoint(value: unknown): value is Checkpoint {

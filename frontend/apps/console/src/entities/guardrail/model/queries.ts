@@ -4,6 +4,7 @@ import {
   getGuardrailDraft,
   getGuardrailVersion,
   listGuardrails,
+  listGuardrailVersions,
 } from "../api/guardrail-api";
 
 export const guardrailKeys = {
@@ -13,6 +14,7 @@ export const guardrailKeys = {
   draft: (name: string) => ["guardrails", name, "draft"] as const,
   version: (name: string, versionNumber: number) =>
     ["guardrails", name, "version", versionNumber] as const,
+  versions: (name: string) => ["guardrails", name, "versions"] as const,
 };
 
 export function guardrailListOptions(accessToken: string) {
@@ -20,6 +22,14 @@ export function guardrailListOptions(accessToken: string) {
     queryKey: guardrailKeys.list(),
     queryFn: ({ signal }) => listGuardrails(accessToken, signal),
     staleTime: 15_000,
+  });
+}
+
+export function guardrailVersionsOptions(accessToken: string, name: string) {
+  return queryOptions({
+    queryKey: guardrailKeys.versions(name),
+    queryFn: ({ signal }) => listGuardrailVersions(accessToken, name, signal),
+    staleTime: 30_000,
   });
 }
 

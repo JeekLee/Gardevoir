@@ -22,6 +22,14 @@ class GuardrailSummary(CamelModel):
     verdict_count: int
 
 
+class GuardrailVersionSummary(CamelModel):
+    version_number: int
+    published_at: datetime
+    description: str
+    node_count: int
+    verdict_count: int
+
+
 class GuardrailDetail(CamelModel):
     name: str
     version: str

@@ -5,6 +5,7 @@ from typing import Protocol
 from gateway.guardrail.application.result.guardrail_result import (
     GuardrailDetail,
     GuardrailSummary,
+    GuardrailVersionSummary,
 )
 
 
@@ -17,4 +18,8 @@ class GuardrailDao(Protocol):
 
     async def list_summaries(self) -> tuple[list[GuardrailSummary], int]:
         """``(items, total)``. 한 이름당 한 행 — 행이 아니라 가드레일을 센다."""
+        ...
+
+    async def list_versions(self, name: str) -> tuple[list[GuardrailVersionSummary], int]:
+        """발행본만 최신 번호부터 반환한다."""
         ...

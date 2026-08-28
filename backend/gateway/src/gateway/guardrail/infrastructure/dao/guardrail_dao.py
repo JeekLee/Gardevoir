@@ -3,12 +3,14 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import cast, func, select
+from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gateway.guardrail.application.result.guardrail_result import (
     GuardrailDetail,
     GuardrailSummary,
+    GuardrailVersionSummary,
 )
 from gateway.guardrail.domain.models.guardrail import (
     DRAFT_VERSION,
@@ -140,6 +142,39 @@ class SqlAlchemyGuardrailDao:
                     verdict_count=verdict_count,
                 )
             )
+        return items, len(items)
+
+    async def list_versions(self, name: str) -> tuple[list[GuardrailVersionSummary], int]:
+        verdict_nodes = func.jsonb_path_query_array(
+            GuardrailModel.graph,
+            cast('$.nodes[*] ? (@.type == "verdict")', JSONPATH),
+        )
+        rows = (
+            await self._session.execute(
+                select(
+                    GuardrailModel.version_number,
+                    GuardrailModel.created_at,
+                    GuardrailModel.description,
+                    func.jsonb_array_length(GuardrailModel.graph["nodes"]).label("node_count"),
+                    func.jsonb_array_length(verdict_nodes).label("verdict_count"),
+                )
+                .where(
+                    GuardrailModel.name == name,
+                    GuardrailModel.version_number.is_not(None),
+                )
+                .order_by(GuardrailModel.version_number.desc())
+            )
+        ).all()
+        items = [
+            GuardrailVersionSummary(
+                version_number=row.version_number,
+                published_at=row.created_at,
+                description=row.description,
+                node_count=row.node_count,
+                verdict_count=row.verdict_count,
+            )
+            for row in rows
+        ]
         return items, len(items)
 
 

@@ -1,4 +1,9 @@
-export type NavigationIconName = "audit" | "guardrail" | "key" | "provider";
+export type NavigationIconName =
+  | "audit"
+  | "guardrail"
+  | "key"
+  | "playground"
+  | "provider";
 
 export function NavigationIcon({ name }: { name: NavigationIconName }) {
   return (
@@ -13,10 +18,22 @@ export function NavigationIcon({ name }: { name: NavigationIconName }) {
       focusable="false"
     >
       {name === "guardrail" ? <GuardrailIcon /> : null}
+      {name === "playground" ? <PlaygroundIcon /> : null}
       {name === "provider" ? <ProviderIcon /> : null}
       {name === "key" ? <KeyIcon /> : null}
       {name === "audit" ? <AuditIcon /> : null}
     </svg>
+  );
+}
+
+function PlaygroundIcon() {
+  return (
+    <>
+      <path d="M8 3h8M10 3v5l-5 9a2.6 2.6 0 0 0 2.3 4h9.4a2.6 2.6 0 0 0 2.3-4l-5-9V3" />
+      <path d="M7.6 15h8.8" />
+      <circle cx="11" cy="17.5" r=".8" fill="currentColor" stroke="none" />
+      <circle cx="14.5" cy="13" r=".65" fill="currentColor" stroke="none" />
+    </>
   );
 }
 

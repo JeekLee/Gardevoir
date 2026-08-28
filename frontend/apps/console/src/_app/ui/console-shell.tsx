@@ -19,6 +19,7 @@ const NARROW_SCREEN_QUERY = "(max-width: 760px)";
 
 const navigationItems = [
   { href: "/guardrails", label: "가드레일", icon: "guardrail" },
+  { href: "/playground", label: "Playground", icon: "playground" },
   { href: "/providers", label: "프로바이더", icon: "provider" },
   { href: "/api-keys", label: "API 키", icon: "key" },
   { href: "/audit", label: "감사", icon: "audit" },

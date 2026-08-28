@@ -16,6 +16,7 @@ from gateway.guardrail.application.command.guardrail_command import (
 from gateway.guardrail.application.result.guardrail_result import (
     GuardrailDetail,
     GuardrailSummary,
+    GuardrailVersionSummary,
 )
 from gateway.guardrail.application.service.guardrail_service import GuardrailService
 from gateway.guardrail.composition import provide_guardrail_service
@@ -87,6 +88,15 @@ async def publish_guardrail(
     service: Annotated[GuardrailService, Depends(provide_guardrail_service)],
 ) -> GuardrailDetail:
     return await service.publish(name)
+
+
+@router.get("/{name}/versions")
+async def list_versions(
+    name: str,
+    _: Annotated[AccessTokenClaims, Depends(require_role(Role.ADMIN))],
+    service: Annotated[GuardrailService, Depends(provide_guardrail_service)],
+) -> Page[GuardrailVersionSummary]:
+    return await service.list_versions(name)
 
 
 @router.get("/{name}/versions/{version_number}")
