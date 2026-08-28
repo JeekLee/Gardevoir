@@ -18,7 +18,6 @@ export function LoginPage({
             <GardevoirMark />
             <span>
               <strong>gardevoir</strong>
-              <small>통제실</small>
             </span>
           </div>
           <LoginForm reason={reason} returnTo={returnTo} />

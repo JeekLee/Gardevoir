@@ -1487,7 +1487,7 @@
   .checkpointCards { grid-template-columns: 1fr; }
   .checkpointContext { grid-template-columns: auto 1fr; }
   .checkpointContext > strong { grid-column: 1 / -1; justify-self: start; }
-  .canvas { height: 38rem; }
+  .canvas { height: 38rem; min-height: 38rem; }
   .graphError { align-items: start; grid-template-columns: 1fr auto; }
   .graphError strong,
   .graphError code { grid-column: 1; }
