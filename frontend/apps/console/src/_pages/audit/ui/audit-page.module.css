@@ -124,6 +124,40 @@
   gap: 0.5rem;
 }
 
+.filterControls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: flex-end;
+}
+
+.periods {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 0.68rem;
+  display: flex;
+  padding: 0.18rem;
+}
+
+.periods button {
+  background: transparent;
+  border: 0;
+  border-radius: 0.5rem;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 750;
+  min-height: 2rem;
+  padding: 0 0.65rem;
+}
+
+.periods button[aria-pressed="true"] {
+  background: var(--surface);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--brand-deep);
+}
+
 .resetButton {
   background: transparent;
   border: 1px solid var(--border);
@@ -192,6 +226,139 @@
 .filterError {
   color: var(--danger-strong);
   font-size: 0.72rem;
+}
+
+.insights {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr);
+  min-width: 0;
+}
+
+.insightCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+  overflow: hidden;
+  padding: 1rem;
+}
+
+.insightCard h2 {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  letter-spacing: -0.035em;
+}
+
+.trendCard {
+  grid-column: 1 / -1;
+}
+
+.trendChart {
+  height: 18rem;
+  min-width: 0;
+}
+
+.checkpointChart {
+  height: 15rem;
+  min-width: 0;
+}
+
+.rankingScroll {
+  max-height: 15rem;
+  min-width: 0;
+  overflow: auto;
+}
+
+.rankingTable {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.rankingTable th {
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  position: sticky;
+  text-align: left;
+  top: 0;
+  z-index: 1;
+}
+
+.rankingTable th:last-child,
+.rankingTable td:last-child {
+  text-align: right;
+  width: 5rem;
+}
+
+.rankingTable th button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  padding: 0.65rem 0.7rem;
+  text-align: inherit;
+  width: 100%;
+}
+
+.rankingTable td {
+  border-top: 1px solid var(--border);
+  color: var(--muted-strong);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.68rem 0.7rem;
+}
+
+.rankingTable td code {
+  color: var(--text);
+  display: block;
+  font-family: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rankingTable tbody tr {
+  cursor: pointer;
+  transition: background 130ms ease;
+}
+
+.rankingTable tbody tr:hover,
+.rankingTable tbody tr:focus-visible,
+.rankingTable tbody tr[aria-selected="true"] {
+  background: var(--brand-soft);
+}
+
+.insightEmpty {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 0.72rem;
+  justify-content: center;
+  min-height: 10rem;
+}
+
+.insightsLoading {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr);
+}
+
+.insightsLoading span {
+  animation: pulse 1.3s ease-in-out infinite;
+  background: var(--surface-subtle);
+  border-radius: 0.35rem;
+  min-height: 17rem;
+}
+
+.insightsLoading span:first-child {
+  grid-column: 1 / -1;
 }
 
 .events {
@@ -792,6 +959,11 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .insights,
+  .insightsLoading {
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 0.85fr);
+  }
+
   .detailGrid > div:nth-child(3n + 1) {
     border-left: 1px solid var(--border);
   }
@@ -825,6 +997,16 @@
     flex-direction: column;
   }
 
+  .filterControls {
+    align-items: stretch;
+    display: grid;
+    width: 100%;
+  }
+
+  .periods button {
+    flex: 1;
+  }
+
   .filterActions {
     width: 100%;
   }
@@ -836,6 +1018,23 @@
   .filterGrid,
   .detailGrid {
     grid-template-columns: 1fr;
+  }
+
+  .insights,
+  .insightsLoading {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .insightsLoading span:first-child {
+    grid-column: auto;
+  }
+
+  .trendCard {
+    grid-column: auto;
+  }
+
+  .trendChart {
+    height: 15rem;
   }
 
   .detailGrid > div,
@@ -881,7 +1080,12 @@
     animation: none;
   }
 
-  .table tbody tr {
+  .insightsLoading span {
+    animation: none;
+  }
+
+  .table tbody tr,
+  .rankingTable tbody tr {
     transition: none;
   }
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseAuditEventDetail,
   parseAuditEventPage,
+  parseAuditInsights,
   parseAuditSummary,
 } from "./audit";
 
@@ -79,5 +80,37 @@ describe("audit response parsers", () => {
         total: 1,
       }),
     ).toThrow("Invalid audit summary response");
+  });
+
+  it("parses body-free insight aggregates", () => {
+    expect(
+      parseAuditInsights({
+        fromAt: "2026-08-27T08:00:00+00:00",
+        toAt: "2026-08-28T08:00:00+00:00",
+        bucketSeconds: 3600,
+        checks: [{ check: "pii-output", count: 4 }],
+        actionTrend: [
+          {
+            bucket: "2026-08-28T07:00:00+00:00",
+            action: "mask",
+            count: 2,
+          },
+        ],
+        checkpoints: [{ checkpoint: "output", count: 5 }],
+      }),
+    ).toEqual({
+      fromAt: "2026-08-27T08:00:00+00:00",
+      toAt: "2026-08-28T08:00:00+00:00",
+      bucketSeconds: 3600,
+      checks: [{ check: "pii-output", count: 4 }],
+      actionTrend: [
+        {
+          bucket: "2026-08-28T07:00:00+00:00",
+          action: "mask",
+          count: 2,
+        },
+      ],
+      checkpoints: [{ checkpoint: "output", count: 5 }],
+    });
   });
 });

@@ -8,20 +8,22 @@ import orjson
 from gateway.audit.application.result.audit_result import (
     AuditEventDetail,
     AuditEventSummary,
+    AuditInsights,
     AuditSummary,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class AuditFilter:
+    from_at: dt.datetime
+    to_at: dt.datetime
     app_name: str | None = None
     guardrail: str | None = None
     action: str | None = None
     checkpoint: str | None = None
     mode: str | None = None
     tainted: bool | None = None
-    from_at: dt.datetime | None = None
-    to_at: dt.datetime | None = None
+    check: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,3 +61,11 @@ class AuditDao(Protocol):
     async def get_event(self, event_id: str) -> AuditEventDetail | None: ...
 
     async def summary(self, audit_filter: AuditFilter) -> AuditSummary: ...
+
+    async def insights(
+        self,
+        audit_filter: AuditFilter,
+        *,
+        bucket_seconds: int,
+        top_n: int,
+    ) -> AuditInsights: ...

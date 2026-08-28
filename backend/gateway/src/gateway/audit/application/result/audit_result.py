@@ -41,6 +41,31 @@ class AuditSummary(CamelModel):
     total: int
 
 
+class AuditCheckCount(CamelModel):
+    check: str
+    count: int
+
+
+class AuditActionTrendPoint(CamelModel):
+    bucket: datetime
+    action: str
+    count: int
+
+
+class AuditCheckpointCount(CamelModel):
+    checkpoint: str
+    count: int
+
+
+class AuditInsights(CamelModel):
+    from_at: datetime
+    to_at: datetime
+    bucket_seconds: int
+    checks: list[AuditCheckCount]
+    action_trend: list[AuditActionTrendPoint]
+    checkpoints: list[AuditCheckpointCount]
+
+
 class AuditEventPage(CamelModel):
     items: list[AuditEventSummary]
     next_cursor: str | None

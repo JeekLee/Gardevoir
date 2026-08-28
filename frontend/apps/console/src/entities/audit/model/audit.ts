@@ -33,6 +33,7 @@ export type AuditFilters = {
   checkpoint?: Exclude<AuditCheckpoint, "">;
   mode?: AuditMode;
   tainted?: boolean;
+  check?: string;
   from?: string;
   to?: string;
 };
@@ -76,6 +77,31 @@ export type AuditSummary = {
   latencyP50: number;
   latencyP95: number;
   total: number;
+};
+
+export type AuditCheckCount = {
+  check: string;
+  count: number;
+};
+
+export type AuditActionTrendPoint = {
+  bucket: string;
+  action: AuditAction;
+  count: number;
+};
+
+export type AuditCheckpointCount = {
+  checkpoint: Exclude<AuditCheckpoint, "">;
+  count: number;
+};
+
+export type AuditInsights = {
+  fromAt: string;
+  toAt: string;
+  bucketSeconds: number;
+  checks: AuditCheckCount[];
+  actionTrend: AuditActionTrendPoint[];
+  checkpoints: AuditCheckpointCount[];
 };
 
 export function parseAuditEventPage(value: unknown): AuditEventPage {
@@ -145,6 +171,60 @@ export function parseAuditSummary(value: unknown): AuditSummary {
     latencyP95: value.latencyP95,
     total: value.total,
   };
+}
+
+export function parseAuditInsights(value: unknown): AuditInsights {
+  if (
+    !isRecord(value) ||
+    typeof value.fromAt !== "string" ||
+    typeof value.toAt !== "string" ||
+    !isCount(value.bucketSeconds) ||
+    value.bucketSeconds === 0 ||
+    !Array.isArray(value.checks) ||
+    !Array.isArray(value.actionTrend) ||
+    !Array.isArray(value.checkpoints)
+  ) {
+    throw new Error("Invalid audit insights response");
+  }
+  return {
+    fromAt: value.fromAt,
+    toAt: value.toAt,
+    bucketSeconds: value.bucketSeconds,
+    checks: value.checks.map(parseCheckCount),
+    actionTrend: value.actionTrend.map(parseActionTrendPoint),
+    checkpoints: value.checkpoints.map(parseCheckpointCount),
+  };
+}
+
+function parseCheckCount(value: unknown): AuditCheckCount {
+  if (!isRecord(value) || typeof value.check !== "string" || !isCount(value.count)) {
+    throw new Error("Invalid audit insights response");
+  }
+  return { check: value.check, count: value.count };
+}
+
+function parseActionTrendPoint(value: unknown): AuditActionTrendPoint {
+  if (
+    !isRecord(value) ||
+    typeof value.bucket !== "string" ||
+    !isAuditAction(value.action) ||
+    !isCount(value.count)
+  ) {
+    throw new Error("Invalid audit insights response");
+  }
+  return { bucket: value.bucket, action: value.action, count: value.count };
+}
+
+function parseCheckpointCount(value: unknown): AuditCheckpointCount {
+  if (
+    !isRecord(value) ||
+    !isAuditCheckpoint(value.checkpoint) ||
+    value.checkpoint === "" ||
+    !isCount(value.count)
+  ) {
+    throw new Error("Invalid audit insights response");
+  }
+  return { checkpoint: value.checkpoint, count: value.count };
 }
 
 function parseAuditEventSummary(value: unknown): AuditEventSummary {

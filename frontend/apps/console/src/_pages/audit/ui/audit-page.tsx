@@ -1,6 +1,7 @@
 "use client";
 
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   type FormEvent,
@@ -13,6 +14,7 @@ import {
 import {
   auditActions,
   auditDetailOptions,
+  auditInsightsOptions,
   auditListOptions,
   auditSummaryOptions,
   type AuditAction,
@@ -32,22 +34,14 @@ import {
 } from "@/src/shared/api";
 
 import { formatAuditBody } from "../lib/format-audit-body";
+import { actionCopy, checkpointCopy } from "../lib/audit-copy";
 import styles from "./audit-page.module.css";
 
-const actionCopy: Record<AuditAction, string> = {
-  allow: "허용",
-  mask: "마스킹",
-  blocked: "차단",
-  approval_required: "승인 필요",
-};
-
-const checkpointCopy: Record<AuditCheckpoint, string> = {
-  "": "검사 없음",
-  input: "입력",
-  tool_result: "툴 결과",
-  output: "출력",
-  tool_call: "툴 호출",
-};
+const AuditInsightsPanel = dynamic(
+  () =>
+    import("./audit-insights").then((module) => module.AuditInsightsPanel),
+  { ssr: false, loading: () => <InsightsLoading /> },
+);
 
 const modeCopy: Record<AuditMode, string> = {
   enforce: "적용",
@@ -73,6 +67,7 @@ function AuditWorkspace({ accessToken }: { accessToken: string }) {
   );
   const listQuery = useInfiniteQuery(auditListOptions(accessToken, filters));
   const summaryQuery = useQuery(auditSummaryOptions(accessToken, filters));
+  const insightsQuery = useQuery(auditInsightsOptions(accessToken, filters));
 
   const handleAuthorizationError = useCallback(
     (error: ConsoleApiError) => {
@@ -87,7 +82,11 @@ function AuditWorkspace({ accessToken }: { accessToken: string }) {
   );
 
   useEffect(() => {
-    for (const error of [listQuery.error, summaryQuery.error]) {
+    for (const error of [
+      listQuery.error,
+      summaryQuery.error,
+      insightsQuery.error,
+    ]) {
       if (
         error instanceof ConsoleApiError &&
         (error.httpStatus === 401 || error.httpStatus === 403)
@@ -96,11 +95,17 @@ function AuditWorkspace({ accessToken }: { accessToken: string }) {
         return;
       }
     }
-  }, [handleAuthorizationError, listQuery.error, summaryQuery.error]);
+  }, [
+    handleAuthorizationError,
+    insightsQuery.error,
+    listQuery.error,
+    summaryQuery.error,
+  ]);
 
   const events = listQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const listError = authorizationSafeError(listQuery.error);
   const summaryError = authorizationSafeError(summaryQuery.error);
+  const insightsError = authorizationSafeError(insightsQuery.error);
 
   function applyFilters(nextFilters: AuditFilters) {
     setSelectedId(null);
@@ -131,6 +136,29 @@ function AuditWorkspace({ accessToken }: { accessToken: string }) {
         onApply={applyFilters}
         onReset={() => applyFilters({})}
       />
+
+      <div aria-busy={insightsQuery.isPending}>
+        {insightsQuery.isPending ? <InsightsLoading /> : null}
+        {!insightsQuery.isPending && insightsError ? (
+          <ErrorState
+            error={insightsError}
+            onRetry={() => void insightsQuery.refetch()}
+            compact
+          />
+        ) : null}
+        {!insightsQuery.isPending && !insightsError && insightsQuery.data ? (
+          <AuditInsightsPanel
+            data={insightsQuery.data}
+            selectedCheck={filters.check}
+            onSelectCheck={(check) =>
+              applyFilters({
+                ...filters,
+                check: filters.check === check ? undefined : check,
+              })
+            }
+          />
+        ) : null}
+      </div>
 
       <section className={styles.events} aria-labelledby="events-title">
         <div className={styles.sectionHeader}>
@@ -270,6 +298,7 @@ type FilterDraft = {
   checkpoint: string;
   mode: string;
   tainted: string;
+  check: string;
   from: string;
   to: string;
 };
@@ -311,6 +340,7 @@ function AuditFilterBar({
           : draft.tainted === "false"
             ? false
             : undefined,
+      check: draft.check.trim() || undefined,
       from: draft.from ? new Date(draft.from).toISOString() : undefined,
       to: draft.to ? new Date(draft.to).toISOString() : undefined,
     });
@@ -320,13 +350,40 @@ function AuditFilterBar({
     <form className={styles.filters} onSubmit={submit} aria-label="감사 필터">
       <div className={styles.filterHeading}>
         <h2>필터</h2>
-        <div className={styles.filterActions}>
-          <button className={styles.resetButton} type="button" onClick={onReset}>
-            초기화
-          </button>
-          <button className={styles.applyButton} type="submit">
-            적용
-          </button>
+        <div className={styles.filterControls}>
+          <div className={styles.periods} aria-label="조회 기간">
+            {periods.map((period) => (
+              <button
+                key={period.days}
+                type="button"
+                aria-pressed={isPeriod(filters, period.days)}
+                onClick={() => {
+                  const to = new Date();
+                  onApply({
+                    ...filters,
+                    from: new Date(
+                      to.getTime() - period.days * 86_400_000,
+                    ).toISOString(),
+                    to: to.toISOString(),
+                  });
+                }}
+              >
+                {period.label}
+              </button>
+            ))}
+          </div>
+          <div className={styles.filterActions}>
+            <button
+              className={styles.resetButton}
+              type="button"
+              onClick={onReset}
+            >
+              초기화
+            </button>
+            <button className={styles.applyButton} type="submit">
+              적용
+            </button>
+          </div>
         </div>
       </div>
 
@@ -397,6 +454,15 @@ function AuditFilterBar({
             <option value="true">오염됨</option>
             <option value="false">깨끗함</option>
           </select>
+        </label>
+        <label>
+          <span>노드</span>
+          <input
+            value={draft.check}
+            onChange={(event) => update("check", event.target.value)}
+            placeholder="예: pii-output"
+            maxLength={255}
+          />
         </label>
         <label>
           <span>시작 시각</span>
@@ -768,11 +834,23 @@ function DetailLoading() {
   );
 }
 
+function InsightsLoading() {
+  return (
+    <div className={styles.insightsLoading} role="status" aria-label="관측 불러오는 중">
+      <span /><span /><span />
+    </div>
+  );
+}
+
 function readFilters(search: URLSearchParams): AuditFilters {
   const action = search.get("action") ?? "";
   const checkpoint = search.get("checkpoint") ?? "";
   const mode = search.get("mode") ?? "";
   const tainted = search.get("tainted");
+  const to = validIso(search.get("to")) ?? new Date().toISOString();
+  const from =
+    validIso(search.get("from")) ??
+    new Date(new Date(to).getTime() - 86_400_000).toISOString();
   return {
     appName: search.get("appName") || undefined,
     guardrail: search.get("guardrail") || undefined,
@@ -780,8 +858,9 @@ function readFilters(search: URLSearchParams): AuditFilters {
     checkpoint: isFilterCheckpoint(checkpoint) ? checkpoint : undefined,
     mode: isAuditMode(mode) ? mode : undefined,
     tainted: tainted === "true" ? true : tainted === "false" ? false : undefined,
-    from: validIso(search.get("from")),
-    to: validIso(search.get("to")),
+    check: search.get("check") || undefined,
+    from,
+    to,
   };
 }
 
@@ -793,6 +872,7 @@ function writeFilters(filters: AuditFilters): string {
     ["action", filters.action],
     ["checkpoint", filters.checkpoint],
     ["mode", filters.mode],
+    ["check", filters.check],
     ["from", filters.from],
     ["to", filters.to],
   ];
@@ -811,6 +891,7 @@ function filterDraft(filters: AuditFilters): FilterDraft {
     checkpoint: filters.checkpoint ?? "",
     mode: filters.mode ?? "",
     tainted: filters.tainted === undefined ? "" : String(filters.tainted),
+    check: filters.check ?? "",
     from: localDateTime(filters.from),
     to: localDateTime(filters.to),
   };
@@ -841,6 +922,12 @@ function isFilterCheckpoint(
 
 function isAuditMode(value: string): value is AuditMode {
   return value === "enforce" || value === "dry-run";
+}
+
+function isPeriod(filters: AuditFilters, days: number): boolean {
+  if (!filters.from || !filters.to) return false;
+  const duration = new Date(filters.to).getTime() - new Date(filters.from).getTime();
+  return Math.abs(duration - days * 86_400_000) < 60_000;
 }
 
 function authorizationSafeError(error: unknown): Error | null {
@@ -917,3 +1004,9 @@ function jsonScalar(value: null | boolean | number | string): string {
   if (typeof value === "boolean") return value ? "예" : "아니요";
   return String(value);
 }
+
+const periods = [
+  { days: 1, label: "24시간" },
+  { days: 7, label: "7일" },
+  { days: 30, label: "30일" },
+] as const;

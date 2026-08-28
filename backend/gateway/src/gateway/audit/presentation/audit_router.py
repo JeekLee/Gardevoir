@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
@@ -7,9 +8,11 @@ from gateway.audit.application.dao.audit_dao import AuditCursor, AuditDao, Audit
 from gateway.audit.application.result.audit_result import (
     AuditEventDetail,
     AuditEventPage,
+    AuditInsights,
     AuditSummary,
 )
-from gateway.audit.composition import provide_audit_dao
+from gateway.audit.application.service.audit_service import AuditService
+from gateway.audit.composition import provide_audit_dao, provide_audit_service
 from shared_kernel.api import JsonResponse
 from shared_kernel.auth import AccessTokenClaims, Role, require_role
 
@@ -29,20 +32,24 @@ def _audit_filter(
     ] = None,
     mode: Annotated[Literal["enforce", "dry-run"] | None, Query()] = None,
     tainted: Annotated[bool | None, Query()] = None,
+    check: Annotated[str | None, Query(max_length=255)] = None,
     from_at: Annotated[AwareDatetime | None, Query(alias="from")] = None,
     to_at: Annotated[AwareDatetime | None, Query(alias="to")] = None,
 ) -> AuditFilter:
-    if from_at is not None and to_at is not None and from_at > to_at:
+    effective_to = to_at or dt.datetime.now(dt.UTC)
+    effective_from = from_at or effective_to - dt.timedelta(hours=24)
+    if effective_from > effective_to:
         raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
     return AuditFilter(
+        from_at=effective_from,
+        to_at=effective_to,
         app_name=app_name,
         guardrail=guardrail,
         action=action,
         checkpoint=checkpoint,
         mode=mode,
         tainted=tainted,
-        from_at=from_at,
-        to_at=to_at,
+        check=check,
     )
 
 
@@ -74,6 +81,16 @@ async def summarize_audit_events(
     audit_dao: Annotated[AuditDao, Depends(provide_audit_dao)],
 ) -> AuditSummary:
     return await audit_dao.summary(audit_filter)
+
+
+@router.get("/insights")
+async def get_audit_insights(
+    _: Annotated[AccessTokenClaims, Depends(require_role(Role.ADMIN))],
+    audit_filter: Annotated[AuditFilter, Depends(_audit_filter)],
+    audit_service: Annotated[AuditService, Depends(provide_audit_service)],
+    top_n: Annotated[int, Query(alias="top", ge=1, le=50)] = 10,
+) -> AuditInsights:
+    return await audit_service.insights(audit_filter, top_n=top_n)
 
 
 @router.get("/{event_id}")

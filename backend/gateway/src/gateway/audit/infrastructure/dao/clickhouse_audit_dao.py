@@ -14,8 +14,12 @@ from sqlalchemy.sql.functions import FunctionElement
 
 from gateway.audit.application.dao.audit_dao import AuditCursor, AuditFilter
 from gateway.audit.application.result.audit_result import (
+    AuditActionTrendPoint,
+    AuditCheckCount,
+    AuditCheckpointCount,
     AuditEventDetail,
     AuditEventSummary,
+    AuditInsights,
     AuditSummary,
 )
 from gateway.audit.infrastructure.model.audit_event import AuditEventModel
@@ -154,9 +158,70 @@ class ClickHouseAuditDao:
             total=int(row["total"]),
         )
 
+    async def insights(
+        self,
+        audit_filter: AuditFilter,
+        *,
+        bucket_seconds: int,
+        top_n: int,
+    ) -> AuditInsights:
+        clauses, parameters = _where(audit_filter)
+        check_statement = _check_ranking_statement(clauses)
+        trend_statement = _action_trend_statement(clauses)
+        checkpoint_statement = _checkpoint_statement(clauses)
+        check_rows, trend_rows, checkpoint_rows = await asyncio.to_thread(
+            self._execute_insights,
+            check_statement,
+            {**parameters, "top_n": top_n},
+            trend_statement,
+            {**parameters, "bucket_seconds": bucket_seconds},
+            checkpoint_statement,
+            parameters,
+        )
+        return AuditInsights(
+            from_at=_as_utc(audit_filter.from_at),
+            to_at=_as_utc(audit_filter.to_at),
+            bucket_seconds=bucket_seconds,
+            checks=[
+                AuditCheckCount(check=str(row._mapping["check"]), count=int(row._mapping["count"]))
+                for row in check_rows
+            ],
+            action_trend=[
+                AuditActionTrendPoint(
+                    bucket=_as_utc(row._mapping["bucket"]),
+                    action=str(row._mapping["action"]),
+                    count=int(row._mapping["count"]),
+                )
+                for row in trend_rows
+            ],
+            checkpoints=[
+                AuditCheckpointCount(
+                    checkpoint=str(row._mapping["checkpoint"]),
+                    count=int(row._mapping["count"]),
+                )
+                for row in checkpoint_rows
+            ],
+        )
+
     def _execute(self, statement: Select, parameters: dict[str, object]) -> Sequence[Row]:
         with self._session_factory() as session:
             return session.execute(statement, parameters).all()
+
+    def _execute_insights(
+        self,
+        check_statement: Select,
+        check_parameters: dict[str, object],
+        trend_statement: Select,
+        trend_parameters: dict[str, object],
+        checkpoint_statement: Select,
+        checkpoint_parameters: dict[str, object],
+    ) -> tuple[Sequence[Row], Sequence[Row], Sequence[Row]]:
+        with self._session_factory() as session:
+            return (
+                session.execute(check_statement, check_parameters).all(),
+                session.execute(trend_statement, trend_parameters).all(),
+                session.execute(checkpoint_statement, checkpoint_parameters).all(),
+            )
 
 
 def _effective_action() -> ColumnElement[str]:
@@ -190,6 +255,62 @@ def _latency_quantile(
         literal(0.0),
         _QuantileTDigest(literal(quantile), latency_column),
         type_=types.Float64(),
+    )
+
+
+def _check_ranking_statement(clauses: list[ColumnElement[bool]]) -> Select:
+    filtered = (
+        select(AuditEventModel.checks_fired).where(*clauses).subquery("filtered_audit_checks")
+    )
+    expanded = select(
+        func.arrayJoin(filtered.c.checks_fired, type_=types.String()).label("check")
+    ).subquery("expanded_audit_checks")
+    count = func.toUInt64(func.count(), type_=types.UInt64()).label("count")
+    return (
+        select(expanded.c.check, count)
+        .where(expanded.c.check != literal(""))
+        .group_by(expanded.c.check)
+        .order_by(count.desc(), expanded.c.check.asc())
+        .limit(bindparam("top_n", type_=types.UInt16()))
+    )
+
+
+def _action_trend_statement(clauses: list[ColumnElement[bool]]) -> Select:
+    filtered = (
+        select(
+            AuditEventModel.created_at,
+            _effective_action().label("action"),
+        )
+        .where(*clauses)
+        .subquery("filtered_audit_actions")
+    )
+    interval = func.toIntervalSecond(
+        bindparam("bucket_seconds", type_=types.UInt32()),
+        type_=types.Int64(),
+    )
+    bucket = func.toStartOfInterval(
+        filtered.c.created_at,
+        interval,
+        type_=types.DateTime64(3),
+    ).label("bucket")
+    count = func.toUInt64(func.count(), type_=types.UInt64()).label("count")
+    return (
+        select(bucket, filtered.c.action, count)
+        .group_by(bucket, filtered.c.action)
+        .order_by(bucket.asc(), filtered.c.action.asc())
+    )
+
+
+def _checkpoint_statement(clauses: list[ColumnElement[bool]]) -> Select:
+    filtered = (
+        select(AuditEventModel.checkpoint).where(*clauses).subquery("filtered_audit_checkpoints")
+    )
+    count = func.toUInt64(func.count(), type_=types.UInt64()).label("count")
+    return (
+        select(filtered.c.checkpoint, count)
+        .where(filtered.c.checkpoint != literal(""))
+        .group_by(filtered.c.checkpoint)
+        .order_by(count.desc(), filtered.c.checkpoint.asc())
     )
 
 
@@ -232,14 +353,20 @@ def _where(
     if audit_filter.tainted is not None:
         clauses.append(AuditEventModel.tainted == bindparam("tainted", type_=types.UInt8()))
         parameters["tainted"] = int(audit_filter.tainted)
-    if audit_filter.from_at is not None:
+    if audit_filter.check is not None:
         clauses.append(
-            AuditEventModel.created_at >= bindparam("from_at", type_=types.DateTime64(3))
+            func.has(
+                AuditEventModel.checks_fired,
+                bindparam("check", type_=types.String()),
+                type_=types.UInt8(),
+            )
+            == literal(1)
         )
-        parameters["from_at"] = _clickhouse_datetime(audit_filter.from_at)
-    if audit_filter.to_at is not None:
-        clauses.append(AuditEventModel.created_at <= bindparam("to_at", type_=types.DateTime64(3)))
-        parameters["to_at"] = _clickhouse_datetime(audit_filter.to_at)
+        parameters["check"] = audit_filter.check
+    clauses.append(AuditEventModel.created_at >= bindparam("from_at", type_=types.DateTime64(3)))
+    parameters["from_at"] = _clickhouse_datetime(audit_filter.from_at)
+    clauses.append(AuditEventModel.created_at <= bindparam("to_at", type_=types.DateTime64(3)))
+    parameters["to_at"] = _clickhouse_datetime(audit_filter.to_at)
     if cursor is not None:
         cursor_created_at = bindparam("cursor_created_at", type_=types.DateTime64(3))
         clauses.append(

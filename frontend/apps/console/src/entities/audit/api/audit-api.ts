@@ -3,6 +3,7 @@ import { apiRequest } from "@/src/shared/api";
 import {
   parseAuditEventDetail,
   parseAuditEventPage,
+  parseAuditInsights,
   parseAuditSummary,
   type AuditFilters,
 } from "../model/audit";
@@ -40,6 +41,20 @@ export function getAuditSummary(
   });
 }
 
+export function getAuditInsights(
+  accessToken: string,
+  filters: AuditFilters,
+  signal?: AbortSignal,
+) {
+  const search = auditSearch(filters).toString();
+  return apiRequest({
+    path: search ? `/audit/insights?${search}` : "/audit/insights",
+    accessToken,
+    signal,
+    parse: parseAuditInsights,
+  });
+}
+
 export function getAuditEvent(
   accessToken: string,
   eventId: string,
@@ -61,6 +76,7 @@ function auditSearch(filters: AuditFilters): URLSearchParams {
     ["action", filters.action],
     ["checkpoint", filters.checkpoint],
     ["mode", filters.mode],
+    ["check", filters.check],
     ["from", filters.from],
     ["to", filters.to],
   ];
