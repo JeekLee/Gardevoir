@@ -26,6 +26,8 @@ def provide_model_tier(request: Request) -> ModelTier | None:
         model_judge=request.app.state.model_judge,
         model=model,
         deadline_ms=settings.timeout_ms,
+        max_images=settings.max_images,
+        max_data_uri_bytes=settings.max_data_uri_bytes,
         fail_modes={
             CHECKPOINT_INPUT: FailMode(settings.fail_mode.input),
             CHECKPOINT_TOOL_RESULT: FailMode(settings.fail_mode.tool_result),

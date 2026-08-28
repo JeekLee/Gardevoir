@@ -6,11 +6,11 @@ import httpx
 import orjson
 import pytest
 
-from gateway.guardrail.application.port.model_judge import JudgeRequest
+from gateway.guardrail.application.port.model_judge import JudgeImage, JudgeRequest
 from gateway.guardrail.infrastructure.adapter.httpx_model_judge import HttpxModelJudge
 
 
-def _request(*, strictness: str = "balanced") -> JudgeRequest:
+def _request(*, strictness: str = "balanced", images: tuple[JudgeImage, ...] = ()) -> JudgeRequest:
     return JudgeRequest(
         checkpoint="input",
         node_id=f"model-{strictness}",
@@ -18,6 +18,7 @@ def _request(*, strictness: str = "balanced") -> JudgeRequest:
         text="the document",
         strictness=strictness,
         deadline_ms=500,
+        images=images,
     )
 
 
@@ -86,6 +87,43 @@ async def test_shieldstral_payload_score_and_strictness_threshold() -> None:
     assert payloads[0]["top_logprobs"] == 20
     assert "<Query>: Does this text contain a secret?" in payloads[0]["messages"][1]["content"]
     assert "<Document>: [User]\nthe document" in payloads[0]["messages"][1]["content"]
+
+
+async def test_images_switch_only_the_user_content_to_openai_parts() -> None:
+    """이미지가 있을 때만 원본 URL 순서의 content part 배열을 보낸다."""
+    payloads: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(orjson.loads(request.content))
+        return _response(yes=math.log(0.1), no=math.log(0.9), raw_label="no")
+
+    adapter = HttpxModelJudge(
+        endpoint="http://judge/v1/chat/completions",
+        model="model",
+        revision="",
+        threshold=0.5,
+        timeout_ms=1_000,
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    images = (
+        JudgeImage("user", 1, 2, "data:image/png;base64,AAAA"),
+        JudgeImage("user", 3, 0, "https://images.example/second.png"),
+    )
+    try:
+        await adapter.judge([_request(images=images)])
+    finally:
+        await adapter.aclose()
+
+    content = payloads[0]["messages"][1]["content"]
+    assert isinstance(content, list)
+    assert content[0]["text"].endswith("<Document>: [User]\nthe document")
+    assert content[1:] == [
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        {
+            "type": "image_url",
+            "image_url": {"url": "https://images.example/second.png"},
+        },
+    ]
 
 
 async def test_missing_yes_or_no_logprob_is_a_failed_judgement() -> None:

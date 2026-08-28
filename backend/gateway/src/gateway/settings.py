@@ -34,6 +34,8 @@ class ModelJudgeSettings(BaseModel):
     revision: str = ""
     threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     timeout_ms: int = Field(default=1_000, gt=0)
+    max_images: int = Field(default=4, gt=0)
+    max_data_uri_bytes: int = Field(default=5_242_880, gt=0)
     fail_mode: ModelJudgeFailModeSettings = Field(default_factory=ModelJudgeFailModeSettings)
 
     @field_validator("endpoint", "model", "revision")

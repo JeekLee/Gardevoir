@@ -863,6 +863,9 @@ class ProxyService:
             plan=plan,
             text=raw_input_text,
             mode=verdicts.mode,
+            payload=(
+                None if isinstance(decoded, dict) and bool(decoded.get("stream")) else decoded
+            ),
         )
         if resolved.masked and not resolved.blocked and verdicts.mode is not Mode.DRY_RUN:
             changed = self._inspector.apply_input_mask(
@@ -1061,6 +1064,7 @@ class ProxyService:
                         "masked": verdicts.masked,
                         "pending_model": list(verdicts.pending_model),
                         "model_judgements": list(verdicts.model_judgements),
+                        "image_count": content.image_count,
                         "inspected": list(verdicts.inspected),
                         # verdicts 에는 툴 이름과 인수 **이름** 만 남긴다. 전체 값은
                         # 상세 감사 본문의 tool_calls_body 가 보존한다 (§10).

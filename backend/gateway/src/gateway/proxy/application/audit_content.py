@@ -26,6 +26,7 @@ from gateway.guardrail.domain.models.execution_plan import (
 class AuditContent:
     content_fingerprint: str
     excerpt: str
+    image_count: int
     input_body: str
     output_body: str
     tool_calls_body: str
@@ -56,7 +57,8 @@ def capture_audit_content(
     return AuditContent(
         content_fingerprint=sha256(request_payload).hexdigest(),
         excerpt=excerpt,
-        input_body=_serialize_body(request),
+        image_count=_count_request_images(request),
+        input_body=_serialize_body(_summarize_request_images(request)),
         output_body=_serialize_body(response),
         tool_calls_body=orjson.dumps(
             _audit_tool_calls(request) + _audit_tool_calls(response)
@@ -75,6 +77,77 @@ def _decode_body(body: object | bytes | None) -> object | None:
 
 def _serialize_body(body: object | None) -> str:
     return "" if body is None else orjson.dumps(body).decode()
+
+
+def _summarize_request_images(body: object) -> object:
+    if not isinstance(body, dict):
+        return body
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return body
+
+    summarized = dict(body)
+    summarized["messages"] = [
+        _summarize_message_images(message) if isinstance(message, dict) else message
+        for message in messages
+    ]
+    return summarized
+
+
+def _count_request_images(body: object) -> int:
+    if not isinstance(body, dict):
+        return 0
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return 0
+    return sum(
+        1
+        for message in messages
+        if isinstance(message, dict)
+        for part in (message.get("content") if isinstance(message.get("content"), list) else ())
+        if isinstance(part, dict) and part.get("type") == "image_url"
+    )
+
+
+def _summarize_message_images(message: dict) -> dict:
+    content = message.get("content")
+    if not isinstance(content, list):
+        return message
+
+    summarized = dict(message)
+    summarized["content"] = [
+        _summarize_image_part(part) if isinstance(part, dict) else part for part in content
+    ]
+    return summarized
+
+
+def _summarize_image_part(part: dict) -> dict:
+    if part.get("type") != "image_url":
+        return part
+    image_url = part.get("image_url")
+    url = image_url.get("url") if isinstance(image_url, dict) else None
+    summarized = dict(part)
+    summarized["image_url"] = {
+        "url": _image_reference_summary(url) if isinstance(url, str) else "<image:invalid>"
+    }
+    return summarized
+
+
+def _image_reference_summary(url: str) -> str:
+    """Summarize exact reference bytes without downloading or decoding image data."""
+    encoded = url.encode()
+    digest = sha256(encoded).hexdigest()
+    kind = _data_uri_media_type(url) if url.startswith("data:") else "remote-url"
+    return f"<image:{kind},{len(encoded)} bytes,sha256:{digest}>"
+
+
+def _data_uri_media_type(url: str) -> str:
+    metadata, separator, _ = url[5:].partition(",")
+    candidate = metadata.split(";", 1)[0].strip().lower()
+    allowed = frozenset("abcdefghijklmnopqrstuvwxyz0123456789!#$&^_.+-/")
+    if not separator or not candidate or len(candidate) > 64:
+        return "unknown"
+    return candidate if all(character in allowed for character in candidate) else "unknown"
 
 
 def _audit_tool_calls(body: object) -> list[dict]:

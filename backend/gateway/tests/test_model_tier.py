@@ -3,6 +3,7 @@
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import replace
+from hashlib import sha256
 from uuid import uuid4
 
 import orjson
@@ -20,6 +21,8 @@ from gateway.proxy.application.authenticated_request import AuthenticatedRequest
 from gateway.proxy.application.port.llm_upstream import UpstreamResult
 from gateway.proxy.application.port.upstream_resolver import Upstream
 from gateway.proxy.application.service.proxy_service import ProxyService
+
+_DATA_URI = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"
 
 
 class FakeModelJudge:
@@ -153,12 +156,20 @@ def _inspection() -> Inspection:
     )
 
 
-def _model_tier(judge: FakeModelJudge, *, fail_mode: FailMode = FailMode.CLOSED) -> ModelTier:
+def _model_tier(
+    judge: FakeModelJudge,
+    *,
+    fail_mode: FailMode = FailMode.CLOSED,
+    max_images: int = 4,
+    max_data_uri_bytes: int = 5_242_880,
+) -> ModelTier:
     return ModelTier(
         model_judge=judge,
         model="mistralai/Shieldstral-1.0-3B@revision",
         deadline_ms=250,
         fail_modes={"input": fail_mode},
+        max_images=max_images,
+        max_data_uri_bytes=max_data_uri_bytes,
     )
 
 
@@ -191,6 +202,7 @@ async def test_violated_model_verdict_applies_declared_action() -> None:
         plan=_plan(),
         text="contains a secret",
         mode=Mode.ENFORCE,
+        payload=None,
     )
 
     assert result.action is VerdictAction.BLOCK
@@ -215,6 +227,7 @@ async def test_non_violated_model_verdict_allows() -> None:
         plan=_plan(),
         text="ordinary request",
         mode=Mode.ENFORCE,
+        payload=None,
     )
 
     assert result.action is VerdictAction.ALLOW
@@ -230,6 +243,7 @@ async def test_failed_judgement_uses_enabled_fail_mode() -> None:
         plan=_plan(),
         text="ordinary request",
         mode=Mode.ENFORCE,
+        payload=None,
     )
     opened = await _model_tier(
         FakeModelJudge([_judge_result(violated=None, score=None)]),
@@ -239,6 +253,7 @@ async def test_failed_judgement_uses_enabled_fail_mode() -> None:
         plan=_plan(),
         text="ordinary request",
         mode=Mode.ENFORCE,
+        payload=None,
     )
 
     assert closed.action is VerdictAction.BLOCK
@@ -253,6 +268,7 @@ async def test_unreachable_model_mask_without_span_warns_and_becomes_block(caplo
         plan=_unreachable_model_mask_plan(),
         text="contains a secret",
         mode=Mode.ENFORCE,
+        payload=None,
     )
 
     assert result.action is VerdictAction.BLOCK
@@ -300,6 +316,7 @@ async def test_model_actions_merge_block_over_allow() -> None:
         plan=plan,
         text="contains a secret",
         mode=Mode.ENFORCE,
+        payload=None,
     )
 
     assert result.action is VerdictAction.BLOCK
@@ -314,6 +331,7 @@ async def test_dry_run_records_model_would_have_without_applying() -> None:
         plan=_plan(),
         text="contains a secret",
         mode=Mode.DRY_RUN,
+        payload=None,
     )
 
     assert result.action is VerdictAction.ALLOW
@@ -330,10 +348,100 @@ async def test_no_pending_verdict_does_not_call_model() -> None:
         plan=_plan(),
         text="ordinary request",
         mode=Mode.ENFORCE,
+        payload=None,
     )
 
     assert result is inspection
     assert judge.calls == []
+
+
+async def test_input_images_preserve_role_and_order_in_judge_request() -> None:
+    """① user 이미지의 원본 참조와 위치를 모델 포트까지 보존한다."""
+    remote_url = "https://images.example/second.png"
+    payload = {
+        "messages": [
+            {
+                "role": "assistant",
+                "content": [{"type": "image_url", "image_url": {"url": "data:ignored"}}],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "first"},
+                    {"type": "image_url", "image_url": {"url": remote_url}},
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "image_url", "image_url": {"url": _DATA_URI}}],
+            },
+        ]
+    }
+    judge = FakeModelJudge([_judge_result(violated=False)])
+
+    result = await _model_tier(judge).evaluate(
+        inspection=_inspection(),
+        plan=_plan(),
+        text="first",
+        mode=Mode.ENFORCE,
+        payload=payload,
+    )
+
+    images = judge.calls[0][0].images
+    assert [(image.role, image.message_index, image.part_index) for image in images] == [
+        ("user", 1, 1),
+        ("user", 2, 0),
+    ]
+    assert [image.url for image in images] == [remote_url, _DATA_URI]
+    assert result.action is VerdictAction.ALLOW
+
+
+async def test_image_limits_fail_closed_without_calling_judge() -> None:
+    """이미지 개수·data URI 상한은 일부만 검사하지 않고 input fail-mode를 적용한다."""
+    count_payload = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": _DATA_URI}},
+                    {"type": "image_url", "image_url": {"url": "https://example/2.png"}},
+                ],
+            }
+        ]
+    }
+    count_judge = FakeModelJudge([])
+    count_result = await _model_tier(count_judge, max_images=1).evaluate(
+        inspection=_inspection(),
+        plan=_plan(),
+        text="",
+        mode=Mode.ENFORCE,
+        payload=count_payload,
+    )
+    size_judge = FakeModelJudge([])
+    size_result = await _model_tier(
+        size_judge,
+        max_data_uri_bytes=len(_DATA_URI.encode()) - 1,
+    ).evaluate(
+        inspection=_inspection(),
+        plan=_plan(),
+        text="",
+        mode=Mode.ENFORCE,
+        payload={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"type": "image_url", "image_url": {"url": _DATA_URI}}],
+                }
+            ]
+        },
+    )
+
+    assert count_result.blocked is True
+    assert size_result.blocked is True
+    assert count_judge.calls == []
+    assert size_judge.calls == []
+    assert count_result.model_judgements[0]["raw_label"] == "image_count_limit_exceeded"
+    assert size_result.model_judgements[0]["raw_label"] == "image_data_uri_bytes_limit_exceeded"
 
 
 async def test_disabled_proxy_preserves_pending_and_always_stores_audit_bodies(caplog) -> None:
@@ -370,6 +478,58 @@ async def test_disabled_proxy_preserves_pending_and_always_stores_audit_bodies(c
     assert "model tier is disabled" in caplog.text
 
 
+async def test_disabled_proxy_passes_image_but_audits_only_its_summary(caplog) -> None:
+    """disabled는 이미지를 통과시키되 data URI를 감사 저장소에 복제하지 않는다."""
+    plan = _plan()
+    upstream = FakeUpstream()
+    audit = FakeAuditSink()
+    proxy = ProxyService(
+        upstream=upstream,
+        upstream_resolver=FakeResolver(),
+        audit=audit,
+        model_tier=None,
+        audit_excerpt_max_chars=256,
+        inspector=Inspector(plans=FakePlans(plan)),
+    )
+    payload = orjson.dumps(
+        {
+            "model": "chat-model",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "secret"},
+                        {"type": "image_url", "image_url": {"url": _DATA_URI}},
+                    ],
+                }
+            ],
+        }
+    )
+
+    result = await proxy.complete(
+        auth=AuthenticatedRequest(uuid4(), "app", "model-tier"),
+        mode=Mode.ENFORCE,
+        payload=payload,
+        request_id="request",
+    )
+
+    expected_summary = (
+        f"<image:image/png,{len(_DATA_URI.encode())} bytes,"
+        f"sha256:{sha256(_DATA_URI.encode()).hexdigest()}>"
+    )
+    audited = orjson.loads(audit.events[0].input_body)
+    assert result.status_code == 200
+    assert (
+        orjson.loads(upstream.payloads[0])["messages"][0]["content"][1]["image_url"]["url"]
+        == _DATA_URI
+    )
+    assert audited["messages"][0]["content"][0]["text"] == "secret"
+    assert audited["messages"][0]["content"][1]["image_url"]["url"] == expected_summary
+    assert _DATA_URI not in audit.events[0].input_body
+    assert orjson.loads(audit.events[0].verdicts)["image_count"] == 1
+    assert "model tier is disabled" in caplog.text
+
+
 async def test_enabled_failure_blocks_before_upstream_and_audits_model() -> None:
     """enabled input 판정 실패는 기본 fail-closed로 업스트림 전에 막는다."""
     plan = _plan()
@@ -388,7 +548,18 @@ async def test_enabled_failure_blocks_before_upstream_and_audits_model() -> None
         auth=AuthenticatedRequest(uuid4(), "app", "model-tier"),
         mode=Mode.ENFORCE,
         payload=orjson.dumps(
-            {"model": "chat-model", "messages": [{"role": "user", "content": "secret"}]}
+            {
+                "model": "chat-model",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "secret"},
+                            {"type": "image_url", "image_url": {"url": _DATA_URI}},
+                        ],
+                    }
+                ],
+            }
         ),
         request_id="request",
     )
@@ -397,7 +568,10 @@ async def test_enabled_failure_blocks_before_upstream_and_audits_model() -> None
     assert upstream.payloads == []
     assert audit.events[0].tier_reached == TIER_MODEL
     assert audit.events[0].model == "mistralai/Shieldstral-1.0-3B@revision"
-    assert orjson.loads(audit.events[0].verdicts)["model_judgements"][0]["violated"] is None
+    verdicts = orjson.loads(audit.events[0].verdicts)
+    assert verdicts["model_judgements"][0]["violated"] is None
+    assert verdicts["image_count"] == 1
+    assert _DATA_URI not in audit.events[0].input_body
 
 
 async def test_all_proxy_paths_share_model_input_block_before_upstream() -> None:
@@ -422,7 +596,15 @@ async def test_all_proxy_paths_share_model_input_block_before_upstream() -> None
     stream_payload = orjson.dumps(
         {
             "model": "chat-model",
-            "messages": [{"role": "user", "content": "secret"}],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "secret"},
+                        {"type": "image_url", "image_url": {"url": _DATA_URI}},
+                    ],
+                }
+            ],
             "stream": True,
         }
     )
@@ -464,6 +646,8 @@ async def test_all_proxy_paths_share_model_input_block_before_upstream() -> None
     assert test_stream_body == b""
     assert len(judge.calls) == 4
     assert all(call[0].text == "secret" for call in judge.calls)
+    assert judge.calls[2][0].images == ()
+    assert judge.calls[3][0].images == ()
     assert upstream.payloads == []
     assert upstream.stream_payloads == []
     assert resolver.models == []

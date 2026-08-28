@@ -13,6 +13,8 @@ def test_model_judge_is_disabled_and_input_fail_closed_by_default() -> None:
     assert settings.enabled is False
     assert settings.endpoint == ""
     assert settings.fail_mode.input == "closed"
+    assert settings.max_images == 4
+    assert settings.max_data_uri_bytes == 5_242_880
 
 
 def test_enabled_model_judge_requires_an_http_endpoint() -> None:

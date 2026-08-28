@@ -126,13 +126,21 @@ class HttpxModelJudge:
         return min(1.0, max(0.0, self._threshold + offset))
 
     @staticmethod
-    def _user_message(request: JudgeRequest) -> str:
+    def _user_message(request: JudgeRequest) -> str | list[dict[str, object]]:
         role = _DOCUMENT_ROLES.get(request.checkpoint, request.checkpoint)
-        return (
+        text = (
             f"<Instruct>: {_INSTRUCTIONS[request.strictness]}\n\n"
             f"<Query>: {request.policy}\n\n"
             f"<Document>: [{role}]\n{request.text}"
         )
+        if not request.images:
+            return text
+
+        content: list[dict[str, object]] = [{"type": "text", "text": text}]
+        content.extend(
+            {"type": "image_url", "image_url": {"url": image.url}} for image in request.images
+        )
+        return content
 
     @classmethod
     def _result(cls, request: JudgeRequest, body: object, threshold: float) -> JudgeResult:

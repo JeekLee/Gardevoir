@@ -5,7 +5,9 @@ from collections import defaultdict, deque
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from enum import StrEnum
+from typing import Any
 
+from gateway.guardrail.application.multimodal import extract_input_images
 from gateway.guardrail.application.outcome import TIER_MODEL, Inspection
 from gateway.guardrail.application.port.model_judge import (
     JudgeRequest,
@@ -40,11 +42,15 @@ class ModelTier:
         model: str,
         deadline_ms: int,
         fail_modes: Mapping[str, FailMode],
+        max_images: int,
+        max_data_uri_bytes: int,
     ) -> None:
         self._model_judge = model_judge
         self._model = model
         self._deadline_ms = deadline_ms
         self._fail_modes = dict(fail_modes)
+        self._max_images = max_images
+        self._max_data_uri_bytes = max_data_uri_bytes
 
     async def evaluate(
         self,
@@ -53,12 +59,18 @@ class ModelTier:
         plan: ExecutionPlan,
         text: str,
         mode: Mode,
+        payload: Any,
     ) -> Inspection:
         """Resolve one checkpoint's pending verdicts and return an updated inspection."""
         pending = tuple(dict.fromkeys(inspection.pending_model))
         if not pending:
             return inspection
 
+        extracted = extract_input_images(
+            payload,
+            max_images=self._max_images,
+            max_data_uri_bytes=self._max_data_uri_bytes,
+        )
         specs: dict[str, ModelNodeSpec] = {}
         requests: list[JudgeRequest] = []
         for verdict_id in pending:
@@ -74,10 +86,23 @@ class ModelTier:
                     text=text,
                     strictness=spec.strictness,
                     deadline_ms=self._deadline_ms,
+                    images=extracted.images,
                 )
             )
 
-        results = await self._judge(requests)
+        results = (
+            tuple(
+                JudgeResult(
+                    node_id=request.node_id,
+                    violated=None,
+                    score=None,
+                    raw_label=extracted.limit_error,
+                )
+                for request in requests
+            )
+            if extracted.limit_error
+            else await self._judge(requests)
+        )
         by_node: defaultdict[str, deque[JudgeResult]] = defaultdict(deque)
         for result in results:
             if isinstance(result, JudgeResult):
