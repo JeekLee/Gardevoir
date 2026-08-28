@@ -64,7 +64,7 @@ def test_rule_only_verdict_ignores_legacy_decision(action: str) -> None:
     assert current is not None
     assert legacy is not None
     for text in ("ordinary request", "contains a secret"):
-        assert execute(current, Subject(text=text)) == execute(legacy, Subject(text=text))
+        assert execute(current, Subject(user_text=text)) == execute(legacy, Subject(user_text=text))
 
 
 def test_model_check_compiles_to_pending_without_applying_action() -> None:
@@ -81,7 +81,7 @@ def test_model_check_compiles_to_pending_without_applying_action() -> None:
     assert plan.model_nodes["verdict"].action is VerdictAction.BLOCK
     assert plan.model_nodes["verdict"].strictness == "strict"
     assert plan.model_nodes["verdict"].model_route == "shieldstral"
-    result = execute(program, Subject(text="contains a secret"))
+    result = execute(program, Subject(user_text="contains a secret"))
     assert result.action is VerdictAction.ALLOW
     assert result.checks_fired == ()
     assert result.pending_model == ("verdict",)
@@ -152,7 +152,7 @@ def test_regex_check_can_contribute_to_mask_verdict() -> None:
     program = plan.program_for("input")
 
     assert program is not None
-    assert execute(program, Subject(text="contains a secret")).action is VerdictAction.MASK
+    assert execute(program, Subject(user_text="contains a secret")).action is VerdictAction.MASK
 
 
 @pytest.mark.parametrize(
@@ -206,7 +206,7 @@ def test_verdict_combine_preserves_pending_three_state(
     program = plan.program_for("input")
 
     assert program is not None
-    result = execute(program, Subject(text=text))
+    result = execute(program, Subject(user_text=text))
     assert result.checks_fired == expected_fired
     assert result.pending_model == expected_pending
     assert result.action is (VerdictAction.BLOCK if expected_fired else VerdictAction.ALLOW)
@@ -242,7 +242,7 @@ def test_verdict_combine_rule_only_results(
     program = plan.program_for("input")
 
     assert program is not None
-    result = execute(program, Subject(text=text))
+    result = execute(program, Subject(user_text=text))
     assert result.action is expected_action
     assert result.pending_model == ()
 
@@ -266,7 +266,7 @@ def test_verdict_combine_defaults_to_any() -> None:
     program = plan.program_for("input")
 
     assert program is not None
-    assert execute(program, Subject(text="first")).action is VerdictAction.BLOCK
+    assert execute(program, Subject(user_text="first")).action is VerdictAction.BLOCK
 
 
 def test_verdict_rejects_unknown_combine() -> None:

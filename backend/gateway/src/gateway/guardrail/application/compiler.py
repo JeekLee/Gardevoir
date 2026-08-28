@@ -19,23 +19,27 @@ from gateway.guardrail.domain.models.execution_plan import (
     Instruction,
     ModelCheck,
     ModelNodeSpec,
+    Not,
     Program,
-    Provenance,
     RegexOne,
     RegexSet,
-    SideEffect,
-    Taint,
+    ToolExtract,
     Transform,
     Verdict,
 )
 from gateway.guardrail.domain.models.guardrail import (
     DEFAULT_MODEL_STRICTNESS,
-    DEFAULT_PROVENANCE_MIN_LENGTH,
+    EXTRACT_SOURCE_OUTPUT_TEXT,
+    EXTRACT_SOURCE_TOOL_RESULT,
+    EXTRACT_SOURCE_USER_TEXT,
     Guardrail,
     Node,
     NodeType,
     VerdictAction,
     VerdictCombine,
+    extract_source,
+    source_at,
+    tool_selector,
 )
 
 _DEFAULT_MODEL_ROUTE = "shieldstral"
@@ -47,23 +51,22 @@ UNPUBLISHED = 0
 #: 위상 레벨 안에서만 재정렬하므로 의존성은 깨지지 않는다.
 _COST = {
     NodeType.EXTRACT: 0,
-    NodeType.TAINT: 0,
-    NodeType.SIDE_EFFECT: 0,
-    NodeType.PROVENANCE: 0,
+    NodeType.TOOL_EXTRACT: 0,
+    NodeType.NOT: 1,
     NodeType.TRANSFORM: 2,
     NodeType.REGEX: 3,
     NodeType.MODEL: 4,
     NodeType.VERDICT: 5,
 }
 
-#: 체크포인트를 고르는 노드 = 부분 그래프의 뿌리. taint 는 텍스트를 읽지 않지만
-#: 어느 체크포인트에서 평가될지는 명시돼야 한다 (도메인 검증이 강제한다).
-SOURCE_TYPES = (
-    NodeType.EXTRACT,
-    NodeType.TAINT,
-    NodeType.SIDE_EFFECT,
-    NodeType.PROVENANCE,
-)
+#: 체크포인트를 고르는 부분 그래프의 뿌리.
+SOURCE_TYPES = (NodeType.EXTRACT, NodeType.TOOL_EXTRACT)
+
+_MASKABLE_SOURCE_BY_CHECKPOINT = {
+    "input": EXTRACT_SOURCE_USER_TEXT,
+    "tool_result": EXTRACT_SOURCE_TOOL_RESULT,
+    "output": EXTRACT_SOURCE_OUTPUT_TEXT,
+}
 
 
 def compile_guardrail(guardrail: Guardrail) -> ExecutionPlan:
@@ -110,7 +113,7 @@ class _Graph:
         for node in self.nodes.values():
             if node.type not in SOURCE_TYPES:
                 continue
-            checkpoint = node.config["checkpoint"]
+            checkpoint = source_at(node)
             for descendant in self._descendants(node.id):
                 reached[descendant].add(checkpoint)
 
@@ -188,7 +191,7 @@ class _Graph:
         if not live:
             return Program(instructions=(), slot_count=0)
 
-        self._validate_maskable(live)
+        self._validate_maskable(live, checkpoint)
         order = self._topological(live)
         # ⑤ 값을 만드는 노드에만 슬롯을 준다. verdict 는 슬롯에 쓰지 않으므로 자리를
         # 잡아두면 배열이 판정 개수만큼 쓸데없이 커진다.
@@ -198,9 +201,18 @@ class _Graph:
                 n for n in order if self.nodes[n].type is not NodeType.VERDICT
             )
         }
+        instructions = self._emit(order, slots)
         return Program(
-            instructions=self._emit(order, slots, checkpoint),
+            instructions=instructions,
             slot_count=len(slots),
+            text_sources=frozenset(
+                extract_source(self.nodes[node_id])
+                for node_id in order
+                if self.nodes[node_id].type is NodeType.EXTRACT
+            ),
+            tool_extracts=tuple(
+                instruction for instruction in instructions if isinstance(instruction, ToolExtract)
+            ),
             patterns_by_slot={
                 slots[node_id]: re2.compile(self.nodes[node_id].config["pattern"])
                 for node_id in order
@@ -214,7 +226,7 @@ class _Graph:
             },
         )
 
-    def _validate_maskable(self, live: set[str]) -> None:
+    def _validate_maskable(self, live: set[str], checkpoint: str) -> None:
         """MASK 판정이 실제로 가릴 수 있는지 확인한다.
 
         마스킹은 **위치**가 필요하다. 실행기는 걸렸는지만 알므로 걸린 패턴을 원본에
@@ -234,7 +246,7 @@ class _Graph:
             for src in self.inputs[node_id]:
                 if src not in live:
                     continue
-                if self._reads_the_extract_directly(src):
+                if self._reads_the_extract_directly(src, checkpoint):
                     continue
                 GuardrailError.UNMASKABLE.raise_(
                     f"mask verdict {node_id!r} depends on {src!r}, whose position is unknown",
@@ -247,12 +259,19 @@ class _Graph:
         candidates = [src for src in self.inputs[verdict_id] if src in live]
         return tuple(slots[node_id] for node_id in candidates if node_id in slots)
 
-    def _reads_the_extract_directly(self, node_id: str) -> bool:
+    def _reads_the_extract_directly(self, node_id: str, checkpoint: str) -> bool:
         if self.nodes[node_id].type is not NodeType.REGEX:
             return False
-        return all(
-            self.nodes[src].type is NodeType.EXTRACT for src in self.inputs[node_id]
-        ) and bool(self.inputs[node_id])
+        expected_source = _MASKABLE_SOURCE_BY_CHECKPOINT.get(checkpoint)
+        return (
+            bool(expected_source)
+            and all(
+                self.nodes[src].type is NodeType.EXTRACT
+                and extract_source(self.nodes[src]) == expected_source
+                for src in self.inputs[node_id]
+            )
+            and bool(self.inputs[node_id])
+        )
 
     def _prune(self, node_ids: set[str]) -> set[str]:
         """④ 판정에 닿지 않는 노드를 버린다.
@@ -312,9 +331,7 @@ class _Graph:
                         ready.append(dst)
         return order
 
-    def _emit(
-        self, order: list[str], slots: dict[str, int], checkpoint: str
-    ) -> tuple[Instruction, ...]:
+    def _emit(self, order: list[str], slots: dict[str, int]) -> tuple[Instruction, ...]:
         """⑤⑥⑧ 슬롯 배정 · regex 합침 · 명령 생성."""
         merged = self._merge_regexes(order, slots)
         instructions: list[Instruction] = []
@@ -325,7 +342,7 @@ class _Graph:
                 if (group := merged[node_id]) is not None:
                     instructions.append(group)
                 continue
-            instructions.append(self._instruction(node, slots, checkpoint))
+            instructions.append(self._instruction(node, slots))
         return tuple(instructions)
 
     def _merge_regexes(self, order: list[str], slots: dict[str, int]) -> dict[str, RegexSet | None]:
@@ -361,21 +378,22 @@ class _Graph:
                 emitted[node_id] = None
         return emitted
 
-    def _instruction(self, node: Node, slots: dict[str, int], checkpoint: str) -> Instruction:
+    def _instruction(self, node: Node, slots: dict[str, int]) -> Instruction:
         match node.type:
             case NodeType.EXTRACT:
-                return Extract(out=slots[node.id], checkpoint=checkpoint)
-            case NodeType.TAINT:
-                return Taint(out=slots[node.id])
-            case NodeType.SIDE_EFFECT:
-                return SideEffect(
+                return Extract(out=slots[node.id], source=extract_source(node))
+            case NodeType.TOOL_EXTRACT:
+                selector, tools = tool_selector(node)
+                return ToolExtract(
                     out=slots[node.id],
-                    read_only=frozenset(node.config.get("read_only") or ()),
+                    selector=selector,
+                    tools=tools,
+                    field=node.config["field"],
                 )
-            case NodeType.PROVENANCE:
-                return Provenance(
+            case NodeType.NOT:
+                return Not(
                     out=slots[node.id],
-                    min_length=node.config.get("min_length", DEFAULT_PROVENANCE_MIN_LENGTH),
+                    src=slots[self.inputs[node.id][0]],
                 )
             case NodeType.TRANSFORM:
                 return Transform(

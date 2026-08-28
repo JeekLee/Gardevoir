@@ -69,7 +69,6 @@ class StreamRelay:
         inspector: Inspector | None,
         plan: ExecutionPlan | None,
         mode: Mode,
-        tainted: bool,
         payload: object,
         holdback_chars: int,
         window_chars: int,
@@ -77,7 +76,6 @@ class StreamRelay:
         self._inspector = inspector
         self._plan = plan
         self._mode = mode
-        self._tainted = tainted
         self._payload = payload
         self._acc = Accumulator()
         self._hold = Holdback(chars=holdback_chars, window=window_chars)
@@ -167,7 +165,10 @@ class StreamRelay:
         assert self._inspector is not None
         text, offset = self._hold.inspection_window()
         verdict, spans = self._inspector.stream_text(
-            program, text, mode=self._mode, tainted=self._tainted
+            program,
+            text,
+            self._payload,
+            mode=self._mode,
         )
         self._merge_output(verdict)
         self._apply_spans(spans, offset)
@@ -230,7 +231,6 @@ class StreamRelay:
                 self._acc.as_completion(),
                 self._payload,
                 mode=self._mode,
-                tainted=self._tainted,
             )
             self.outcome.tool_call = verdict
             self.outcome.processing_ms += (time.perf_counter() - started) * 1000
@@ -244,7 +244,6 @@ class StreamRelay:
                 self._acc.as_completion(),
                 self._payload,
                 mode=self._mode,
-                tainted=self._tainted,
             )
             self.outcome.processing_ms += (time.perf_counter() - started) * 1000
 

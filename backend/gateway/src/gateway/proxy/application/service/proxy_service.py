@@ -569,7 +569,6 @@ class ProxyService:
                 inspector=self._inspector,
                 plan=plan,
                 mode=mode,
-                tainted=verdicts.tainted,
                 payload=decoded,
                 holdback_chars=self._holdback_chars,
                 window_chars=self._window_chars,
@@ -644,7 +643,6 @@ class ProxyService:
             inspector=self._inspector,
             plan=plan,
             mode=mode,
-            tainted=verdicts.tainted,
             payload=decoded,
             holdback_chars=self._holdback_chars,
             window_chars=self._window_chars,
@@ -766,7 +764,7 @@ class ProxyService:
         if self._inspector is None:
             return _Verdicts(plan=plan, mode=mode)
         tainted = self._inspector.tainted(decoded)
-        inspection = self._inspector.input(plan, decoded, mode=mode, tainted=tainted)
+        inspection = self._inspector.input(plan, decoded, mode=mode)
         if inspection.pending_model and self._model_tier is None:
             logger.warning(
                 "model tier is disabled; %d input verdict(s) remain unevaluated",
@@ -785,7 +783,6 @@ class ProxyService:
                 plan,
                 decoded,
                 mode=verdicts.mode,
-                tainted=verdicts.tainted,
             ),
         )
 
@@ -828,10 +825,13 @@ class ProxyService:
         if isinstance(body, dict) and self._inspector is not None:
             verdicts = replace(
                 verdicts,
-                output=self._inspector.output(plan, body, mode=mode, tainted=verdicts.tainted),
-                tool_call=self._inspector.tool_call(
-                    plan, body, decoded, mode=mode, tainted=verdicts.tainted
+                output=self._inspector.output(
+                    plan,
+                    body,
+                    decoded,
+                    mode=mode,
                 ),
+                tool_call=self._inspector.tool_call(plan, body, decoded, mode=mode),
             )
 
         return _InspectedCompletion(

@@ -15,10 +15,20 @@ from gateway.guardrail.domain.models.guardrail import VerdictAction, VerdictComb
 
 @dataclass(frozen=True, slots=True)
 class Extract:
-    """체크포인트 텍스트를 슬롯에 놓는다. 프로그램의 유일한 소스."""
+    """Place one request/response text source in a slot."""
 
     out: int
-    checkpoint: str
+    source: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolExtract:
+    """Place one selected tool-call field in a slot."""
+
+    out: int
+    selector: str
+    tools: frozenset[str]
+    field: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +45,14 @@ class ModelCheck:
     src: int
     out: int
     node_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class Not:
+    """Negate one boolean slot while preserving PENDING."""
+
+    out: int
+    src: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,41 +77,6 @@ class RegexSet:
 
 
 @dataclass(frozen=True, slots=True)
-class Taint:
-    """대화에 외부 데이터가 들어왔는가 (§8 1단계).
-
-    텍스트를 읽지 않는다 — 오염은 문자열이 아니라 **구조적 사실**이다. 그래서
-    인코딩을 바꿔도 우회되지 않는다 (§8 한계 절).
-    """
-
-    out: int
-
-
-@dataclass(frozen=True, slots=True)
-class SideEffect:
-    """이 tool_call 이 부작용 툴인가 (§7.6).
-
-    ``read_only`` 에 없으면 부작용 있음 — 미등록 툴이 안전한 쪽으로 기본 처리된다.
-    새 툴이 추가됐을 때 조용히 방어가 비는 것을 막는다.
-    """
-
-    out: int
-    read_only: frozenset[str]
-
-
-@dataclass(frozen=True, slots=True)
-class Provenance:
-    """인수 값이 외부 데이터에서 왔는가 (§8 3단계).
-
-    실제 비교는 검사기가 하고(요청 본문이 필요하다) 이 명령은 그 결과를 읽는다.
-    ``min_length`` 는 검사기가 읽어 쓴다 — 짧은 값은 툴 결과에 우연히 나타난다.
-    """
-
-    out: int
-    min_length: int
-
-
-@dataclass(frozen=True, slots=True)
 class Verdict:
     """A terminal decision that does not write to a slot.
 
@@ -108,15 +91,7 @@ class Verdict:
 
 
 type Instruction = (
-    Extract
-    | Transform
-    | ModelCheck
-    | RegexOne
-    | RegexSet
-    | Taint
-    | SideEffect
-    | Provenance
-    | Verdict
+    Extract | ToolExtract | Transform | ModelCheck | Not | RegexOne | RegexSet | Verdict
 )
 
 
@@ -126,6 +101,10 @@ class Program:
 
     instructions: tuple[Instruction, ...]
     slot_count: int
+
+    #: 요청 경로에서 명령 전체를 다시 훑지 않도록 발행 시점에 고정한다.
+    text_sources: frozenset[str] = field(default_factory=frozenset)
+    tool_extracts: tuple[ToolExtract, ...] = ()
 
     #: regex 슬롯 -> 그 슬롯에 쓰는 패턴의 개별 컴파일 결과. **마스킹 전용이다.**
     #: 합쳐진 Set 은 어느 패턴이 걸렸는지만 알려주고 어디인지는 알려주지 않으므로,

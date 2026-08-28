@@ -6,6 +6,7 @@ v38 로 검사하면 판정이 앞뒤가 안 맞고 나중에 재현이 불가�
 
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 
 from gateway.guardrail.application.outcome import (
     MASK_PLACEHOLDER,
@@ -15,8 +16,11 @@ from gateway.guardrail.application.outcome import (
 )
 from gateway.guardrail.application.provenance import (
     extract_tool_calls,
-    foreign_arguments,
+    parse_argument_strings,
+    tool_extract_paths,
+    tool_extract_text,
     tool_name,
+    tool_selected,
 )
 from gateway.guardrail.application.service.registry import PlanRegistry
 from gateway.guardrail.application.text import (
@@ -31,11 +35,7 @@ from gateway.guardrail.application.text import (
     replace_message_text,
 )
 from gateway.guardrail.domain.executor import Subject, execute
-from gateway.guardrail.domain.models.execution_plan import (
-    ExecutionPlan,
-    Program,
-    Provenance,
-)
+from gateway.guardrail.domain.models.execution_plan import ExecutionPlan, Program
 from gateway.guardrail.domain.models.guardrail import VerdictAction
 from gateway.guardrail.domain.models.mode import Mode
 
@@ -60,13 +60,11 @@ class Inspector:
         """
         return self._plans.get(guardrail)
 
-    def input(
-        self, plan: ExecutionPlan | None, payload: object, *, mode: Mode, tainted: bool = False
-    ) -> Inspection:
+    def input(self, plan: ExecutionPlan | None, payload: object, *, mode: Mode) -> Inspection:
         program = plan.program_for(CHECKPOINT_INPUT) if plan is not None else None
         if program is None:
             return NOT_INSPECTED
-        subject = Subject(text=extract_input_text(payload), tainted=tainted)
+        subject = self._subject(program, payload)
         return self._run(
             program,
             subject,
@@ -89,9 +87,7 @@ class Inspector:
             checks_fired,
         )
 
-    def tool_result(
-        self, plan: ExecutionPlan | None, payload: object, *, mode: Mode, tainted: bool = False
-    ) -> Inspection:
+    def tool_result(self, plan: ExecutionPlan | None, payload: object, *, mode: Mode) -> Inspection:
         """② 검사 — 툴 결과에 심긴 지시를 잡는다 (§8).
 
         업스트림 호출 **전** 이다. 오염된 데이터를 모델에 먹이지 않는 것이 방어다.
@@ -99,7 +95,7 @@ class Inspector:
         program = plan.program_for(CHECKPOINT_TOOL_RESULT) if plan is not None else None
         if program is None:
             return NOT_INSPECTED
-        subject = Subject(text=extract_tool_result_text(payload), tainted=tainted)
+        subject = self._subject(program, payload)
         return self._run(
             program,
             subject,
@@ -120,15 +116,13 @@ class Inspector:
         payload: object,
         *,
         mode: Mode,
-        tainted: bool = False,
     ) -> Inspection:
-        """④ 검사 — 호출마다 한 번씩 (§8 2·3단계).
+        """④ 검사 — 호출마다 한 번씩 (§8).
 
         하나라도 걸리면 응답 전체를 막는다. 호출 하나만 빼고 나머지를 넘기면 모델의
         계획이 반쯤 실행되고, 앱은 남은 툴을 불러 그 결과로 다시 요청한다.
 
-        출처 검사는 요청 본문이 필요하다 — 인수 값이 사용자 메시지에서 왔는지 툴
-        결과에서 왔는지를 봐야 한다. 그래서 ``payload`` 를 함께 받는다.
+        ``extract(from=...)`` 가 요청 이력을 읽을 수 있으므로 ``payload`` 를 함께 받는다.
         """
         program = plan.program_for(CHECKPOINT_TOOL_CALL) if plan is not None else None
         if program is None:
@@ -138,13 +132,13 @@ class Inspector:
         if not calls:
             return Inspection(action=VerdictAction.ALLOW, tier=TIER_RULES)
 
-        # 출처 검사를 쓰는 프로그램일 때만 텍스트를 모은다 — 안 쓰면 비용이 0 이다.
-        thresholds = [i.min_length for i in program.instructions if isinstance(i, Provenance)]
-        needs_provenance = bool(thresholds)
-        trusted = extract_trusted_text(payload) if needs_provenance else ""
-        external = extract_tool_result_text(payload) if needs_provenance else ""
-        # 노드가 여러 개면 가장 낮은 임계값을 쓴다 — 가장 엄격한 정책이 이긴다.
-        min_length = min(thresholds) if thresholds else 0
+        tool_extracts = program.tool_extracts
+        output_text = (
+            "\n".join(text for _, text in extract_output_texts(body))
+            if "output_text" in program.text_sources
+            else ""
+        )
+        base_subject = self._subject(program, payload, output_text=output_text)
 
         checks: list[str] = []
         pending: list[str] = []
@@ -153,24 +147,48 @@ class Inspector:
 
         for call in calls:
             name = tool_name(call)
-            foreign = (
-                foreign_arguments(
-                    tool_call=call, trusted=trusted, external=external, min_length=min_length
-                )
-                if needs_provenance
-                else ()
-            )
+            arguments = parse_argument_strings(call)
+            tool_texts: list[str | None] = [None] * program.slot_count
+            selected = False
+            argument_paths: list[str] = []
+            for instruction in tool_extracts:
+                if not tool_selected(name, instruction.selector, instruction.tools):
+                    continue
+                selected = True
+                tool_texts[instruction.out] = tool_extract_text(name, arguments, instruction.field)
+                argument_paths.extend(tool_extract_paths(arguments, instruction.field))
+
+            if tool_extracts and not selected:
+                # 선택되지 않은 호출은 프로그램 자체를 돌리지 않는다.
+                if arguments.parse_failed:
+                    evidence.append(
+                        {
+                            "tool": name,
+                            "arguments": [],
+                            "arguments_parse_failed": True,
+                        }
+                    )
+                continue
+
             result = execute(
                 program,
-                Subject(tainted=tainted, tool_name=name, foreign_args=foreign),
+                replace(base_subject, tool_texts=tuple(tool_texts)),
                 collect_all=mode is Mode.DRY_RUN,
             )
             checks.extend(result.checks_fired)
             pending.extend(result.pending_model)
-            if result.action is VerdictAction.BLOCK:
+            call_blocked = result.action is VerdictAction.BLOCK
+            if call_blocked:
                 blocked = True
-                # 증거는 이름만 남긴다 — 인수 값은 감사 로그에 넣지 않는다 (§10).
-                evidence.append({"tool": name, "arguments": list(foreign)})
+            if call_blocked or arguments.parse_failed:
+                item = {
+                    "tool": name,
+                    # 값은 감사 본문에 있고 구조화 증거에는 경로만 남긴다 (§10).
+                    "arguments": list(dict.fromkeys(argument_paths)),
+                }
+                if arguments.parse_failed:
+                    item["arguments_parse_failed"] = True
+                evidence.append(item)
 
         if blocked and mode is Mode.DRY_RUN:
             return Inspection(
@@ -190,7 +208,12 @@ class Inspector:
         )
 
     def output(
-        self, plan: ExecutionPlan | None, body: dict, *, mode: Mode, tainted: bool = False
+        self,
+        plan: ExecutionPlan | None,
+        body: dict,
+        payload: object,
+        *,
+        mode: Mode,
     ) -> Inspection:
         """③ 검사. MASK 가 걸리면 ``body`` 를 제자리에서 고친다."""
         program = plan.program_for(CHECKPOINT_OUTPUT) if plan is not None else None
@@ -206,11 +229,12 @@ class Inspector:
         blocked = False
         masked = False
         would_mask = False
+        base_subject = self._subject(program, payload)
 
         for position, text in texts:
             result = execute(
                 program,
-                Subject(text=text, tainted=tainted),
+                replace(base_subject, output_text=text),
                 collect_all=mode is Mode.DRY_RUN,
             )
             checks.extend(result.checks_fired)
@@ -243,6 +267,24 @@ class Inspector:
         )
 
     # -- helpers ------------------------------------------------------------
+
+    @staticmethod
+    def _subject(
+        program: Program,
+        payload: object,
+        *,
+        output_text: str = "",
+        tool_texts: tuple[str | None, ...] = (),
+    ) -> Subject:
+        """Build only the source texts used by this compiled program."""
+        sources = program.text_sources
+        return Subject(
+            user_text=extract_input_text(payload) if "user_text" in sources else "",
+            tool_result=(extract_tool_result_text(payload) if "tool_result" in sources else ""),
+            trusted_text=extract_trusted_text(payload) if "trusted_text" in sources else "",
+            output_text=output_text,
+            tool_texts=tool_texts,
+        )
 
     def _run(
         self,
@@ -384,16 +426,18 @@ class Inspector:
         self,
         program: Program,
         text: str,
+        payload: object,
         *,
         mode: Mode,
-        tainted: bool = False,
     ) -> tuple[Inspection, list[tuple[int, int]]]:
         """③ 를 스트리밍 윈도우에 적용한다.
 
         치환을 여기서 하지 않고 **구간**을 돌려준다 — 방출 여부는 홀드백만 안다.
         """
         result = execute(
-            program, Subject(text=text, tainted=tainted), collect_all=mode is Mode.DRY_RUN
+            program,
+            self._subject(program, payload, output_text=text),
+            collect_all=mode is Mode.DRY_RUN,
         )
         blocked = result.action is VerdictAction.BLOCK
         would_have = result.action if result.action is not VerdictAction.ALLOW else None

@@ -28,12 +28,10 @@ _CHECK_NODE_TYPES = frozenset(
     {
         NodeType.REGEX.value,
         NodeType.MODEL.value,
-        NodeType.TAINT.value,
-        NodeType.SIDE_EFFECT.value,
-        NodeType.PROVENANCE.value,
+        NodeType.NOT.value,
     }
 )
-_TOOL_CALL_NODE_TYPES = frozenset({NodeType.SIDE_EFFECT.value, NodeType.PROVENANCE.value})
+_TOOL_CALL_NODE_TYPES = frozenset({NodeType.TOOL_EXTRACT.value})
 
 
 @dataclass(slots=True)
@@ -205,6 +203,8 @@ def _project_graph(graph: object) -> tuple[list[str], list[str], int, int]:
 
         if node_type in _TOOL_CALL_NODE_TYPES:
             checkpoints.add("tool_call")
+        elif config.get("at") in VALID_CHECKPOINTS:
+            checkpoints.add(config["at"])
         elif config.get("checkpoint") in VALID_CHECKPOINTS:
             checkpoints.add(config["checkpoint"])
 

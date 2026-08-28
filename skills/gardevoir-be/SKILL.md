@@ -453,8 +453,12 @@ guardrail/application/service/inspector.py        체크포인트별 대상 추�
 
 Rules that must hold:
 
-- **The authored catalog has four roles.** Extract=`extract`; Transform=`transform`;
-  Check=`regex`/`model`/`taint`/`side_effect`/`provenance`; Verdict=`verdict`. There is no
+- **The authored catalog has four roles.** Extract=`extract`/`tool_extract`;
+  Transform=`transform`; Check=`regex`/`model`/`not`; Verdict=`verdict`. `extract` separates
+  what it reads (`from=user_text|tool_result|trusted_text|output_text`) from when it runs
+  (`at=input|tool_result|output|tool_call`). `tool_extract` is fixed at `tool_call`, defaults
+  to `tools={exclude: []}` so new tools stay inspected, and reads `name`, all string argument
+  values, or one argument path (including `[*]`). `not` preserves PENDING. There is no
   `all` node: verdict owns `combine=any|all` and defaults to `any`. There is no `length` node:
   use an RE2 pattern such as `(?s).{N,}`.
 - **Verdict preserves three-state model gating.** For `any`, a confirmed True fires, otherwise
@@ -771,7 +775,7 @@ tool_call blocked  HTTP 200 + finish_reason = "content_filter"
 | Absent | Why |
 |---|---|
 | Kafka / outbox / CDC / domain events | Nothing publishes events (§12) |
-| Redis for taint / approvals | Taint tracking is stateless — the `messages` array carries the full history (§7.4). Approvals are low-volume and live in Postgres. **Redis is used, but only for refresh sessions**: TTL expiry means the store cannot grow unboundedly, and the refresh path is not latency-sensitive. Persistence is off, which is also why the session token is stored as-is rather than hashed — nothing is ever written to disk, so the leaked-dump threat that would justify hashing does not exist. **Turning persistence on would change that.** Do not extend it to the proxy request path — a localhost GET is 91 µs against a 0.287 µs dict lookup |
+| Redis for tool-result history / approvals | Tool-result inspection is stateless — the `messages` array carries the full history (§7.4). Approvals are low-volume and live in Postgres. **Redis is used, but only for refresh sessions**: TTL expiry means the store cannot grow unboundedly, and the refresh path is not latency-sensitive. Persistence is off, which is also why the session token is stored as-is rather than hashed — nothing is ever written to disk, so the leaked-dump threat that would justify hashing does not exist. **Turning persistence on would change that.** Do not extend it to the proxy request path — a localhost GET is 91 µs against a 0.287 µs dict lookup |
 | JWT / `Principal` / header-trust auth | Callers authenticate with a gardevoir-issued API key; app identity comes from the credential, never a header (§7.2) |
 | Celery | No background fan-out; asyncio tasks suffice |
 | Object storage | ClickHouse `TTL` + partition drop covers retention (§10) |
