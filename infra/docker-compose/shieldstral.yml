@@ -1,0 +1,46 @@
+# 모델 티어 가드(Shieldstral)를 gardevoir 스택에서 직접 서빙한다.
+#
+# `model-tier` 프로필이라 기본 `compose up` 에서는 뜨지 않는다. 가중치 15 GB 와 NVIDIA
+# 런타임이 필요하므로 이것을 필수로 만들면 빠른 시작이 깨진다. 켜려면:
+#
+#   docker compose --profile model-tier ... up -d
+#
+# gateway 는 이 서비스에 depends_on 하지 않는다. 판정 실패는 fail mode 로 처리되는
+# 정상 경로이며(§4), 의존을 걸면 프로필이 꺼졌을 때 스택 전체가 뜨지 못한다.
+services:
+  shieldstral:
+    profiles: ["model-tier"]
+    image: ${SHIELDSTRAL_IMAGE}
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+    volumes:
+      # HF 캐시의 모델 디렉터리를 통째로 붙이고 command 에서 스냅샷을 고른다.
+      # 읽기 전용 — 서빙이 캐시를 건드릴 이유가 없다.
+      - ${SHIELDSTRAL_MODEL_DIR}:/hf-model:ro
+    command:
+      # 감사 식별자인 revision 이 곧 서빙하는 스냅샷이다. 둘이 갈리면 감사 로그가
+      # 실제로 판정한 가중치와 다른 값을 가리키게 되므로 한 변수에서 온다.
+      - /hf-model/snapshots/${GARDEVOIR_MODEL_JUDGE__REVISION}
+      - --served-model-name
+      - ${GARDEVOIR_MODEL_JUDGE__MODEL}
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8001"
+      - --max-model-len
+      - ${SHIELDSTRAL_MAX_MODEL_LEN}
+      - --gpu-memory-utilization
+      - ${SHIELDSTRAL_GPU_MEMORY_UTILIZATION}
+    shm_size: ${SHIELDSTRAL_SHM_SIZE}
+    healthcheck:
+      # vLLM 이미지에 wget·curl 이 없으므로 python 으로 친다.
+      test:
+        - CMD-SHELL
+        - python3 -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8001/health',timeout=2)"
+      interval: 5s
+      timeout: 5s
+      # 가중치 적재에 수십 초가 걸린다.
+      retries: 60
+      start_period: 30s
+    restart: unless-stopped
