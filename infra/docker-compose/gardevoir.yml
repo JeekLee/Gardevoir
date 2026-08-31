@@ -12,6 +12,8 @@ include:
   - postgres.yml
   - redis.yml
   - clickhouse.yml
+  # model-tier 프로필. 기본 up 에서는 뜨지 않는다.
+  - shieldstral.yml
 
 services:
   # 서빙 전에 스키마를 올린다(원샷). 게이트웨이가 이 완료를 기다린다.
@@ -79,11 +81,6 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
-    # spark-inference-net 에 붙어 모델 티어 가드(shieldstral-1.0-3b:8001)에 컨테이너
-    # 별칭으로 직접 도달한다. pg/redis/ch 는 default 로 유지.
-    networks:
-      - default
-      - spark-inference-net
 
   console:
     build:
@@ -99,8 +96,3 @@ services:
       gateway:
         condition: service_healthy
     restart: unless-stopped
-
-networks:
-  default:
-  spark-inference-net:
-    external: true

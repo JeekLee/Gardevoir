@@ -189,3 +189,33 @@ docker compose \
     고정되므로 바꾸면 `--build` 로 다시 빌드**해야 한다.
   - `GARDEVOIR_CORS_ALLOW_ORIGINS` — 게이트웨이가 허용할 오리진(콘솔을 여는 주소와 일치, 콤마 구분).
 - Dockerfile 은 `infra/dockerfiles/`(gateway·console). 콘솔 빌드 컨텍스트는 `frontend/`.
+
+## 모델 티어 (선택)
+
+가드 모델(Shieldstral)은 이 스택이 직접 서빙한다. **`model-tier` 프로필이라 기본 `up` 에서는
+뜨지 않는다** — 가중치 15 GB 와 NVIDIA 런타임이 필요하므로 필수로 만들면 빠른 시작이 깨진다.
+
+```bash
+docker compose \
+  --env-file infra/envs/example/compose.env \
+  --env-file infra/envs/local/compose.env \
+  -f infra/docker-compose/gardevoir.yml --profile model-tier up -d
+```
+
+`local/compose.env` 에 넣을 것:
+
+```
+GARDEVOIR_MODEL_JUDGE__ENABLED=true
+GARDEVOIR_MODEL_JUDGE__ENDPOINT=http://shieldstral:8001/v1/chat/completions
+GARDEVOIR_MODEL_JUDGE__MODEL=shieldstral-1.0-3b       # --served-model-name 과 같은 값
+GARDEVOIR_MODEL_JUDGE__REVISION=<snapshot-hash>       # 서빙할 스냅샷이자 감사 식별자
+SHIELDSTRAL_MODEL_DIR=/absolute/path/to/models--mistralai--Shieldstral-1.0-3B
+```
+
+- `REVISION` 은 감사 식별자이면서 **실제로 서빙하는 스냅샷 경로**다. 한 변수에서 오므로
+  감사 로그가 판정한 가중치와 갈릴 수 없다.
+- `SHIELDSTRAL_MODEL_DIR` 은 **절대 경로**여야 한다. compose 는 `~` 를 확장하지 않는다.
+- 게이트웨이는 이 서비스에 `depends_on` 하지 않는다. 판정 실패는 fail mode 로 처리되는
+  정상 경로이고(§4), 의존을 걸면 프로필이 꺼졌을 때 스택이 뜨지 못한다.
+- 모델 티어를 끄면(`ENABLED=false`) 프로필 없이 올리면 된다. MODEL 체크는 pending 으로
+  통과하고 감사에는 남는다.
